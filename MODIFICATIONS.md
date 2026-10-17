@@ -132,6 +132,7 @@ nothing to do with any feature, and running them would crash or hang. Probably a
 | Bug | Where | Symptom |
 |---|---|---|
 | `SI2::PlaySoundFile` passed `Create2D` its last three arguments shifted: reverb 0, priority 128/100, decodeBufferSize `0xFFFFFFFF`. The original (call at 0x4C91BF) passes reverb 128/100, priority -1 and decodeBufferSize 0 | `SoundInterface/SoundInterface2ZoneSounds.cpp` | Every Lua `PlayMusic` / `PlaySoundFile` (login-screen music, addon music and sounds) failed: FMOD read the whole file trying to fill a 4 GB decode buffer and gave up after about 6 s with `FMOD_ERR_INVALID_PARAM`. FMOD loads every sound on one thread, so sound effects queued behind it played late or not at all, and quitting hung while that thread was busy. Found with the sound trace below; reproduced and confirmed with the client's FMOD library outside the game. Present in upstream too. |
+| `Script_GetGossipOptions` (0x58A9E0) ended its walk over `CGGossipInfo::m_options[32]` at the address of `m_gossipText`, which only works because the 32-bit exe's linker placed that buffer right after the array. Now walks the array by its own length | `Ui/GossipInfo_Scripts.cpp` | Talking to a gossip NPC (innkeepers, etc.) crashed the x64 client: the walk ran into unrelated statics and passed a garbage `m_text` to `lua_pushstring`, an access violation in `strlen` (crash log 2026-10-17, `Current Addon function: GetGossipOptions`). Present in upstream too. |
 
 ### Diagnostics
 

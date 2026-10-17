@@ -1,5 +1,6 @@
 #include "GossipInfo.h"
 #include <cstdint>
+#include <iterator>
 #include "Engine/Source/FrameScript/FrameScript.h"
 #include "Engine/Source/FrameScript/FrameScript_Object.h"
 #include "Engine/Source/lua-5.1/src/lua.h"
@@ -69,8 +70,12 @@ static int32_t Script_GetGossipText(lua_State* L) {
 static int32_t Script_GetGossipOptions(lua_State* L) {
     int32_t count = 0;
 
-    for (GossipOption* option = CGGossipInfo::m_options; option < reinterpret_cast<GossipOption*>(CGGossipInfo::m_gossipText); option++) {
-        if (option && option->m_index >= 0) {
+    // MODIFIED: the original bounds the walk by &m_gossipText, which only works because the
+    // 32-bit exe's linker placed that buffer right after m_options. Our build lays statics out
+    // differently, so the walk ran into unrelated memory and crashed in strlen on garbage
+    // m_text pointers (talking to any gossip NPC). Walk the array by its own length instead.
+    for (GossipOption* option = CGGossipInfo::m_options; option < CGGossipInfo::m_options + std::size(CGGossipInfo::m_options); option++) {
+        if (option->m_index >= 0) {
             lua_checkstack(L, 2);
             lua_pushstring(L, option->m_text);
             lua_pushstring(L, s_gossipTypes[option->m_type]);

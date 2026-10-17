@@ -418,7 +418,8 @@ class CGxDeviceD3d11 : public CGxDevice {
     void IGenerateMips(CGxTex* texId);
     bool IBlit(ID3D11ShaderResourceView* source, uint32_t sourceWidth, uint32_t sourceHeight, const RECT& sourceRect, ID3D11RenderTargetView* dest, uint32_t destWidth, uint32_t destHeight, const RECT& destRect, bool linear);
 
-    // buffers and queries (CGxDeviceD3d11Buffer.cpp)
+    // buffers, queries and shaders (CGxDeviceD3d11Buffer.cpp)
+    void IPrecompile(CGxShader* shader);
     void ICreatePool(CGxPool* pool);
     void IReleasePool(CGxPool* pool);
     void IReleasePools(int32_t freeAll);

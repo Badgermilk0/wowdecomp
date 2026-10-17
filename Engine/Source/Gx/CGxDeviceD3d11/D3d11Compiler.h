@@ -25,6 +25,11 @@ Hash128 HashBytes(const void* data, size_t size, uint64_t seed = 0);
 
 bool CompileHlsl(const std::string& source, const char* entry, const char* profile, std::vector<uint8_t>& bytecode, std::string& error);
 
+// compiles on worker threads ahead of use: the engine loads its shader files well before it first draws with them, and
+// a compile that waits for the draw stalls the frame. CompileHlsl takes the result (or the queued job) when the draw
+// comes
+void PrecompileHlsl(const std::string& source, const char* entry, const char* profile);
+
 }
 
 #endif

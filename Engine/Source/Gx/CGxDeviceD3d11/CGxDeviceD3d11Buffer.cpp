@@ -376,11 +376,37 @@ void CGxDeviceD3d11::IShaderCreate(CGxShader* shader) {
     shader->m_valid = 1;
 }
 
+void CGxDeviceD3d11::IPrecompile(CGxShader* shader) {
+    ShaderEntry* entry = static_cast<ShaderEntry*>(shader->m_apiSpecific);
+
+    if (!shader->m_valid || !entry) {
+        return;
+    }
+
+    // the variant a draw most likely asks for: every input a float but the blend indices (UBYTE4), no depth textures
+    uint32_t variant = 0;
+
+    if (entry->m_dx9.m_vertex && (entry->m_dx9.m_inputMask & (1u << GxVA_BlendIndices))) {
+        variant |= Input_Uint << (2 * GxVA_BlendIndices);
+    }
+
+    std::string hlsl;
+    std::string error;
+
+    if (entry->m_dx9.Emit(variant, hlsl, error)) {
+        PrecompileHlsl(hlsl, "main", entry->m_dx9.m_vertex ? "vs_5_0" : "ps_5_0");
+    }
+}
+
 void CGxDeviceD3d11::ShaderCreate(CGxShader** shaders, EGxShTarget target, const char* path, const char* name, uint32_t permutations) {
     CGxDevice::ShaderCreate(shaders, target, path, name, permutations);
 
-    if (permutations == 1 && !shaders[0]->m_loaded) {
-        this->IShaderCreate(shaders[0]);
+    // every permutation is decoded now (D3D9 waits for the first use), so its compile can start before the draw
+    for (uint32_t i = 0; i < permutations; i++) {
+        if (shaders[i] && !shaders[i]->m_loaded) {
+            this->IShaderCreate(shaders[i]);
+            this->IPrecompile(shaders[i]);
+        }
     }
 }
 
@@ -413,4 +439,5 @@ void CGxDeviceD3d11::IShaderReload(CGxShader* shader, const char* path, const ch
 
     this->IShaderLoad(&shader, static_cast<EGxShTarget>(shader->m_target), path, name, 1);
     this->IShaderCreate(shader);
+    this->IPrecompile(shader);
 }

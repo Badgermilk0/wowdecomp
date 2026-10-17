@@ -42,13 +42,14 @@ render-target rules. Every effect in the later phases is then plain D3D11 work, 
    - full screen and alt-tab.
 
    Send `Logs\gx.log` and any `Logs\d3d11_*.hlsl` from a session that looks wrong.
-2. **First-session hitches:** a shader compiles when first drawn (about 20 ms each). Compile likely variants on worker
-   threads as the engine loads shaders, so the disk cache is warm before they are drawn.
-3. **Per-draw CPU cost:** measure with `GetFrameTimings()` against D3D9 in a busy city. Consecutive draws already reuse
+2. **Per-draw CPU cost:** measure with `GetFrameTimings()` against D3D9 in a busy city. Consecutive draws already reuse
    the last fixed-function program and input layout. The next candidates are the fixed-function constants (rebuilt
    every fixed-function draw) and the 4 KB constant upload of skinned M2 draws.
-4. **MSDF fonts and frame capture:** port their D3D9 calls (atlas textures, offscreen targets, read-back) to the
+3. **MSDF fonts and frame capture:** port their D3D9 calls (atlas textures, offscreen targets, read-back) to the
    device's own texture and target paths.
+
+Done in phase 0 beyond parity: shaders compile on worker threads as the engine loads them, so a first session does not
+stall where a new effect appears (about 1,050 of them are ready after the login screen alone).
 
 ## Phase 1: HDR scene target and a post-process hook
 

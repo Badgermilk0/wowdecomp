@@ -162,6 +162,14 @@ thread (`M2UseThreads`, default on); spreading it over several cores needs the a
 cannot be verified without running the client. The D3D9 device is already created pure, with hardware vertex
 processing and no multithreading lock. `processAffinityMask` defaults to no restriction.
 
+### Graphics (x64)
+
+| Change | Where | CVars (**default**) | Effect |
+|---|---|---|---|
+| Shadow map size | `ShaderEffect/ShadowCache.*` (`CShadowCache::Init`), `Awesome/AwesomeShadows.cpp` | `shadowMapSize` (**4096**; 0 = stock, else rounded up to a power of two from 1024 to 8192) | Every shadow map is this size: the near 40-yard one and the three cascades (80, 320, 1280 yards across). Stock is 1024, or 2048 from `extShadowQuality` 2 and 4 up, so 4096 halves the size of a shadow texel. With PCF filtering only, the default on SM3 cards. The R32F path draws with the screen's depth buffer, which a larger map would overrun. Takes effect live. Memory is about nine maps of size² × 4 bytes: ~600 MB at 4096, ~2.4 GB at 8192. |
+| Shadow softness | `CShadowCache::InitPcfOffsets` | `shadowSoftness` (**1**, 0.25–4) | Scales the eight PCF tap offsets. At 1 the kernel stays about two texels, so a bigger map also gives sharper edges. Raise it to soften them again. |
+| Stable shadows | `CShadowCache::GatherBands` / `Update`, `SnapToShadowTexels` | `shadowStable` (**1**) | The cascades (`extShadowQuality` 5) and the near map are centred on whole texels of the sun's view plane, not on whole-yard world cells (2/4/16 yards) or 1/size-yard steps. The texel grid then stays put in the world, and shadow edges no longer crawl and flicker while you move. They still creep slowly as the sun moves. |
+
 ## Building
 
 Requirements: Visual Studio 2026 (v18) with the C++ desktop workload, and CMake 4.x. Build x64 only.

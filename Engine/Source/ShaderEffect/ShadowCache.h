@@ -75,6 +75,14 @@ class CShadowCache {
     static ShadowRenderCallback s_renderCallback;
     static EShadowMode s_shadowMode;
     static C4Vector s_shadowMatrices[12];
+    // MODIFIED: shadow quality options (WoW/Source/Awesome/AwesomeShadows.cpp sets them from CVars)
+    // s_sizeOverride: shadow map size in texels, 0 = stock (1024, or 2048 from MEDIUM and HIGH up); PCF filtering only
+    // s_pcfScale: scales the PCF tap offsets, 1 = stock (a kernel of about two texels)
+    // s_stableBands: centres the cascades (VERY_HIGH) and the near map on whole texels in light space, so shadow
+    // edges stop crawling as the viewer moves; 0 = stock snapping (whole-yard world cells)
+    static uint32_t s_sizeOverride;
+    static float s_pcfScale;
+    static int32_t s_stableBands;
     static float s_shadowScale;
     static uint32_t s_shadowSize;
     static const char* s_shadowModeDescs[NUM_SHADOW_MODES + 1];

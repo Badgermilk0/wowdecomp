@@ -91,6 +91,9 @@ void AwesomeFrameCaptureOnLeaveWorld();
 // AwesomeHdClient.cpp
 void AwesomeHdClientRegisterCVars();
 
+// AwesomeShadows.cpp
+void AwesomeShadowsRegisterCVars();
+
 // AwesomePerf.cpp
 void AwesomePerfRegisterScriptFunctions(lua_State* L);
 void AwesomePerfOnEnterWorld();

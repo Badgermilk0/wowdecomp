@@ -100,6 +100,60 @@ CShadowBand CShadowCache::s_extShadowBands[3];
 // STATIC: 0x00D43348
 C4Vector CShadowCache::s_shadowMatrices[12];
 
+// MODIFIED: shadow quality options, stock values until the CVars set them
+uint32_t CShadowCache::s_sizeOverride = 0;
+float CShadowCache::s_pcfScale = 1.0f;
+int32_t CShadowCache::s_stableBands = 0;
+
+// MODIFIED: moves pos across the sun's view plane so the shadow map it centres starts on a whole texel. Uses the basis
+// GxuXformCreateLookAtXXX builds for eye = pos - sunDir * 2000 looking at pos with this up vector: the map's texel
+// grid then stays fixed in the world, and a caster no longer lands on a different texel row every frame the viewer
+// moves. Doubles: world coordinates reach 17000 yards, where a float step is a sizeable part of a texel.
+static C3Vector SnapToShadowTexels(const C3Vector& pos, const C3Vector& up, float radius) {
+    double zx = CShadowCache::s_sunDir.x;
+    double zy = CShadowCache::s_sunDir.y;
+    double zz = CShadowCache::s_sunDir.z;
+    double length = sqrt(zx * zx + zy * zy + zz * zz);
+
+    if (length < 1e-6 || radius <= 0.0f || !CShadowCache::s_shadowSize) {
+        return pos;
+    }
+
+    zx /= length;
+    zy /= length;
+    zz /= length;
+
+    // xv = up x zv, yv = zv x xv
+    double xx = up.y * zz - up.z * zy;
+    double xy = up.z * zx - up.x * zz;
+    double xz = up.x * zy - up.y * zx;
+    length = sqrt(xx * xx + xy * xy + xz * xz);
+
+    if (length < 1e-6) {
+        return pos;
+    }
+
+    xx /= length;
+    xy /= length;
+    xz /= length;
+
+    double yx = zy * xz - zz * xy;
+    double yy = zz * xx - zx * xz;
+    double yz = zx * xy - zy * xx;
+
+    double texel = 2.0 * radius / CShadowCache::s_shadowSize;
+    double u = pos.x * xx + pos.y * xy + pos.z * xz;
+    double v = pos.x * yx + pos.y * yy + pos.z * yz;
+    double du = floor(u / texel + 0.5) * texel - u;
+    double dv = floor(v / texel + 0.5) * texel - v;
+
+    C3Vector snapped;
+    snapped.x = static_cast<float>(pos.x + xx * du + yx * dv);
+    snapped.y = static_cast<float>(pos.y + xy * du + yy * dv);
+    snapped.z = static_cast<float>(pos.z + xz * du + yz * dv);
+    return snapped;
+}
+
 static void ShadowCacheTextureCallback(EGxTexCommand command, uint32_t width, uint32_t height, uint32_t depth, uint32_t mipLevel, void* userArg, uint32_t& texelStrideInBytes, const void*& texels) {
 }
 
@@ -309,7 +363,8 @@ void CShadowCache::InitPcfOffsets() {
     CShadowCache::s_textureSize[0] = size;
     CShadowCache::s_textureSize[1] = size;
 
-    float texel = 1.0 / size;
+    // MODIFIED: s_pcfScale widens or narrows the kernel (1 = stock)
+    float texel = CShadowCache::s_pcfScale / size;
 
     CShadowCache::s_pcfOffsets[0].x = 0.8f * texel;
     CShadowCache::s_pcfOffsets[0].y = -1.0f * texel;
@@ -572,10 +627,15 @@ void CShadowCache::GatherBands(CShadowCacheQueryData& data, const C3Vector& pos,
                 cell = 16.0f;
             }
 
-            float invCell = 1.0f / cell;
-            band.m_pos.x = floor(invCell * band.m_pos.x) * cell;
-            band.m_pos.y = floor(band.m_pos.y * invCell) * cell;
-            band.m_pos.z = floor(band.m_pos.z * invCell) * cell;
+            if (CShadowCache::s_stableBands) {
+                // MODIFIED: whole texels in light space instead of whole cells in the world
+                band.m_pos = SnapToShadowTexels(band.m_pos, band.m_dir, band.m_radius);
+            } else {
+                float invCell = 1.0f / cell;
+                band.m_pos.x = floor(invCell * band.m_pos.x) * cell;
+                band.m_pos.y = floor(band.m_pos.y * invCell) * cell;
+                band.m_pos.z = floor(band.m_pos.z * invCell) * cell;
+            }
 
             data.m_pos[i] = band.m_pos;
 
@@ -866,6 +926,19 @@ void CShadowCache::Init() {
         CShadowCache::s_shadowSize = 2048;
     }
 
+    // MODIFIED: shadowMapSize. Only with PCF filtering, where every map renders into its own depth texture; the
+    // R32F path draws with the screen's depth buffer, which a map larger than the window would overrun.
+    if (CShadowCache::s_sizeOverride && CShaderEffect::s_usePcfFiltering) {
+        uint32_t size = CShadowCache::s_sizeOverride;
+        uint32_t maxSize = g_theGxDevicePtr->Caps().m_texMaxSize[GxTex_2d];
+
+        if (maxSize && size > maxSize) {
+            size = maxSize;
+        }
+
+        CShadowCache::s_shadowSize = size;
+    }
+
     CShadowCache::InitPcfOffsets();
 
     CShadowCache::s_extDynShadow.m_textures[0] = nullptr;
@@ -973,8 +1046,15 @@ int32_t CShadowCache::Update(const C3Vector& pos, int32_t useCullFrustum) {
     data.m_pos[0] = pos;
 
     float texel = 1.0 / size;
-    CShadowCache::s_extDynShadow.m_lastPos.x = floor(size * CShadowCache::s_extDynShadow.m_lastPos.x + 0.5) * texel;
-    CShadowCache::s_extDynShadow.m_lastPos.y = floor(CShadowCache::s_extDynShadow.m_lastPos.y * size + 0.5) * texel;
+
+    if (CShadowCache::s_stableBands) {
+        // MODIFIED: the near map renders around data.m_pos[0] and is looked up around m_lastPos; both snapped
+        CShadowCache::s_extDynShadow.m_lastPos = SnapToShadowTexels(pos, CShadowCache::s_extDynShadow.m_dir, radius);
+        data.m_pos[0] = CShadowCache::s_extDynShadow.m_lastPos;
+    } else {
+        CShadowCache::s_extDynShadow.m_lastPos.x = floor(size * CShadowCache::s_extDynShadow.m_lastPos.x + 0.5) * texel;
+        CShadowCache::s_extDynShadow.m_lastPos.y = floor(CShadowCache::s_extDynShadow.m_lastPos.y * size + 0.5) * texel;
+    }
 
     CGxTex* depthTarget = nullptr;
 

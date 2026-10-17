@@ -251,6 +251,7 @@ void AwesomeRegisterCVars() {
     AwesomeMiscRegisterCVars();
     AwesomeVoiceChatRegisterCVars();
     AwesomeHdClientRegisterCVars();
+    AwesomeShadowsRegisterCVars();
 }
 
 void AwesomeRegisterScriptFunctions() {

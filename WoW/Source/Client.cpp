@@ -3,6 +3,7 @@
 #include <cstdlib>
 #include <cstring>
 #include "Client.h"
+#include "WoW/Source/Awesome/Awesome.h"
 #include "Engine/Source/Base/Base.h"
 #include "Engine/Source/Base/CmdLine.h"
 #include "Engine/Source/BlizzardCore/OggDecompress.h"
@@ -1084,7 +1085,12 @@ int32_t InitializeEngineCallback(const void* data, void* param) {
 
     s_cvTextureFilteringMode = CVar::Register("textureFilteringMode", "Texture filtering mode", 1, "1", CWorldParam::TextureFilteringCallback, CATEGORY_GRAPHICS, false, nullptr, false);
     s_cvarUIFaster = CVar::Register("UIFaster", "UI acceleration option", 0, "3", UIFasterCallback, CATEGORY_GRAPHICS, false, nullptr, false);
+    // MODIFIED: performance; 256 (MB) by default on x64, stock 32 (TextureSetCacheSize caps it by RAM)
+#if defined(WOWDECOMP_ARCH_64)
+    s_cvTextureCacheSize = CVar::Register("textureCacheSize", "Texture cache size in bytes", 1, "256", TextureCacheSizeCallback, CATEGORY_GRAPHICS, false, nullptr, false);
+#else
     s_cvTextureCacheSize = CVar::Register("textureCacheSize", "Texture cache size in bytes", 1, "32", TextureCacheSizeCallback, CATEGORY_GRAPHICS, false, nullptr, false);
+#endif
     TextureSetCacheSize(s_cvTextureCacheSize->m_intValue << 20);
 
     uint32_t m2Flags = GetM2CvarFlags();
@@ -1689,6 +1695,8 @@ bool InitializeGlobal() {
     ConsoleInitializeClientCommand();
     CVar::Initialize("Config.wtf");
     CVar::ArchiveCodeRegisteredOnly();
+    // MODIFIED: awesome_wotlk registers its CVars right after the engine's, so Config.wtf values apply to them
+    AwesomeRegisterCVars();
 
     {
         ForEveryRunOnceWTF runOnce;

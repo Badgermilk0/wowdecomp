@@ -67,6 +67,11 @@ static TSList<PORTRAITREQUEST, TSGetLink<PORTRAITREQUEST>> s_pendingPortraits;
 // STATIC: 0x00AD28F0
 static TSList<PORTRAITREQUEST, TSGetLink<PORTRAITREQUEST>> s_freePortraits;
 
+// MODIFIED: HD portraits. The render-target portraits (the live 3D model path) render at this size instead of the
+// engine's fixed 64; the framing is unchanged since the portrait camera works in normalized coordinates. The icon
+// and readback paths keep 64, their sources are 64x64. Replaces the binary patch the previous client carried.
+static uint32_t s_portraitResolution = 64;
+
 static void PortraitDepthTextureCallback(EGxTexCommand command, uint32_t width, uint32_t height, uint32_t depth, uint32_t mipLevel, void* userArg, uint32_t& texelStrideInBytes, const void*& texels) {
 }
 
@@ -133,7 +138,8 @@ void PortraitInitialize() {
     if (s_rtAlphaSupported && (g_theGxDevicePtr->DeviceApi() == GxApi_OpenGl || g_theGxDevicePtr->DeviceApi() == GxApi_GLL)) {
         CGxTexFlags flags(GxTex_Linear, 0, 0, 0, 0, 0, 1);
         flags.m_renderTarget = 1;
-        s_portraitDepthTexture = TextureCreate(GxTex_2d, 64, 64, 24, GxTex_D24X8, GxTex_D24X8, flags, nullptr, PortraitDepthTextureCallback, "PortraitDepth", 1);
+        // MODIFIED: HD portraits, the depth target matches the color target
+        s_portraitDepthTexture = TextureCreate(GxTex_2d, s_portraitResolution, s_portraitResolution, 24, GxTex_D24X8, GxTex_D24X8, flags, nullptr, PortraitDepthTextureCallback, "PortraitDepth", 1);
     }
 
     s_playerPortraitCache = nullptr;
@@ -680,7 +686,9 @@ void RenderPortraitTexture(CSimpleTexture* texture, CGUnit_C* unit) {
                 flags.m_renderTarget = 1;
             }
 
-            cache->m_texture = TextureCreate(64, 64, GxTex_Argb8888, GxTex_Argb8888, flags, s_rtAlphaSupported ? nullptr : &cache->m_texels, TextureUpdate, "Portrait1", 0);
+            // MODIFIED: HD portraits, render targets at s_portraitResolution (the readback path stays 64)
+            uint32_t size = s_rtAlphaSupported ? s_portraitResolution : 64;
+            cache->m_texture = TextureCreate(size, size, GxTex_Argb8888, GxTex_Argb8888, flags, s_rtAlphaSupported ? nullptr : &cache->m_texels, TextureUpdate, "Portrait1", 0);
         }
     }
 
@@ -854,4 +862,50 @@ void PortraitShutdown() {
     s_itemPortraits.Clear();
     s_pendingPortraits.Clear();
     s_freePortraits.Clear();
+}
+
+// MODIFIED: HD portraits
+void PortraitSetResolution(uint32_t resolution) {
+    if (resolution < 64) {
+        resolution = 64;
+    }
+
+    if (resolution == s_portraitResolution) {
+        return;
+    }
+
+    s_portraitResolution = resolution;
+
+    // set before PortraitInitialize (the CVar registers at startup): nothing to rebuild yet
+    if (!s_portraitMaskTexture) {
+        return;
+    }
+
+    // every cached render target has the old size; the UI keeps its own references until each portrait redraws
+    PortraitCachePurge(&s_playerPortraitCache, 0, 1);
+    PortraitCachePurge(&s_unitPortraitCache, 0, 1);
+
+    for (uint32_t i = 0; i < s_freePortraitTextures.m_count; i++) {
+        HandleClose(reinterpret_cast<HOBJECT>(s_freePortraitTextures.m_data[i]));
+    }
+
+    s_freePortraitTextures.Clear();
+
+    if (s_portraitDepthTexture) {
+        HandleClose(reinterpret_cast<HOBJECT>(s_portraitDepthTexture));
+
+        CGxTexFlags flags(GxTex_Linear, 0, 0, 0, 0, 0, 1);
+        flags.m_renderTarget = 1;
+        s_portraitDepthTexture = TextureCreate(GxTex_2d, s_portraitResolution, s_portraitResolution, 24, GxTex_D24X8, GxTex_D24X8, flags, nullptr, PortraitDepthTextureCallback, "PortraitDepth", 1);
+    }
+
+    for (PLAYERPORTRAIT* portrait = s_playerPortraits.m_fulllist.Head(); portrait; portrait = s_playerPortraits.Next(portrait)) {
+        portrait->m_cache.m_dirty = 1;
+    }
+
+    for (UNITPORTRAIT* portrait = s_unitPortraits.m_fulllist.Head(); portrait; portrait = s_unitPortraits.Next(portrait)) {
+        portrait->m_cache.m_dirty = 1;
+    }
+
+    Script_SendUniqueSignalToAllUnits(SCRIPT_EVENT_UNIT_PORTRAIT_UPDATE);
 }

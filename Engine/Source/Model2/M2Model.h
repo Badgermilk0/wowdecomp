@@ -49,6 +49,13 @@ class M2ModelParticle;
 class M2ModelRibbon;
 class M2ModelTextureTransform;
 
+// MODIFIED: CM2Model::m_cameraFadePhase; ray tests tagged 0x8000000 skip CAMERA_FADE_CURRENT models
+enum : uint32_t {
+    CAMERA_FADE_IDLE = 0,
+    CAMERA_FADE_FADING = 1,
+    CAMERA_FADE_CURRENT = 2,
+};
+
 typedef void (*M2EventCallback)(CM2Model* model, uint32_t boneId, uint32_t eventId, uint32_t data, const C3Vector* position, uint32_t time, uint64_t param);
 typedef void (*M2SequenceCallback)(CM2Model* model, uint32_t boneId, uint32_t sequenceId, int32_t interrupted, uint32_t time, uint64_t param);
 
@@ -221,6 +228,14 @@ class CM2Model {
     /* 02E4 */ uint32_t m_hitTestGroup;
     /* 02E8 */ uint32_t m_handle;
     /* 02EC */ uint32_t unused_02EC;
+
+    // MODIFIED: awesome_wotlk cameraIndirectVisibility; a model the camera boom passes through fades
+    // (m_baseAlpha) instead of pulling the camera in. Models come from a heap sized by sizeof(CM2Model).
+    CM2Model** m_cameraFadePrev = nullptr;
+    CM2Model* m_cameraFadeNext = nullptr;
+    float m_cameraFadeAlpha = 0.0f;
+    uint32_t m_cameraFadeGrace = 0;
+    uint32_t m_cameraFadePhase = 0;
 
     static void (*s_transformVertices[5])(CM2Model*, M2SkinSection*, uint8_t*, int32_t);
     static TSGrowableArray<M2ModelCallback> s_sequenceCallbacks;

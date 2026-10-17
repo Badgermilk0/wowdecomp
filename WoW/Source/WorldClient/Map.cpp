@@ -183,6 +183,9 @@ int32_t CMap::oldSelectLightParm;
 // STATIC: 0x00CE04C4
 uint32_t CMap::s_queryTag;
 
+// MODIFIED: awesome_wotlk cameraIndirectVisibility
+CMapBaseObj* CMap::s_lastHitModelOwner;
+
 // STATIC: 0x00CE04C8
 uint32_t CMap::cCount;
 
@@ -1210,6 +1213,11 @@ void CMap::VectorIntersectDoodadDefs(TSList<CMapBaseObjLink, TSGetExplicitLink<C
             continue;
         }
 
+        // MODIFIED: the camera boom passes through the doodad it is fading (awesome_wotlk cameraIndirectVisibility)
+        if ((flags & 0x8000000) && model->m_cameraFadePhase == CAMERA_FADE_CURRENT) {
+            continue;
+        }
+
         int32_t mode = -1;
 
         if (doodadDef->m_collisionGuid) {
@@ -1280,6 +1288,11 @@ void CMap::VectorIntersectEntitys(TSList<CMapBaseObjLink, TSGetExplicitLink<CMap
         }
 
         if (model->m_fFlags & 1) {
+            // MODIFIED: the camera boom passes through the model it is fading (awesome_wotlk cameraIndirectVisibility)
+            if ((flags & 0x8000000) && model->m_cameraFadePhase == CAMERA_FADE_CURRENT) {
+                continue;
+            }
+
             if (!model->m_hitTestPrev) {
                 model->m_hitTestPrev = &model->m_scene->m_hitTestList;
                 model->m_hitTestNext = model->m_scene->m_hitTestList;
@@ -5042,6 +5055,8 @@ bool CMap::Intersect(C3Vector* start, C3Vector* end, C3Vector* hitPoint, float* 
     bool hit = false;
     CMapObjDef* mapObjDef = nullptr;
     CMapObjDefGroup* mapObjDefGroup = nullptr;
+    // MODIFIED: awesome_wotlk cameraIndirectVisibility reads which M2 the ray ended on
+    CMap::s_lastHitModelOwner = nullptr;
 
     if (flags & 0x40F300FF) {
         World::s_m2Scene->m_lastHit.m_model = nullptr;
@@ -5052,6 +5067,9 @@ bool CMap::Intersect(C3Vector* start, C3Vector* end, C3Vector* hitPoint, float* 
             if (mapObjDef && mapObjDef->m_objectGuid.m_guid) {
                 s_lastCollisionGUID = mapObjDef->m_objectGuid;
             }
+
+            // MODIFIED
+            CMap::s_lastHitModelOwner = World::s_m2Scene->m_lastHit.m_model ? static_cast<CMapBaseObj*>(World::s_m2Scene->m_lastHitOwner) : nullptr;
 
             if (hitInfo) {
                 if (World::s_m2Scene->m_lastHit.m_model) {
@@ -5070,6 +5088,8 @@ bool CMap::Intersect(C3Vector* start, C3Vector* end, C3Vector* hitPoint, float* 
 
         if (CMap::VectorIntersectTerrain(start, end, distance, flags, nullptr)) {
             s_lastCollisionGUID = WOWGUID{ 0 };
+            // MODIFIED
+            CMap::s_lastHitModelOwner = World::s_m2Scene->m_lastHit.m_model ? static_cast<CMapBaseObj*>(World::s_m2Scene->m_lastHitOwner) : nullptr;
 
             if (hitInfo && World::s_m2Scene->m_lastHit.m_model) {
                 CMap::SetHitTestDebug(hitInfo, static_cast<CMapBaseObj*>(World::s_m2Scene->m_lastHitOwner));

@@ -8,32 +8,32 @@
 #include "Engine/Source/Storm/H/storm.h"
 
 // OFFSET: 0x008726F0
+// MODIFIED: reads the clipboard as UTF-16 (CF_UNICODETEXT) instead of the ANSI code page, so text outside it no
+// longer pastes as "???" (awesome_wotlk's clipboard fix)
 char* IOsClipboardGetString(void* window) {
     if (!OpenClipboard(static_cast<HWND>(window))) {
         return nullptr;
     }
 
-    HANDLE data = GetClipboardData(CF_TEXT);
+    HANDLE data = GetClipboardData(CF_UNICODETEXT);
     if (!data) {
         CloseClipboard();
         return nullptr;
     }
 
-    const char* text = static_cast<const char*>(GlobalLock(data));
+    const wchar_t* text = static_cast<const wchar_t*>(GlobalLock(data));
     if (!text) {
         CloseClipboard();
         return nullptr;
     }
 
-    int32_t length = MultiByteToWideChar(GetACP(), MB_PRECOMPOSED, text, -1, nullptr, 0);
-    uint16_t* wide = static_cast<uint16_t*>(_alloca(length * sizeof(uint16_t)));
-    MultiByteToWideChar(GetACP(), MB_PRECOMPOSED, text, -1, reinterpret_cast<LPWSTR>(wide), length);
+    char* string = nullptr;
+    int32_t size = WideCharToMultiByte(CP_UTF8, 0, text, -1, nullptr, 0, nullptr, nullptr);
 
-    uint32_t size = length * 3;
-    char* string = static_cast<char*>(SMemAlloc(size, __FILE__, __LINE__, 0));
-    uint32_t written;
-    ConvertUTF16toUTF8(string, size, wide, length, &written, nullptr);
-    string[written] = '\0';
+    if (size > 0) {
+        string = static_cast<char*>(SMemAlloc(size, __FILE__, __LINE__, 0));
+        WideCharToMultiByte(CP_UTF8, 0, text, -1, string, size, nullptr, nullptr);
+    }
 
     GlobalUnlock(data);
     CloseClipboard();
@@ -48,23 +48,25 @@ void OsClipboardFreeString(char* string) {
 }
 
 // OFFSET: 0x008727E0
+// MODIFIED: writes UTF-16 (CF_UNICODETEXT) instead of the ANSI code page (awesome_wotlk's clipboard fix)
 int32_t IOsClipboardPutString(const char* string, void* window) {
-    uint32_t size = static_cast<uint32_t>(SStrLen(string) + 1);
+    int32_t length = MultiByteToWideChar(CP_UTF8, 0, string, -1, nullptr, 0);
+    if (length <= 0) {
+        return 0;
+    }
 
-    HGLOBAL memory = GlobalAlloc(GMEM_MOVEABLE | GMEM_ZEROINIT | GMEM_DDESHARE, size);
+    HGLOBAL memory = GlobalAlloc(GMEM_MOVEABLE | GMEM_ZEROINIT | GMEM_DDESHARE, length * sizeof(wchar_t));
     if (!memory) {
         return 0;
     }
 
-    char* data = static_cast<char*>(GlobalLock(memory));
+    wchar_t* data = static_cast<wchar_t*>(GlobalLock(memory));
     if (!data) {
-        CloseClipboard();
+        GlobalFree(memory);
         return 0;
     }
 
-    uint16_t* wide = static_cast<uint16_t*>(_alloca(size * sizeof(uint16_t)));
-    ConvertUTF8toUTF16(wide, size, string, 0x7FFFFFFF, nullptr, nullptr);
-    WideCharToMultiByte(GetACP(), 0, reinterpret_cast<LPCWSTR>(wide), -1, data, size, nullptr, nullptr);
+    MultiByteToWideChar(CP_UTF8, 0, string, -1, data, length);
     GlobalUnlock(memory);
 
     if (!OpenClipboard(static_cast<HWND>(window))) {
@@ -78,7 +80,7 @@ int32_t IOsClipboardPutString(const char* string, void* window) {
         return 0;
     }
 
-    SetClipboardData(CF_TEXT, memory);
+    SetClipboardData(CF_UNICODETEXT, memory);
     CloseClipboard();
     return 1;
 }

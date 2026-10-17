@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <new>
 #include "Engine/Source/Services/Camera.h"
+#include "Engine/Source/Base/Coordinate.h"
 #include "Engine/Source/Gx/CGxDevice/CGxDevice.h"
 #include "Engine/Source/Gx/Gx.h"
 #include "Engine/Source/Gxu/Gxu.h"
@@ -15,6 +16,9 @@
 
 // STATIC: 0x00B4A304
 static float s_inv2Pi = 1.0f / 6.2831855f;
+
+// MODIFIED: awesome_wotlk uiHalfPixelFix
+int32_t g_cameraHalfPixelFix;
 
 // INLINED
 CBaseManaged::CBaseManaged() {
@@ -101,8 +105,25 @@ void CameraSetupScreenProjection(const CRect& rect, const C2Vector& offset, floa
     if (!caps.m_pixelCenterOnEdge && caps.m_texelCenterOnEdge) {
         CRect window = { 0.0f, 0.0f, 0.0f, 0.0f };
         g_theGxDevicePtr->CapsWindowSizeInScreenCoords(window);
-        projection.d0 = projection.d0 - (rect.maxX - rect.minX) / (window.maxX - window.minX) * 0.5f;
-        projection.d1 = 0.5f * ((rect.maxY - rect.minY) / (window.maxY - window.minY)) + projection.d1;
+
+        if (g_cameraHalfPixelFix) {
+            // MODIFIED: awesome_wotlk uiHalfPixelFix. The stock offset adds 0.5 * rect / window to a clip-space
+            // translation, which moves the UI by a quarter of the rect's DDC size in pixels instead of half a pixel;
+            // every 1:1 texel then blends with its neighbour. Half a pixel of clip space is 1 / pixels.
+            float pixelsX = DDCToNDCWidth(rect.maxX - rect.minX) * (window.maxX - window.minX);
+            float pixelsY = DDCToNDCHeight(rect.maxY - rect.minY) * (window.maxY - window.minY);
+
+            if (pixelsX > 0.0f) {
+                projection.d0 -= 1.0f / pixelsX;
+            }
+
+            if (pixelsY > 0.0f) {
+                projection.d1 += 1.0f / pixelsY;
+            }
+        } else {
+            projection.d0 = projection.d0 - (rect.maxX - rect.minX) / (window.maxX - window.minX) * 0.5f;
+            projection.d1 = 0.5f * ((rect.maxY - rect.minY) / (window.maxY - window.minY)) + projection.d1;
+        }
     }
 
     GxXformSetProjection(projection);

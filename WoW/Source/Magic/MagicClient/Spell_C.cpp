@@ -1,4 +1,5 @@
 #include "Spell_C.h"
+#include "WoW/Source/Awesome/Awesome.h"
 #include "WoW/Source/Magic/Types.h"
 #include "Engine/Source/Base/CDataStore.h"
 #include "Engine/Source/ConsoleBase/ConsoleVar.h"
@@ -1232,6 +1233,9 @@ CMapEntity* Spell_C_GetSpellWorldObject() {
 // VERIFY: 91de1c39 auto
 // OFFSET: 0x007FCC30
 void Spell_C_DestroySpellWorldObject() {
+    // MODIFIED: ends a pending awesome_wotlk [@cursor] / [@playerlocation] placement
+    AwesomeOnCancelAoeTargeting();
+
     if (s_spellWorldObject) {
         World::ObjectDestroy(s_spellWorldObject);
         s_spellWorldObject = nullptr;

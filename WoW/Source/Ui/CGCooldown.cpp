@@ -3,6 +3,7 @@
 #include <new>
 #include <typeinfo>
 #include "Engine/Source/Base/Handle.h"
+#include "Engine/Source/Frame/CSimpleTop.h"
 #include "Engine/Source/Base/Status.h"
 #include "Engine/Source/Frame/CRenderBatch.h"
 #include "Engine/Source/Frame/CScriptObject.h"
@@ -382,6 +383,11 @@ void CGCooldown::LoadXML(XMLNode* node, CStatus* status) {
 // VERIFY: 3aaa4202 auto
 // OFFSET: 0x005EBD20
 void CGCooldown::OnFrameRender(CRenderBatch* batch, uint32_t layer) {
+    // MODIFIED: awesome_wotlk frame capture; the swipe and edge are queued here, past the base class's filter
+    if (CSimpleTop::s_frameRenderFilter && !CSimpleTop::s_frameRenderFilter(this)) {
+        return;
+    }
+
     CSimpleFrame::OnFrameRender(batch, layer);
 
     CGxShader* shader = CSimpleTexture::GetImageModePixelShader(ImageMode_Normal);

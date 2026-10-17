@@ -23,6 +23,8 @@ class CGNamePlateFrame : public TSLinkedNode<CGNamePlateFrame>, public CSimpleFr
     static void operator delete(void* ptr);
     static CGNamePlateFrame* GetNamePlateFocus();
     static CGNamePlateFrame* GetNewNameplateFrame(CSimpleFrame* parent);
+    // MODIFIED: every plate built this UI session, shown and unused (awesome_wotlk's nameplate manager)
+    static void EnumerateAll(void (*callback)(CGNamePlateFrame* plate, void* param), void* param);
 
     /* 02A4 */ uint32_t unused_02A4;
     /* 02A8 */ WOWGUID m_guid;
@@ -45,6 +47,13 @@ class CGNamePlateFrame : public TSLinkedNode<CGNamePlateFrame>, public CSimpleFr
     /* 02F5 */ uint8_t m_channeling;
     /* 02F8 */ float m_castHoldTime;
     /* 02FC */ float m_castFadeTime;
+    // MODIFIED: awesome_wotlk's per-plate state (the original keeps it in padding bytes)
+    // index of the plate's nameplateN token, -1 until the manager first sees it
+    int32_t m_awesomePlateId;
+    // opted out of occlusion fading (SetOcclusionEnabled)
+    uint8_t m_awesomeOpaque;
+    // snaps to its target alpha on the next pass instead of fading in
+    uint8_t m_awesomeFresh;
 
     ~CGNamePlateFrame() override;
     void OnLayerUpdate(float elapsedSec) override;

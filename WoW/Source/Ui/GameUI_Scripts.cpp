@@ -1,4 +1,5 @@
 #include "GameUI.h"
+#include "WoW/Source/Awesome/Awesome.h"
 #include <cmath>
 #include <cstdarg>
 #include <cstring>
@@ -6565,6 +6566,8 @@ void LoadScriptFunctions() {
     EquipmentManagerRegisterScriptFunctions();
     GMTicketInfoRegisterScriptFunctions();
     BattlenetUI_RegisterScriptFunctions();
+    // MODIFIED: the Lua API added by awesome_wotlk (C_NamePlate, C_VoiceChat, UnitTokenFromGUID, ...)
+    AwesomeRegisterScriptFunctions();
 }
 
 // VERIFY: ce499890 manual

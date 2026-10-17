@@ -1,4 +1,5 @@
 #include "CharacterSelection.h"
+#include "WoW/Source/Awesome/Awesome.h"
 #include <cstring>
 #include "Engine/Source/ConsoleBase/ConsoleVar.h"
 #include "Engine/Source/Event/Event.h"
@@ -669,6 +670,9 @@ void CCharacterSelection::UpdateCharacterList() {
     }
 
     FrameScript_SignalEvent(GLUE_EVENT_CHARACTER_LIST_UPDATE, nullptr);
+
+    // MODIFIED: awesome_wotlk's -character auto enter world
+    AwesomeOnCharacterListUpdated();
 }
 
 // VERIFY: 83731d6e auto

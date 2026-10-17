@@ -1,4 +1,5 @@
 #include "WorldFrame.h"
+#include "WoW/Source/Awesome/Awesome.h"
 #include "Engine/Source/Base/ConvertUTF.h"
 #include <cstring>
 #include <typeinfo>
@@ -296,6 +297,9 @@ void CGWorldFrame::GetCameraPosition(C3Vector* position) {
 // VERIFY: c8cc818e auto
 // OFFSET: 0x004F66C0
 void CGWorldFrame::OnLayerTrackTerrain(const HITTESTRESULT& result) {
+    // MODIFIED: awesome_wotlk places an AoE cast from a [@cursor] / [@playerlocation] macro
+    AwesomeOnTrackTerrain(result.m_point);
+
     if (!Spell_C_IsTargeting() || !Spell_C_CanTargetTerrain()) {
         CursorResetMode();
         this->HandleSpriteTrack(WOWGUID());
@@ -1731,8 +1735,9 @@ void CGWorldFrame::OnWorldRender() {
 
     if (this->m_namePlateFlags & 0x1) {
         SmartScreenRectClearGrid(0);
-        CGUnit_C::UnitNameplatesReposition(this);
-        this->m_namePlateFlags &= ~0x1;
+        // MODIFIED: awesome_wotlk lays the plates out (stacking, clamping, mouse freeze) instead of
+        // CGUnit_C::UnitNameplatesReposition, every frame: the flag stays set while plates animate
+        AwesomeNamePlatesUpdate(this);
     }
 
     CM2Scene* scene = World::s_m2Scene;

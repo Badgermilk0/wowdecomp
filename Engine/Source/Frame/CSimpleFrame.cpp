@@ -1460,6 +1460,11 @@ void CSimpleFrame::OnFrameRender(CRenderBatch* batch, uint32_t layer) {
         return;
     }
 
+    // MODIFIED: awesome_wotlk frame capture draws one frame tree
+    if (CSimpleTop::s_frameRenderFilter && !CSimpleTop::s_frameRenderFilter(this)) {
+        return;
+    }
+
     for (CSimpleRegion* region = this->m_drawLayers[layer].Head(); region; region = this->m_drawLayers[layer].Next(region)) {
         region->Draw(batch);
     }

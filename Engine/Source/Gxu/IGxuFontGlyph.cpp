@@ -3,6 +3,7 @@
 #include <cstring>
 #include "Engine/Source/Gxu/IGxuFontGlyph.h"
 #include "Engine/Source/Gxu/GxuFontMiscClasses.h"
+#include "Engine/Source/Gxu/GxuFontMsdf.h"
 #include "Engine/Source/Storm/H/storm.h"
 
 // VERIFY: fff26b99 manual
@@ -19,12 +20,13 @@ static int32_t FREETYPE_RenderGlyph(FT_Face face, uint32_t code, bool monochrome
 
 // VERIFY: d81e8b25 manual
 // OFFSET: 0x006C8C60
-static void CalculateYOffset(uint32_t pixelSize, int32_t baseline, FT_Face face, uint32_t glyphHeight, int32_t* yOffset, uint32_t* yStart) {
+static void CalculateYOffset(uint32_t pixelSize, int32_t baseline, FT_Face face, uint32_t glyphHeight, int32_t* yOffset, uint32_t* yStart, bool msdf) {
     int32_t offset = 0;
     int32_t start;
 
     if (glyphHeight <= pixelSize) {
-        int32_t top = face->glyph->bitmap_top;
+        // MODIFIED: awesome_wotlk MSDF fonts place glyphs from the outline, so skip the bitmap's own baseline
+        int32_t top = msdf ? 0 : face->glyph->bitmap_top;
 
         if (top <= baseline) {
             start = baseline - top;
@@ -112,8 +114,17 @@ bool IGxuFontGlyphRenderGlyph(FT_Face face, uint32_t pixelSize, uint32_t code, u
     dataPtr->m_yStart = 0;
     dataPtr->m_glyphBearing = face->glyph->metrics.horiBearingX * (1.0 / 64.0);
 
+    // MODIFIED: awesome_wotlk MSDF fonts
+    bool msdf = !monochrome && g_gxuFontMsdf.m_isMsdfFace && g_gxuFontMsdf.m_isMsdfFace(face);
+
     if (width && data && !placeholder) {
-        CalculateYOffset(pixelSize, baseline, face, height, &dataPtr->m_yOffset, &dataPtr->m_yStart);
+        CalculateYOffset(pixelSize, baseline, face, height, &dataPtr->m_yOffset, &dataPtr->m_yStart, msdf);
+    }
+
+    if (msdf) {
+        // m_yStart is the distance from the top of the cell to the top of the glyph, m_yOffset the quad's vertical
+        // correction (descenders)
+        dataPtr->m_yOffset -= dataPtr->m_yStart;
     }
 
     return true;

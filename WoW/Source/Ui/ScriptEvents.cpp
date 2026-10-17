@@ -1,6 +1,7 @@
 #include <cstdint>
 #include "Engine/Source/Storm/H/stpl.h"
 #include "Engine/Source/FrameScript/FrameScript.h"
+#include "WoW/Source/Awesome/Awesome.h"
 #include "WoW/Source/Ui/ScriptEvents.h"
 #include "WoW/Source/Object/ObjectClient/Unit_C.h"
 #include "WoW/Source/Object/Types.h"
@@ -171,6 +172,8 @@ bool Script_GetGUIDFromToken(const char* token, WOWGUID& guid, bool defaultToTar
     } else if (!SStrCmpI(token, "none", STORM_MAX_STR)) {
         token += 4;
         guid.m_guid = 0xFFFFFFFFFFFFFFFFULL;
+    } else if (AwesomeGetGUIDFromToken(token, guid)) {
+        // MODIFIED: unit tokens added by awesome_wotlk ("nameplateN"), resolved like the indexed tokens above
     }
 
     if ((guid != WOWGUID() || !*token) && ParseTrailingTokens(token, guid, player)) {
@@ -940,6 +943,9 @@ char** Script_GetTokenIDsFromGUID(const WOWGUID& guid, int32_t* count) {
     if (guid == CGGameUI::m_interactTarget) {
         SStrCopy(s_tokenIDs[(*count)++], "npc", sizeof(s_tokenBuffers[0]));
     }
+
+    // MODIFIED: awesome_wotlk's tokens ("nameplateN") while there is room left
+    AwesomeGetTokenIDsFromGUID(guid, s_tokenIDs, count, static_cast<int32_t>(sizeof(s_tokenIDs) / sizeof(s_tokenIDs[0])), sizeof(s_tokenBuffers[0]));
 
     return s_tokenIDs;
 }

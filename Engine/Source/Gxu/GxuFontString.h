@@ -72,6 +72,10 @@ struct CGxString : public TSLinkedNode<CGxString> {
     /* 00B0 */ int32_t m_numLines;
     /* 00B4 */ TEXTLINETEXTURE* m_textLines[8];
     /* 00D4 */ int32_t m_idleTicks;
+    // MODIFIED: awesome_wotlk MSDF fonts. Geometry built since the MSDF pass last placed its glyphs; the atlas
+    // eviction count it placed them against (bit 7 set when present)
+    uint8_t m_msdfPending;
+    uint8_t m_msdfAtlasToken;
 
     CGxString();
     ~CGxString();

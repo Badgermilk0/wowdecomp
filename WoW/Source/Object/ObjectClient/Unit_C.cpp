@@ -1,4 +1,5 @@
 #include "Unit_C.h"
+#include "WoW/Source/Awesome/Awesome.h"
 #include <cmath>
 #include <new>
 #include <typeinfo>
@@ -18473,6 +18474,8 @@ void CGUnit_C::UpdateReaction(bool a1) {
     if (this->m_obj->m_guid == ClntObjMgrGetActivePlayer()) {
         SendQuestGiverStatusMultipleQuery();
         ClntObjMgrEnumVisibleObjects(UnitColorUpdateProc, nullptr);
+        // MODIFIED: awesome_wotlk re-sorts friendly / enemy plates (the player's change affects every plate)
+        AwesomeNamePlateOnReactionChanged(this);
         return;
     }
 
@@ -18481,6 +18484,8 @@ void CGUnit_C::UpdateReaction(bool a1) {
     }
 
     this->RefreshInteractIcon();
+    // MODIFIED
+    AwesomeNamePlateOnReactionChanged(this);
 }
 
 // VERIFY: 8da8cbd4 manual
@@ -20012,9 +20017,8 @@ const char* GetObjectNameFromGuid(const WOWGUID& guid) {
 // VERIFY: a8083a71 auto
 // OFFSET: 0x00715720
 static bool GetNamePlateScreenPos(CGUnit_C* unit, CGWorldFrame* worldFrame, C3Vector* screen) {
-    C3Vector position = unit->GetNamePosition();
-    position.z = position.z + 0.6666667f;
-    return worldFrame->GetScreenCoordinates(position, screen, nullptr);
+    // MODIFIED: awesome_wotlk's placement offset, half off-screen plates and screen edge clamping
+    return AwesomeNamePlateScreenPosition(unit, worldFrame, screen);
 }
 
 // VERIFY: cdbf1d87 manual
@@ -20070,6 +20074,17 @@ CGNamePlateFrame* CGNamePlateFrame::GetNewNameplateFrame(CSimpleFrame* parent) {
     s_unusedNamePlates.UnlinkNode(frame);
 
     return frame;
+}
+
+// MODIFIED
+void CGNamePlateFrame::EnumerateAll(void (*callback)(CGNamePlateFrame* plate, void* param), void* param) {
+    for (CGNamePlateFrame* frame = s_namePlates.Head(); frame; frame = s_namePlates.Next(frame)) {
+        callback(frame, param);
+    }
+
+    for (CGNamePlateFrame* frame = s_unusedNamePlates.Head(); frame; frame = s_unusedNamePlates.Next(frame)) {
+        callback(frame, param);
+    }
 }
 
 // VERIFY: 2a5cc36c manual
@@ -20229,6 +20244,9 @@ void CGUnit_C::CancelShapeshiftForMount() {
 // VERIFY: 5f551aa3 manual
 // OFFSET: 0x00727130
 void CGUnit_C::NamePlateClearAll() {
+    // MODIFIED: awesome_wotlk's nameplate manager drops its plate pointers, the plates live one UI session
+    AwesomeNamePlatesClearAll();
+
     CGNamePlateFrame* frame = s_namePlates.Head();
 
     while (frame) {
@@ -20253,39 +20271,9 @@ void CGUnit_C::NamePlateClearAll() {
 // VERIFY: 80222452 manual
 // OFFSET: 0x007271D0
 void CGUnit_C::SetNamePlateFocus(const C2Vector& position) {
-    if (CGInputControl::GetActive()->m_flags & 0x6000003) {
-        return;
-    }
-
-    CGNamePlateFrame* focus = nullptr;
-
-    for (CGNamePlateFrame* frame = s_namePlates.Head(); frame; frame = s_namePlates.Next(frame)) {
-        if (frame->m_guid == CGGameUI::m_lockedTarget) {
-            continue;
-        }
-
-        if (!frame->PtInFrameRect(position)) {
-            continue;
-        }
-
-        if (!focus || focus->m_position.z > frame->m_position.z) {
-            focus = frame;
-        }
-    }
-
-    if (focus == CGUnit_C::s_namePlateFocus) {
-        return;
-    }
-
-    if (CGUnit_C::s_namePlateFocus) {
-        CGUnit_C::s_namePlateFocus->OnLoseFocus();
-    }
-
-    CGUnit_C::s_namePlateFocus = focus;
-
-    if (focus) {
-        focus->OnGainFocus();
-    }
+    // MODIFIED: replaced by awesome_wotlk's focus (click-through modes, hitbox settings, the frozen plate keeps the
+    // cursor). The original took the nearest non-target plate whose rect holds the cursor.
+    AwesomeNamePlateSetFocus(position);
 }
 
 // VERIFY: 5739ef94 manual
@@ -20398,7 +20386,8 @@ int32_t CGUnit_C::ShouldShowNamePlate(CGWorldFrame* worldFrame, C3Vector* positi
     if (!map || map->m_instanceType != 4) {
         C3Vector delta = this->GetPosition() - target->GetPosition();
 
-        if (delta.y * delta.y + delta.x * delta.x + delta.z * delta.z > 1681.0f) {
+        // MODIFIED: awesome_wotlk's nameplateDistance (41 yards in the original)
+        if (delta.y * delta.y + delta.x * delta.x + delta.z * delta.z > AwesomeNamePlateDistanceSquared()) {
             return 0;
         }
     }
@@ -21471,6 +21460,8 @@ void CGUnit_C::MountAnimEndHandler(CM2Model* model, uint32_t boneId, uint32_t se
 // OFFSET: 0x00724EA0
 void CGUnit_C::PostShutdown() {
     CMissile::Destroy();
+    // MODIFIED
+    AwesomeNamePlatesClearAll();
     CGNamePlateFrame* plate = s_unusedNamePlates.Head();
 
     while (!s_unusedNamePlates.IsEnd(plate)) {

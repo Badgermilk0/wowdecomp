@@ -247,6 +247,8 @@ class CGxDevice {
     static C2iVector s_clientAdjust;
     static const char* s_pixelShaderTargetNames[14];
     static const char* s_vertexShaderTargetNames[12];
+    // MODIFIED: awesome_wotlk shader overrides; asked first by IShaderLoad, nonzero when it filled the shaders itself
+    static int32_t (*s_shaderLoadOverride)(CGxDevice* device, CGxShader** shaders, EGxShTarget target, const char* path, const char* name, uint32_t permutations);
     static C3Vector s_pointScaleAttenuation;
     static CGxShader* s_uiPixelShader;
     static CGxShader* s_uiVertexShader[2];

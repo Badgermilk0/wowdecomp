@@ -40,6 +40,9 @@ const char* CGxDevice::s_pixelShaderTargetNames[14] = { "none", "ps_1_1", "ps_1_
 // STATIC: 0x00AD8834
 const char* CGxDevice::s_vertexShaderTargetNames[12] = { "none", "vs_1_1", "vs_2_0", "vs_3_0", "vs_4_0", "vs_5_0", "arbvp1", "arbvp1_cg12", "nvvp", "nvvp2", "nvvp3", "glsl" };
 
+// MODIFIED: awesome_wotlk shader overrides
+int32_t (*CGxDevice::s_shaderLoadOverride)(CGxDevice* device, CGxShader** shaders, EGxShTarget target, const char* path, const char* name, uint32_t permutations);
+
 // STATIC: 0x00AD8864
 static const char* s_geometryShaderTargetNames[3] = { "none", "gs_4_0", "gs_5_0" };
 
@@ -1671,6 +1674,11 @@ void CGxDevice::DeviceCreatePools() {
 // VERIFY: 3ce50085 manual
 // OFFSET: 0x00684970
 void CGxDevice::IShaderLoad(CGxShader** shaders, EGxShTarget target, const char* path, const char* name, uint32_t permutations) {
+    // MODIFIED: awesome_wotlk shader overrides
+    if (CGxDevice::s_shaderLoadOverride && CGxDevice::s_shaderLoadOverride(this, shaders, target, path, name, permutations)) {
+        return;
+    }
+
     int32_t profile = this->m_caps.m_shaderTargets[target];
 
     if (profile <= 0) {
@@ -1854,15 +1862,30 @@ void CGxDevice::WaitForFPSCap() {
         return;
     }
 
-    uint32_t frameMs = 1000 / maxFps;
-    uint32_t now = OsGetAsyncTimeMs();
+    // MODIFIED: performance. The stock cap slept whole milliseconds (1000 / maxFps, truncated) with Sleep(), which the
+    // 15.6 ms system timer turned into a stutter well under the cap. This paces in the high-resolution clock, keeps the
+    // cadence from frame to frame and waits precisely (OsWaitUntilClocks).
+    static uint64_t s_nextFrameClock;
 
-    if (s_nextFrameTime - now < 1000) {
-        OsSleep(s_nextFrameTime - now);
-        now = OsGetAsyncTimeMs();
+    int64_t frequency = OsGetAsyncClocksPerSecond();
+    uint64_t period = static_cast<uint64_t>(frequency / maxFps);
+    uint64_t now = OsGetAsyncTimeClocks();
+    int64_t ahead = static_cast<int64_t>(s_nextFrameClock - now);
+
+    // a deadline more than a second away is stale (the cap changed, or the clock jumped)
+    if (ahead > 0 && ahead < frequency) {
+        OsWaitUntilClocks(s_nextFrameClock);
+        now = OsGetAsyncTimeClocks();
     }
 
-    s_nextFrameTime = now + frameMs;
+    // the next frame starts a period after this one was due; a frame that ran late resets the cadence
+    if (s_nextFrameClock && now - s_nextFrameClock < period) {
+        s_nextFrameClock += period;
+    } else {
+        s_nextFrameClock = now + period;
+    }
+
+    s_nextFrameTime = OsGetAsyncTimeMs();
 }
 
 // VERIFY: c1bc4801 manual

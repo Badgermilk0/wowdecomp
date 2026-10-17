@@ -62,6 +62,11 @@ CGxShader* CSimpleRender::s_vertexShader[2];
 // STATIC: 0x00B47948
 int32_t CSimpleRender::s_mergeEnable;
 
+// MODIFIED: awesome_wotlk uiPixelSnap / uiTextureSampling
+const char* CSimpleRender::s_vertexShaderName = "UI";
+void (*CSimpleRender::s_batchTextureCallback)(CGxTex* texture);
+void (*CSimpleTexture::s_positionCallback)(const CRect& rect, C3Vector* position);
+
 // STATIC: 0x00B47978
 static char s_displayText[0x2000];
 
@@ -582,7 +587,8 @@ uint32_t CSimpleFontString::GetFontFlags() {
 // VERIFY: 86381625 auto
 // OFFSET: 0x00482E90
 void CSimpleRender::Init() {
-    g_theGxDevicePtr->ShaderCreate(CSimpleRender::s_vertexShader, GxSh_Vertex, "Shaders\\Vertex", "UI", 2);
+    // MODIFIED: name from s_vertexShaderName (awesome_wotlk uiPixelSnap)
+    g_theGxDevicePtr->ShaderCreate(CSimpleRender::s_vertexShader, GxSh_Vertex, "Shaders\\Vertex", CSimpleRender::s_vertexShaderName, 2);
 }
 
 // VERIFY: ea0ca375 manual
@@ -732,7 +738,14 @@ void CSimpleRender::DrawBatch(CRenderBatch* batch) {
                 idxTotal = 0;
                 vertTotal = 0;
 
-                GxRsSet(GxRs_Texture0, TextureGetGxTex(mesh->m_texture, 1, nullptr));
+                CGxTex* gxTex = TextureGetGxTex(mesh->m_texture, 1, nullptr);
+
+                // MODIFIED: awesome_wotlk uiTextureSampling / uiPixelSnap shader constants
+                if (CSimpleRender::s_batchTextureCallback) {
+                    CSimpleRender::s_batchTextureCallback(gxTex);
+                }
+
+                GxRsSet(GxRs_Texture0, gxTex);
                 GxRsSet(GxRs_BlendingMode, alphaMode);
                 GxUpdateAlphaRef(GxRs_AlphaRef);
                 GxRsSet(GxRs_PixelShader, shader);
@@ -2295,6 +2308,11 @@ void CSimpleTexture::SetPosition(const CRect& rect, C3Vector* position) {
     position[3].x = rect.maxX;
     position[3].y = rect.minY;
     position[3].z = this->m_layoutDepth;
+
+    // MODIFIED: awesome_wotlk uiPixelSnap
+    if (CSimpleTexture::s_positionCallback) {
+        CSimpleTexture::s_positionCallback(rect, position);
+    }
 }
 
 // VERIFY: da5e4d9e auto

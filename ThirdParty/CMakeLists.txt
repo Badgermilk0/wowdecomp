@@ -185,3 +185,38 @@ if (WIN32)
             ${CMAKE_SOURCE_DIR}
     )
 endif ()
+
+# MODIFIED: awesome_wotlk MSDF fonts. msdfgen's core library only (MIT); the FreeType font import is our own,
+# against the FreeType 2.0 above.
+file(GLOB MSDFGEN_CORE_SOURCES CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/msdfgen/core/*.cpp)
+
+add_library(msdfgen STATIC
+    ${MSDFGEN_CORE_SOURCES}
+)
+
+target_include_directories(msdfgen
+    PUBLIC
+        ${CMAKE_CURRENT_SOURCE_DIR}/msdfgen
+        ${CMAKE_CURRENT_SOURCE_DIR}/msdfgen/include
+)
+
+target_compile_definitions(msdfgen
+    PRIVATE
+        _CRT_SECURE_NO_WARNINGS
+)
+
+# MODIFIED: header-only hash map (MIT), used by the MSDF glyph cache
+add_library(unordered_dense INTERFACE)
+
+target_include_directories(unordered_dense
+    INTERFACE
+        ${CMAKE_CURRENT_SOURCE_DIR}/unordered_dense/include
+)
+
+# MODIFIED: stb_image_write v1.16 (public domain / MIT), the PNG writer of awesome_wotlk's frame capture
+add_library(stb INTERFACE)
+
+target_include_directories(stb
+    INTERFACE
+        ${CMAKE_CURRENT_SOURCE_DIR}/stb
+)

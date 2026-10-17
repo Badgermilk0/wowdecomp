@@ -23,6 +23,12 @@ OsTimeManager::TimingMethod OsTimeManager::Calibrate() {
         return SystemMethod1;
     }
 
+    // MODIFIED: performance (startup). The stock calibration ran at time-critical priority, hopped the thread over every
+    // core 512 times and busy-waited a quarter second to catch QueryPerformanceCounter disagreeing between processors.
+    // 64-bit Windows guarantees one consistent counter across processors, so it is used straight away.
+    this->m_timingTestError = 0;
+    return SystemMethod2;
+
     HANDLE process = GetCurrentProcess();
     HANDLE thread = GetCurrentThread();
     DWORD priorityClass = GetPriorityClass(process);
@@ -223,10 +229,16 @@ OsTimeManager::OsTimeManager(OsTimeManager::TimingMethod method) {
 // OFFSET: 0x0086AF20
 void OsTimeManagerCreate(OsTimeManager::TimingMethod method) {
     s_OsTimeMgr = new (SMemAlloc(sizeof(OsTimeManager), __FILE__, __LINE__, SMEM_FLAG_ZEROMEMORY)) OsTimeManager(method);
+
+    // MODIFIED: performance; a 1 ms timer period, so Sleep() and the frame cap wake on time
+    OsTimerResolutionBegin();
 }
 
 // OFFSET: 0x0086AF60
 void OsTimeManagerDestroy() {
+    // MODIFIED: performance
+    OsTimerResolutionEnd();
+
     if (s_OsTimeMgr) {
         delete s_OsTimeMgr;
         s_OsTimeMgr = nullptr;

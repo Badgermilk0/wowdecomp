@@ -1,4 +1,5 @@
 #include "GameObject_C.h"
+#include "WoW/Source/Awesome/Awesome.h"
 #include "WoW/Source/Object/ObjectClient/Item_C.h"
 #include <cmath>
 #include <cstring>
@@ -315,6 +316,9 @@ void CGGameObject_C::CheckForPassiveHighlight() {
             this->m_lootEffect = nullptr;
         }
     }
+
+    // MODIFIED: awesome_wotlk's objectHighlightMode also sparkles usable chests, goobers and quest objects
+    AwesomeOnPassiveHighlight(this);
 }
 
 // VERIFY: 84ec4568 manual

@@ -1,4 +1,5 @@
 #include "GameUI.h"
+#include "WoW/Source/Awesome/Awesome.h"
 #include "WoW/Source/DB/Rec/FileDataRec.h"
 #include "WoW/Source/DB/Rec/MovieFileDataRec.h"
 #include "WoW/Source/DB/Rec/MovieRec.h"
@@ -1458,7 +1459,8 @@ static int32_t TargetDirectionProc(WOWGUID guid, void* param) {
     C3Vector unitPosition = data->m_unit->GetPosition();
     C3Vector delta = unit->GetPosition() - unitPosition;
 
-    if (delta.y * delta.y + delta.z * delta.z + delta.x * delta.x > 1681.0f) {
+    // MODIFIED: tab targeting reaches as far as the nameplates show (awesome_wotlk's nameplateDistance)
+    if (delta.y * delta.y + delta.z * delta.z + delta.x * delta.x > AwesomeNamePlateDistanceSquared()) {
         return 1;
     }
 
@@ -2664,6 +2666,9 @@ bool IsTutorialFlagged(uint32_t tutorial) {
 // VERIFY: 9f2b88f1 manual
 // OFFSET: 0x005241B0
 void CGGameUI::ClearTarget(WOWGUID guid, int32_t a2) {
+    // MODIFIED: awesome_wotlk re-sorts the plates (the target is drawn on top)
+    AwesomeNamePlatesMarkDirty();
+
     int32_t noMgr = ClntObjMgrGetCurrent() == nullptr;
 
     if (!CGGameUI::m_lockedTarget || (guid && guid != CGGameUI::m_lockedTarget)) {
@@ -2757,6 +2762,9 @@ void CGGameUI::AcceptAreaSpiritHeal() {
 // VERIFY: 7e358d82 manual
 // OFFSET: 0x00524BF0
 void CGGameUI::Target(WOWGUID guid) {
+    // MODIFIED: awesome_wotlk re-sorts the plates (the target is drawn on top)
+    AwesomeNamePlatesMarkDirty();
+
     if (!guid) {
         CGGameUI::unused_BD08CC = 0;
 
@@ -3668,6 +3676,9 @@ void CGGameUI::EnterWorld() {
     if (CGGameUI::s_inWorld) {
         return;
     }
+
+    // MODIFIED: awesome_wotlk's world-enter handlers (slash commands, keybinding, TTS, showPlayer)
+    AwesomeOnEnterWorld();
 
     CGGameUI::s_inWorld = 1;
     CGChat::Pause();
@@ -5127,7 +5138,8 @@ static int32_t TargetUpdateProc(WOWGUID guid, void* param) {
     float maxDistanceSq;
 
     if (s_coneAngle > delta || 6.2831855f - s_coneAngle < delta) {
-        maxDistanceSq = 1681.0f;
+        // MODIFIED: tab targeting reaches as far as the nameplates show (awesome_wotlk's nameplateDistance)
+        maxDistanceSq = AwesomeNamePlateDistanceSquared();
         inFront = 1;
     } else {
         maxDistanceSq = 100.0f;
@@ -8110,6 +8122,9 @@ void CGGameUI::LeaveWorld() {
     if (!CGGameUI::s_inWorld) {
         return;
     }
+
+    // MODIFIED: awesome_wotlk's world-leave handlers (interaction, TTS, frame capture)
+    AwesomeOnLeaveWorld();
 
     CGGameUI::s_inWorld = 0;
 

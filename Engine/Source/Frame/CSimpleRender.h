@@ -15,6 +15,7 @@
 #include "Engine/Source/Storm/H/stpl.h"
 
 class CGxShader;
+class CGxTex;
 class CRect;
 class CRenderBatch;
 class CSimpleFontStringAttributes;
@@ -29,6 +30,10 @@ class CSimpleRender {
     public:
     static CGxShader* s_vertexShader[2];
     static int32_t s_mergeEnable;
+    // MODIFIED: awesome_wotlk uiPixelSnap; the shader Init creates under Shaders\Vertex ("UI" in the stock client)
+    static const char* s_vertexShaderName;
+    // MODIFIED: awesome_wotlk uiTextureSampling / uiPixelSnap; DrawBatch passes every batch's texture before binding it
+    static void (*s_batchTextureCallback)(CGxTex* texture);
 
     static int32_t CalcBatchCounts(CRenderBatch* batch, uint32_t* vertCounts, uint32_t* idxCounts);
     static void Destroy();

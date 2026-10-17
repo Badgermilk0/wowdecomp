@@ -14,6 +14,7 @@
 #include "Engine/Source/Gxu/Gxu.h"
 #include "Engine/Source/Gxu/GxuFontFont.h"
 #include "Engine/Source/Gxu/GxuFontMiscClasses.h"
+#include "Engine/Source/Gxu/GxuFontMsdf.h"
 #include "Engine/Source/Gxu/GxuFontUtil.h"
 #include "Engine/Source/Os/TimeManager.h"
 #include "Engine/Source/Storm/H/storm.h"
@@ -101,6 +102,9 @@ CGxShader* g_fontPixelShader;
 
 // STATIC: 0x00C7D2D0
 CGxShader* g_fontVertexShader[2];
+
+// MODIFIED: awesome_wotlk MSDF fonts; the font shaders' name under Shaders\Vertex and Shaders\Pixel
+const char* g_fontShaderName = "UI";
 
 // VERIFY: 4776da25 manual
 // OFFSET: 0x006BCD60
@@ -948,8 +952,14 @@ void GxuFontWindowSizeChanged() {
 // VERIFY: c5d92c78 auto
 // OFFSET: 0x006BE230
 void GxuFontInitialize() {
-    g_theGxDevicePtr->ShaderCreate(g_fontVertexShader, GxSh_Vertex, "Shaders\\Vertex", "UI", 2);
-    g_theGxDevicePtr->ShaderCreate(&g_fontPixelShader, GxSh_Pixel, "Shaders\\Pixel", "UI", 1);
+    // MODIFIED: awesome_wotlk MSDF fonts install their hooks, shader names and index buffer size here
+    if (g_gxuFontInitializeCallback) {
+        g_gxuFontInitializeCallback();
+    }
+
+    // MODIFIED: shader names from g_fontShaderName ("UI" in the stock client)
+    g_theGxDevicePtr->ShaderCreate(g_fontVertexShader, GxSh_Vertex, "Shaders\\Vertex", g_fontShaderName, 2);
+    g_theGxDevicePtr->ShaderCreate(&g_fontPixelShader, GxSh_Pixel, "Shaders\\Pixel", g_fontShaderName, 1);
 
     BATCHEDRENDERFONTDESC::Initialize();
 
@@ -1171,6 +1181,11 @@ void GxuFontShutdown() {
 
     TEXTLINETEXTURE::Shutdown();
     BATCHEDRENDERFONTDESC::Shutdown();
+
+    // MODIFIED: awesome_wotlk MSDF fonts
+    if (g_gxuFontMsdf.m_shutdown) {
+        g_gxuFontMsdf.m_shutdown();
+    }
 
     if (g_FTLibrary) {
         FT_Done_Library(g_FTLibrary);

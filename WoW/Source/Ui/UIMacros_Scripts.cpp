@@ -1,4 +1,5 @@
 #include "UIMacros.h"
+#include "WoW/Source/Awesome/Awesome.h"
 #include <cstdint>
 #include "Engine/Source/FrameScript/FrameScript.h"
 #include "Engine/Source/FrameScript/FrameScript_Object.h"
@@ -161,7 +162,8 @@ static int32_t Script_SecureCmdOptionParse(lua_State* L) {
 
     lua_pushlstring(L, result.m_start, result.m_end - result.m_start);
 
-    if (target.m_end == target.m_start) {
+    // MODIFIED: awesome_wotlk's [@cursor] / [@playerlocation] conditionals place the AoE themselves, no unit target
+    if (target.m_end == target.m_start || AwesomeMacroConsumeTarget(target.m_start, target.m_end)) {
         lua_pushnil(L);
     } else {
         lua_pushlstring(L, target.m_start, target.m_end - target.m_start);

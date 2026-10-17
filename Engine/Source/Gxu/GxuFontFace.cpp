@@ -1,6 +1,7 @@
 #include <cstddef>
 #include <cstdint>
 #include "Engine/Source/Gxu/GxuFontFace.h"
+#include "Engine/Source/Gxu/GxuFontMsdf.h"
 #include "Engine/Source/BlizzardCore/SFile2-Core.h"
 #include "Engine/Source/Storm/H/storm.h"
 
@@ -58,6 +59,11 @@ FACEDATA::FACEDATA() {
 // VERIFY: 263b0e27 manual
 // OFFSET: 0x006C81C0
 FACEDATA::~FACEDATA() {
+    // MODIFIED: awesome_wotlk MSDF fonts
+    if (this->m_face && g_gxuFontMsdf.m_faceDestroyed) {
+        g_gxuFontMsdf.m_faceDestroyed(this->m_face);
+    }
+
     if (this->m_face) {
         FT_Done_Face(this->m_face);
     }
@@ -95,6 +101,12 @@ HFACE FontFaceGetHandle(const char* fileName, FT_Library library) {
             FACEDATA* face = new ("HFACE", SLOG_OBJECT) FACEDATA;
             face->m_data = data;
             face->m_face = ftFace;
+
+            // MODIFIED: awesome_wotlk MSDF fonts
+            if (g_gxuFontMsdf.m_faceCreated) {
+                g_gxuFontMsdf.m_faceCreated(ftFace, data, size);
+            }
+
             s_faceHash.Insert(face, fileName);
             data = nullptr;
             ftFace = nullptr;

@@ -1467,7 +1467,8 @@ static int32_t Script_GetChannelRosterInfo(lua_State* L) {
 }
 
 // STATIC: 0x00AC7A40
-static const char* s_chatLogNames[2] = { "Logs\\WoWChatLog.txt", "Logs\\WoWCombatLog.txt" };
+// MODIFIED: not static, awesome_wotlk's chatLogSessionKey / combatLogSessionKey replace the names per session
+const char* s_chatLogNames[2] = { "Logs\\WoWChatLog.txt", "Logs\\WoWCombatLog.txt" };
 
 // VERIFY: 2b604692 auto
 // OFFSET: 0x004FBC60

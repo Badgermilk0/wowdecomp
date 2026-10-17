@@ -10,6 +10,9 @@ class CCamera;
 class CDataMgr;
 class CRect;
 
+// MODIFIED: awesome_wotlk uiHalfPixelFix; CameraSetupScreenProjection's D3D9 half-pixel offset is half a pixel
+extern int32_t g_cameraHalfPixelFix;
+
 CCamera* CameraCreate();
 CCamera* CameraDuplicate(CCamera* camera);
 void CameraGetLineSegment(float x, float y, C3Vector* start, C3Vector* end);

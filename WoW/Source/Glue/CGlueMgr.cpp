@@ -1,4 +1,5 @@
 #include "CGlueMgr.h"
+#include "WoW/Source/Awesome/Awesome.h"
 #include <cmath>
 #include <cstdarg>
 #include <cstring>
@@ -776,6 +777,9 @@ void CGlueMgr::Resume() {
                 CGlueMgr::m_pendingServerAlert = 0;
             }
 
+            // MODIFIED: awesome_wotlk's command line auto-login (-login/-password/-realmlist/-realmname)
+            AwesomeOnGlueXMLLoaded();
+
             return;
         }
 
@@ -1035,6 +1039,13 @@ void CGlueMgr::Initialize() {
     if (readEULA < 0) {
         CGlueMgr::m_rereadEULA = 1;
     }
+
+    // MODIFIED: awesome_wotlk treats the TOS and EULA as accepted (its DLL writes both flags at startup). It does
+    // so before this function runs, which overwrites them; here they are set after the CVars were read.
+    CGlueMgr::m_acceptedTOS = 1;
+    CGlueMgr::m_rereadTOS = 0;
+    CGlueMgr::m_acceptedEULA = 1;
+    CGlueMgr::m_rereadEULA = 0;
 
     int32_t readTerminationWithoutNotice = g_readTerminationWithoutNoticeVar->m_intValue;
     CGlueMgr::m_acceptedTerminationWithoutNotice = readTerminationWithoutNotice == 1;

@@ -6571,6 +6571,15 @@ void CM2Model::ProcessCallbacksRecursive() {
 // VERIFY: d96ccadd manual
 // OFFSET: 0x00832640
 CM2Model::~CM2Model() {
+    // MODIFIED: leave the camera fade list (awesome_wotlk cameraIndirectVisibility)
+    if (this->m_cameraFadePrev) {
+        *this->m_cameraFadePrev = this->m_cameraFadeNext;
+
+        if (this->m_cameraFadeNext) {
+            this->m_cameraFadeNext->m_cameraFadePrev = this->m_cameraFadePrev;
+        }
+    }
+
     CM2Model* model30 = this->m_model30;
 
     if (model30 && model30->m_refCount-- == 1) {

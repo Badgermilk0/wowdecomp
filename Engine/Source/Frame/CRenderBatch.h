@@ -36,6 +36,11 @@ class CRenderBatch {
     void Finish();
     void Queue(CTexture* texture, EGxBlend alphaMode, int32_t posCount, const C3Vector* position, const C2Vector* texCoord, int32_t colorCount, const CImVector* color, int32_t idxCount, const uint16_t* indices, CGxShader* shader);
     void QueueCallback(void (*callback)(void*), void* param);
+
+    // MODIFIED: awesome_wotlk frame capture; param is the frame queuing callback. Returns the callback to queue (it
+    // may swap in its own), or null to leave it out
+    typedef void (*RenderCallback)(void*);
+    static RenderCallback (*s_callbackFilter)(RenderCallback callback, void* param);
     void QueueFontString(CSimpleFontString* string);
     void QueueTexture(CSimpleTexture* texture);
 };

@@ -2,6 +2,7 @@
 #include <cstddef>
 #include <cstdint>
 #include "Engine/Source/Gxu/GxuFontMiscClasses.h"
+#include "Engine/Source/Gxu/GxuFontMsdf.h"
 #include "Engine/Source/Gx/CGxBuf.h"
 #include "Engine/Source/Gx/CGxDevice/CGxDevice.h"
 #include "Engine/Source/Gx/CGxDevice/CGxShader.h"
@@ -219,8 +220,9 @@ void TEXTLINETEXTURE::WriteGeometry(CGxVertexPCT* buf, const CImVector& fontColo
 // VERIFY: 4249ae07 auto
 // OFFSET: 0x006C47B0
 void BATCHEDRENDERFONTDESC::Initialize() {
-    BATCHEDRENDERFONTDESC::s_indexPool = g_theGxDevicePtr->PoolCreate(GxPoolTarget_Index, GxPoolUsage_Static, 6144, GxPoolHintBit_Unk0, "BATCHEDRENDERFONTDESC_idx");
-    BATCHEDRENDERFONTDESC::s_indexBuf = g_theGxDevicePtr->BufCreate(BATCHEDRENDERFONTDESC::s_indexPool, sizeof(uint16_t), 3072, 0);
+    // MODIFIED: g_gxuFontIndexQuads quads (512 stock, more when awesome_wotlk MSDF fonts stream whole pages)
+    BATCHEDRENDERFONTDESC::s_indexPool = g_theGxDevicePtr->PoolCreate(GxPoolTarget_Index, GxPoolUsage_Static, g_gxuFontIndexQuads * 6 * sizeof(uint16_t), GxPoolHintBit_Unk0, "BATCHEDRENDERFONTDESC_idx");
+    BATCHEDRENDERFONTDESC::s_indexBuf = g_theGxDevicePtr->BufCreate(BATCHEDRENDERFONTDESC::s_indexPool, sizeof(uint16_t), g_gxuFontIndexQuads * 6, 0);
 }
 
 // VERIFY: 416d5eb2 manual
@@ -230,7 +232,8 @@ void BATCHEDRENDERFONTDESC::InitializeIndexBuff() {
 
     uint16_t vertex = 0;
 
-    for (uint32_t i = 0; i < 512; i++) {
+    // MODIFIED: g_gxuFontIndexQuads (512 stock)
+    for (uint32_t i = 0; i < g_gxuFontIndexQuads; i++) {
         indices[0] = vertex;
         indices[1] = vertex + 2;
         indices[2] = vertex + 1;
@@ -288,6 +291,11 @@ CGxVertexPCT* BATCHEDRENDERFONTDESC::UnlockVertexPtrAndRender(CGxBuf*& buf, int3
 // OFFSET: 0x006C4AD0
 void BATCHEDRENDERFONTDESC::RenderBatch() {
     if (!BATCHEDRENDERFONTDESC::s_indexPool) {
+        return;
+    }
+
+    // MODIFIED: awesome_wotlk MSDF fonts draw every batch themselves
+    if (g_gxuFontMsdf.m_renderBatch && g_gxuFontMsdf.m_renderBatch(this)) {
         return;
     }
 

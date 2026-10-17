@@ -1,4 +1,5 @@
 #include "Object_C.h"
+#include "WoW/Source/Awesome/Awesome.h"
 #include "Engine/Source/Gx/Gx.h"
 #include "Engine/Source/Gx/CGxDevice/CGxDevice.h"
 #include "WoW/Source/Game/GameClient/ProjectTex.h"
@@ -982,6 +983,8 @@ void CGObject_C::HideHighlightType(int32_t type) {
     }
 
     if (this->IsHighlightSuppressed()) {
+        // MODIFIED
+        AwesomeOnHideHighlight(this, type);
         return;
     }
 
@@ -993,6 +996,9 @@ void CGObject_C::HideHighlightType(int32_t type) {
         model->m_emissiveTintB = 0.0f;
         model->unk_01B8 = 1.0f;
     }
+
+    // MODIFIED: awesome_wotlk's interaction highlight stays dimmer than the target and mouseover highlights
+    AwesomeOnHideHighlight(this, type);
 }
 
 // VERIFY: 9da10cdf manual

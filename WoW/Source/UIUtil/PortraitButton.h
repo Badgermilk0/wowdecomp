@@ -52,6 +52,10 @@ void RenderPortraitTexture(CSimpleTexture* texture, CGUnit_C* unit);
 
 int32_t ReadyModelForUI(CGUnit_C* unit, uint32_t flags);
 
+// MODIFIED: HD portraits. Live 3D portraits render at resolution x resolution (power of two, 64 = the engine's own);
+// set by awesome_wotlk's portraitResolution CVar
+void PortraitSetResolution(uint32_t resolution);
+
 extern const char* s_sexNames[3];
 
 #endif

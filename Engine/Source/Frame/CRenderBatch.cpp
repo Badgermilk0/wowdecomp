@@ -13,6 +13,9 @@
 // STATIC: 0x00AC0F04
 static uint16_t s_quadIndices[6] = { 0, 1, 2, 2, 1, 3 };
 
+// MODIFIED: awesome_wotlk frame capture
+CRenderBatch::RenderCallback (*CRenderBatch::s_callbackFilter)(CRenderBatch::RenderCallback callback, void* param);
+
 // VERIFY: d7a68913 auto
 // OFFSET: 0x00482770
 static int32_t SortByTexture(const void* elem1, const void* elem2) {
@@ -84,6 +87,15 @@ CRenderBatch::CRenderBatch() {
 // VERIFY: 6542125c manual
 // OFFSET: 0x004858E0
 void CRenderBatch::QueueCallback(void (*callback)(void*), void* param) {
+    // MODIFIED: awesome_wotlk frame capture
+    if (CRenderBatch::s_callbackFilter) {
+        callback = CRenderBatch::s_callbackFilter(callback, param);
+
+        if (!callback) {
+            return;
+        }
+    }
+
     RENDERCALLBACKNODE* node = this->m_callbacks.NewNode(2, 0, 0);
     node->m_callback = callback;
     node->m_param = param;

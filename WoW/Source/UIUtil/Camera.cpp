@@ -1,4 +1,5 @@
 #include "Camera.h"
+#include "WoW/Source/Awesome/Awesome.h"
 #include "Engine/Source/Base/Coordinate.h"
 #include <cmath>
 #include <cstring>
@@ -170,7 +171,8 @@ C3Vector CGCamera::Up() const {
 
 // VERIFY: 6dc11132 auto
 // OFFSET: 0x00606B30
-CGCamera::CGCamera() : CSimpleCamera(World::s_nearClip, World::s_farClip, 1.5707964f) {
+// MODIFIED: field of view from awesome_wotlk's cameraFov CVar (the engine's 1.5707964f at the default of 100)
+CGCamera::CGCamera() : CSimpleCamera(World::s_nearClip, World::s_farClip, AwesomeCameraFieldOfView()) {
     this->m_model = nullptr;
     this->m_someTime = OsGetAsyncTimeMs();
     this->m_modelCameraHandle = nullptr;
@@ -3717,7 +3719,9 @@ uint32_t CGCamera::CollideCameraWithWorld(const C3Vector& target, float& distanc
 
         float hitDistance = 1.0f;
 
-        if (World::Intersect(base, end, &hit, &hitDistance, flags, nullptr)) {
+        // MODIFIED: awesome_wotlk cameraIndirectVisibility fades the doodad the boom hits instead of pulling in;
+        // with it on, the near-plane probes below also stop colliding with doodads (flags bit 0)
+        if (AwesomeCameraIntersect(base, end, &hit, &hitDistance, flags)) {
             result |= 0x10000;
             distance = distance * hitDistance;
         }

@@ -6,6 +6,7 @@
 #include "Engine/Source/Gxu/GxuFont.h"
 #include "Engine/Source/Gxu/GxuFontUtil.h"
 #include "Engine/Source/Gxu/GxuFontMiscClasses.h"
+#include "Engine/Source/Gxu/GxuFontMsdf.h"
 #include "Engine/Source/Storm/H/storm.h"
 #include "Engine/Source/Tempest/CRect.h"
 
@@ -253,6 +254,8 @@ void CGxString::InitializeTextLine(const char* text, uint32_t numBytes, CImVecto
 
     C3Vector pos = position;
     uint32_t lastCode = 0;
+    // MODIFIED: awesome_wotlk MSDF fonts place every glyph on page 0 and tag its quad with the code point
+    bool msdf = GxuFontIsMsdf(this->m_currentFace);
 
     float fontPixelHeight = ScreenToPixelHeight((this->m_flags >> 7) & 1, this->m_currentFontHeight);
     double pixelHeight = fontPixelHeight;
@@ -442,16 +445,20 @@ void CGxString::InitializeTextLine(const char* text, uint32_t numBytes, CImVecto
 
                 default: {
                     CHARCODEDESC* desc = this->m_currentFace->NewCodeDesc(wide);
+                    uint32_t glyphCode = wide;
 
                     if (!desc) {
                         desc = this->m_currentFace->NewCodeDesc('?');
+                        glyphCode = '?';
 
                         if (!desc) {
                             break;
                         }
                     }
 
-                    uint32_t texturePage = desc->m_textureNumber;
+                    // MODIFIED: all MSDF glyphs on page 0, as the engine draws page by page and a later page's shadow
+                    // would cover its neighbours
+                    uint32_t texturePage = msdf ? 0 : desc->m_textureNumber;
                     *texturePagesUsed |= 1 << texturePage;
 
                     if (!this->m_textLines[texturePage]) {
@@ -540,6 +547,12 @@ void CGxString::InitializeTextLine(const char* text, uint32_t numBytes, CImVecto
                     verts[3].m_tc.x = coords.maxX;
                     verts[2].m_tc.x = coords.maxX;
 
+                    // MODIFIED: 1 + code point in the left edge's u; the MSDF pass places the glyph from it
+                    if (msdf) {
+                        verts[0].m_tc.x = 1.0f + static_cast<float>(glyphCode);
+                        verts[1].m_tc.x = 1.0f + static_cast<float>(glyphCode);
+                    }
+
                     lastCode = wide;
                     break;
                 }
@@ -552,6 +565,9 @@ void CGxString::InitializeTextLine(const char* text, uint32_t numBytes, CImVecto
     }
 
     parseInfo.m_hyperlink.m_right = x + pos.x;
+
+    // MODIFIED: awesome_wotlk MSDF fonts; the next batch places these glyphs
+    this->m_msdfPending = 1;
 }
 
 // VERIFY: 3b879ab8 auto
@@ -570,6 +586,11 @@ void CGxString::AddShadow(const C2Vector& offset, const CImVector& color) {
 // VERIFY: 926a0475 auto
 // OFFSET: 0x006C7480
 int32_t CGxString::CheckGeometry() {
+    // MODIFIED: awesome_wotlk MSDF fonts
+    if (g_gxuFontMsdf.m_checkGeometry) {
+        g_gxuFontMsdf.m_checkGeometry(this);
+    }
+
     if (this->m_textureEvicted) {
         if (!this->m_currentFace->CheckStringGlyphs(this->m_text)) {
             this->ClearInstanceData();
@@ -610,6 +631,9 @@ int32_t CGxString::Initialize(float fontHeight, const C3Vector& position, float 
     this->m_fontColor = color;
     this->m_scale = scale;
     this->m_currentFace = face;
+    // MODIFIED: awesome_wotlk MSDF fonts; a recycled string starts over
+    this->m_msdfPending = 0;
+    this->m_msdfAtlasToken = 0;
 
     face->m_strings.LinkToTail(this);
 
@@ -670,6 +694,9 @@ CGxString::CGxString() {
     this->m_scale = 1.0f;
     this->m_numLines = 0;
     this->m_idleTicks = 0;
+    // MODIFIED: awesome_wotlk MSDF fonts
+    this->m_msdfPending = 0;
+    this->m_msdfAtlasToken = 0;
     this->m_gradientInfo.m_chunk = 128;
 
     for (uint32_t i = 0; i < 8; i++) {

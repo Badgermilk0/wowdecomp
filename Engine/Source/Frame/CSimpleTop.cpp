@@ -32,9 +32,19 @@ CSimpleTop* CSimpleTop::s_instance;
 // STATIC: 0x00B499A4
 uint32_t CSimpleTop::s_eventTime;
 
+// MODIFIED
+void (*CSimpleTop::s_paintCallback)();
+void (*CSimpleTop::s_layerRenderCallback)(CSimpleTop* top);
+bool (*CSimpleTop::s_frameRenderFilter)(CSimpleFrame* frame);
+
 // VERIFY: 29e70871 auto
 // OFFSET: 0x00495810
 static void PaintScreen(void* param, const RECTF* rect, const RECTF* visible, float elapsedSec) {
+    // MODIFIED: awesome_wotlk runs its per-frame work here (interaction scan, TTS events)
+    if (CSimpleTop::s_paintCallback) {
+        CSimpleTop::s_paintCallback();
+    }
+
     CSimpleTop* top = CSimpleTop::s_instance;
     top->OnLayerUpdate(elapsedSec);
     top->OnLayerRender();
@@ -899,6 +909,11 @@ void CSimpleTop::OnLayerRender() {
     for (int32_t strata = 0; strata < FRAME_STRATA_TOOLTIP + 1; strata++) {
         this->m_strata[strata]->BuildBatches(this->m_mouseCapture == nullptr);
         this->m_strata[strata]->RenderBatches();
+    }
+
+    // MODIFIED: awesome_wotlk frame capture
+    if (CSimpleTop::s_layerRenderCallback) {
+        CSimpleTop::s_layerRenderCallback(this);
     }
 }
 

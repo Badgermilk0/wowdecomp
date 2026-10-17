@@ -33,4 +33,10 @@ void OsTimeManagerCreate(OsTimeManager::TimingMethod method);
 void OsTimeManagerDestroy();
 void OsSleep(uint32_t milliseconds);
 
+// MODIFIED: performance (OsWait.cpp). A 1 ms system timer period for the process, and a precise wait until an
+// OsGetAsyncTimeClocks value
+void OsTimerResolutionBegin();
+void OsTimerResolutionEnd();
+void OsWaitUntilClocks(uint64_t deadline);
+
 #endif

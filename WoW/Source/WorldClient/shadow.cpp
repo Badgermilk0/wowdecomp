@@ -712,7 +712,14 @@ static void ProjectTexRender2d(const CAaBox& box, const CImVector& color, uint32
 
 // VERIFY: 5f932eb3 manual
 // OFFSET: 0x007E4370
-void ProjectTex::Render2d(const CAaBox& box, const CImVector& color, const C44Matrix* matrix, float fade, uint32_t a5, uint32_t a6, float polygonOffset) {
+void ProjectTex::Render2d(const CAaBox& sourceBox, const CImVector& color, const C44Matrix* matrix, float fade, uint32_t a5, uint32_t a6, float polygonOffset) {
+    // MODIFIED: awesome_wotlk projects over 50 yards above and below the box's center, so AoE targeting and
+    // selection circles no longer clip on steep terrain
+    CAaBox box = sourceBox;
+    float centerZ = (box.t.z + box.b.z) * 0.5f;
+    box.b.z = centerZ - 50.0f;
+    box.t.z = centerZ + 50.0f;
+
     C44Matrix texMatrix;
     C44Matrix fadeMatrix;
     ProjectTex2dMakeMatrices(texMatrix, fadeMatrix, box, matrix, fade, 0);

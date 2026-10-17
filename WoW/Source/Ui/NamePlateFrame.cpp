@@ -1,4 +1,5 @@
 #include "NamePlateFrame.h"
+#include "WoW/Source/Awesome/Awesome.h"
 #include <new>
 #include <typeinfo>
 #include "Engine/Source/Frame/CSimpleRender.h"
@@ -238,11 +239,7 @@ void CGNamePlateFrame::OnLoseFocus() {
 // VERIFY: b1bdd517 manual
 // OFFSET: 0x0098E9F0
 void CGNamePlateFrame::OnLayerUpdate(float elapsedSec) {
-    if (this->m_guid == CGGameUI::m_lockedTarget) {
-        this->SetFrameLevel(20, 1);
-    } else {
-        this->SetFrameLevel(10, 1);
-    }
+    // MODIFIED: the frame levels (target on top) are set by awesome_wotlk's layout pass in draw order
 
     int32_t feedbackTime = this->m_damageFeedbackTime;
 
@@ -260,11 +257,8 @@ void CGNamePlateFrame::OnLayerUpdate(float elapsedSec) {
 
     CGUnit_C* unit = static_cast<CGUnit_C*>(ClntObjMgrObjectPtr(this->m_guid, TYPEMASK_UNIT, __FILE__, __LINE__));
 
-    if (unit && (!CGGameUI::m_lockedTarget || CGGameUI::m_lockedTarget == unit->m_obj->m_guid)) {
-        this->SetFrameAlpha(0xFF);
-    } else {
-        this->SetFrameAlpha(0x7F);
-    }
+    // MODIFIED: awesome_wotlk's alpha (nameplateNonTargetAlpha, occlusion fading) instead of 0xFF / 0x7F
+    this->SetFrameAlpha(AwesomeNamePlateAlpha(this, unit));
 
     CSimpleFrame::OnLayerUpdate(elapsedSec);
 
@@ -545,6 +539,10 @@ CGNamePlateFrame::CGNamePlateFrame(CSimpleFrame* parent) : CSimpleFrame(parent),
     this->m_healthBarColor.Set(0.0f, 0.0f, 0.0f, 0.0f);
     this->m_castHoldTime = 0.0f;
     this->m_castFadeTime = 0.0f;
+    // MODIFIED
+    this->m_awesomePlateId = -1;
+    this->m_awesomeOpaque = 0;
+    this->m_awesomeFresh = 0;
 
     CRect texCoords = { 0.0f, 0.0f, 0.0f, 0.0f };
     this->m_damageFeedbackTime = 0;

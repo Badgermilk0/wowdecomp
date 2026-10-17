@@ -515,8 +515,9 @@ void CM2SceneRender::DrawBatchProj() {
         return;
     }
 
-    box.b.z = box.b.z - 2.0f;
-    box.t.z = box.t.z + 2.0f;
+    // MODIFIED: 50 yards instead of 2 (awesome_wotlk), projected spell textures no longer clip on steep terrain
+    box.b.z = box.b.z - 50.0f;
+    box.t.z = box.t.z + 50.0f;
 
     C44Matrix depthMatrix;
     depthMatrix.a0 = 0.0f;

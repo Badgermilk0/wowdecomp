@@ -1,5 +1,6 @@
 #include <cstdarg>
 #include <cstddef>
+#include "WoW/Source/Awesome/Awesome.h"
 #include <cstdint>
 #include <cstring>
 #include <malloc.h>
@@ -922,6 +923,9 @@ void CGUIBindings::CopyBindings(BINDING_SET source, BINDING_SET dest) {
 // VERIFY: 9ac6f481 auto
 // OFFSET: 0x0055E550
 void CGUIBindings::EnableBindingMode(BINDING_MODE mode, int32_t enable) {
+    // MODIFIED: combat mode changes force an awesome_wotlk nameplate pass even when nothing moved
+    AwesomeNamePlatesMarkDirty();
+
     if (!mode) {
         return;
     }

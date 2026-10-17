@@ -6,6 +6,7 @@
 #include <windows.h>
 #include <d3d9.h>
 #include "Engine/Source/Gx/CGxDevice/CGxDevice.h"
+#include "Engine/Source/Gx/GxFrameLatency.h"
 #include "Engine/Source/Storm/H/stpl.h"
 
 class CGxDeviceD3d : public CGxDevice {
@@ -243,6 +244,8 @@ class CGxDeviceD3d : public CGxDevice {
     /* 3BA4 */ uint32_t m_d3dVertexStreamStride [8];
     /* 3BC4 */ uint32_t m_deviceStates [182];
     /* 3E9C */ bool m_texEnabled [8];
+    // MODIFIED: performance; gxFixLag waits on the frame gxMaxFrameLatency back, not the one just submitted
+    CGxFrameLatency m_frameLatency;
 
     virtual void ITexMarkAsUpdated(CGxTex* texId);
     virtual void IRsSendToHw(EGxRenderState which);

@@ -185,6 +185,8 @@ class CMap {
     static int32_t mapGetFacetsCount;
     static int32_t bspRecurseCount;
     static uint32_t s_queryTag;
+    // MODIFIED: the M2 owner (doodad def / entity) of the last CMap::Intersect hit, null when the hit was not an M2
+    static CMapBaseObj* s_lastHitModelOwner;
     static uint32_t cCount;
     static CMapAreaMed* unk[4096];
     static CMapArea* m_areaTable[4096];

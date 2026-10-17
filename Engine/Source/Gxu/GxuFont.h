@@ -17,6 +17,8 @@ struct CGxStringBatch;
 
 extern FT_Library g_FTLibrary;
 extern CGxShader* g_fontPixelShader;
+// MODIFIED: awesome_wotlk MSDF fonts; the font shaders' name ("UI" in the stock client)
+extern const char* g_fontShaderName;
 extern uint8_t g_fontStatsEnabled;
 extern CGxShader* g_fontVertexShader[2];
 extern TSList<CGxString, TSGetLink<CGxString> > g_freeStrings;

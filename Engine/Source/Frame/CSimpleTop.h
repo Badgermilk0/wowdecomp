@@ -60,6 +60,12 @@ class CSimpleTop : public CLayoutFrame {
     public:
     static CSimpleTop* s_instance;
     static uint32_t s_eventTime;
+    // MODIFIED: per-frame hook run before the UI updates, set by the game (awesome_wotlk's paint callback)
+    static void (*s_paintCallback)();
+    // MODIFIED: awesome_wotlk frame capture. Run after OnLayerRender drew the UI; while set, the filter keeps only the
+    // frames it accepts in the batches (CSimpleFrame::OnFrameRender and the overrides that queue their own geometry)
+    static void (*s_layerRenderCallback)(CSimpleTop* top);
+    static bool (*s_frameRenderFilter)(CSimpleFrame* frame);
 
     static CSimpleTop* GetInstance();
     static int32_t OnChar(const void* data, void* param);

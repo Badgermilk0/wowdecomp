@@ -77,6 +77,14 @@ void AwesomeNamePlatesMarkDirty();
 // CGUnit_C::NamePlateClearAll / PostShutdown: the plates are about to be released
 void AwesomeNamePlatesClearAll();
 
+// HD client parity (AwesomeHdClient.cpp): CVars for the patched Wow.exe's behaviour changes, defaulting to its behaviour.
+// CGUnit_C::UpdateSpellCastBars / CGGameUI::Target / ClearTarget: cast bars on every nameplate (nameplateAllCastBars)
+bool AwesomeNamePlateAllCastBars();
+// CGUnit_C::SetMaxAlpha: the camera may fade the character it is zoomed in on (cameraPlayerFade, off by default)
+bool AwesomeCameraPlayerFade();
+// Script_SendChatMessage: say, yell and emote allowed while dead (chatWhileDead)
+bool AwesomeChatWhileDead();
+
 // CGGameObject_C::CheckForPassiveHighlight, after the engine (objectHighlightMode CVar)
 void AwesomeOnPassiveHighlight(CGGameObject_C* object);
 // CGObject_C::HideHighlightType, after the engine (interaction highlight)

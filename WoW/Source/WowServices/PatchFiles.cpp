@@ -27,9 +27,11 @@ int32_t PatchFiles::EnumPatchArchives(OS_FILE_DATA& data, void* param) {
 // VERIFY: 4fd60074 manual
 // OFFSET: 0x00405AB0
 PatchFiles::PatchFiles(const char* locale, bool flag) {
+    // MODIFIED: HD client parity; its Wow.exe matches patch-*.MPQ and patch-<locale>-*.MPQ, so a patch archive's
+    // suffix may be longer than one character (patch-HD.MPQ). They still load in reverse name order
     PATCHARCHIVESPEC specs[12] = {
-        { 0, 0, false, "Data\\", "patch-?.MPQ" },
-        { 0, 0, false, "Data\\%s\\", "patch-%s-?.MPQ" },
+        { 0, 0, false, "Data\\", "patch-*.MPQ" },
+        { 0, 0, false, "Data\\%s\\", "patch-%s-*.MPQ" },
         { 1, 0, false, "Data\\", "patch.MPQ" },
         { 1, 0, false, "Data\\%s\\", "patch-%s.MPQ" },
         { 1, 1, false, "Data\\", "patch-4.MPQ" },

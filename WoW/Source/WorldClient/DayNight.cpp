@@ -2563,6 +2563,9 @@ void DayNight::LoadMap(int32_t mapId) {
     DayNight::g_planets.m_moon2.Initialize("Textures\\moon02.blp");
     DayNight::g_planets.m_moon2.m_baseScale = 1.0f;
     DayNight::g_planets.m_moon2.m_period = 1.7f;
+    // MODIFIED: HD client parity; its Wow.exe makes the second moon's static colour white. Nothing else sets the colour
+    // (only its alpha, in a storm), so stock draws it black on the night sky
+    DayNight::g_planets.m_moon2.m_color = CImVector(0xFF, 0xFF, 0xFF, 0xFF);
     DayNight::g_stars.Initialize();
     info.m_showSky = 1;
     info.m_flashBlend = 0;

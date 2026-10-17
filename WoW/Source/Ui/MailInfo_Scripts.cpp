@@ -125,7 +125,9 @@ static int32_t Script_CheckInbox(lua_State* L) {
         return 0;
     }
 
-    CGMailInfo::m_nextUpdateTime = now + 60000;
+    // MODIFIED: HD client parity; its Wow.exe cut the minute between inbox refreshes to 1 ms, so every CheckInbox
+    // asks the server again once the previous answer is in (m_commandPending)
+    CGMailInfo::m_nextUpdateTime = now + 1;
     CGMailInfo::m_commandPending = 1;
     CDataStore msg;
     msg.Put(static_cast<uint32_t>(CMSG_MAIL_GET_LIST));

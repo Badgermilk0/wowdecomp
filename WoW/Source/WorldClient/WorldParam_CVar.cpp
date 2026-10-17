@@ -220,10 +220,11 @@ bool CWorldParam::NearClipCallback(CVar* var, const char* oldValue, const char* 
 bool CWorldParam::HorizonFarClipScaleCallback(CVar* var, const char* oldValue, const char* value, void* arg) {
     float scale = SStrToFloat(value);
 
+    // MODIFIED: HD client parity; its Wow.exe raised the upper clamp from 6 to 12
     if (scale < 3.0f) {
         scale = 3.0f;
-    } else if (scale > 6.0f) {
-        scale = 6.0f;
+    } else if (scale > 12.0f) {
+        scale = 12.0f;
     }
 
     World::SetHorizonFarClipScale(scale);
@@ -377,9 +378,13 @@ bool CWorldParam::GroundEffectDensityCallback(CVar* var, const char* oldValue, c
 bool CWorldParam::GroundEffectDistCallback(CVar* var, const char* oldValue, const char* value, void* arg) {
     float dist = SStrToFloat(value);
 
-    if (dist < 0.0f || dist > 140.0f) {
+    // MODIFIED: HD client parity; its Wow.exe raised the maximum from 140 to 9500/3 (3166.7). Stock rejects a larger
+    // value outright, so a saved groundEffectDist above 140 was dropped from Config.wtf
+    const float maxDist = 9500.0f / 3.0f;
+
+    if (dist < 0.0f || dist > maxDist) {
         char buffer[256];
-        sprintf(buffer, "Ground effect distance must be in range %0f to %0f.", 0.0, 140.0);
+        sprintf(buffer, "Ground effect distance must be in range %0f to %0f.", 0.0, static_cast<double>(maxDist));
         ConsoleWriteA(buffer, DEFAULT_COLOR);
 
         return false;
@@ -435,12 +440,7 @@ bool CWorldParam::FarClipOverrideCallback(CVar* var, const char* oldValue, const
 bool CWorldParam::EnvironmentDetailCallback(CVar* var, const char* oldValue, const char* value, void* arg) {
     float detail = SStrToFloat(value);
 
-    if (detail < 0.5f) {
-        detail = 0.5f;
-    } else if (detail > 1.5f) {
-        detail = 1.5f;
-    }
-
+    // MODIFIED: HD client parity; its Wow.exe dropped the 0.5 to 1.5 clamp, so any value scales the doodad fade distances
     CWorldScene::ScaleFadeDist(detail);
 
     return true;

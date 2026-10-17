@@ -1317,15 +1317,10 @@ void World::SetDetailDoodadDist(float dist) {
 // VERIFY: 5f5281b3 auto
 // OFFSET: 0x00780770
 float World::ValidateFarClip(float farClip, int32_t mapID) {
-    float maxFarClip = 4750.0f / 3.0f;
-
-    if (mapID < 530 || mapID == 575 || mapID == 543) {
-        if (!CWorldParam::cvar_farClipOverride || CWorldParam::cvar_farClipOverride->m_intValue < 1) {
-            maxFarClip = 2375.0f / 3.0f;
-        }
-    } else if (OsGetPhysicalMemory() <= 0x40000000) {
-        maxFarClip = 2375.0f / 3.0f;
-    }
+    // MODIFIED: HD client parity; its Wow.exe raised both caps (1583.3 and, for the old continents without
+    // farClipOverride or under 1 GB of RAM, 791.7) to 10000
+    float maxFarClip = 10000.0f;
+    static_cast<void>(mapID);
 
     if (farClip < 550.0f / 3.0f) {
         return 550.0f / 3.0f;

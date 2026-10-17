@@ -10921,7 +10921,9 @@ void AreaTriggersInitialize(uint32_t mapId) {
 // VERIFY: f1281917 manual
 // OFFSET: 0x006DBE30
 int32_t AreaTriggerCheck(const void* data, void* param) {
-    s_areaTriggerTimer = ClientSetTimer(100, AreaTriggerCheck, nullptr);
+    // MODIFIED: HD client parity; its Wow.exe re-arms the area trigger check every 50 ms instead of 100 (the first
+    // check after a map load still waits 100 ms, as there)
+    s_areaTriggerTimer = ClientSetTimer(50, AreaTriggerCheck, nullptr);
     CGPlayer_C* player = static_cast<CGPlayer_C*>(ClntObjMgrObjectPtr(ClntObjMgrGetActivePlayer(), TYPEMASK_PLAYER, __FILE__, __LINE__));
 
     if (!player || player->m_unit->m_unitFieldHealth <= 0) {

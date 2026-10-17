@@ -7779,8 +7779,12 @@ void CGUnit_C::SetMaxAlpha(float alpha) {
         } else {
             this->m_alphaScale = static_cast<uint8_t>(CMath::fint_(alpha * 255.0f));
         }
-    } else {
+    } else if (AwesomeCameraPlayerFade()) {
         this->m_alphaScale = static_cast<uint8_t>(CMath::fint_(alpha * 255.0f));
+    } else {
+        // MODIFIED: HD client parity; its Wow.exe skips this store, so the camera never fades the character it is
+        // zoomed in on. Opaque instead of untouched, so turning cameraPlayerFade off mid-fade cannot leave it see-through
+        this->m_alphaScale = 0xFF;
     }
 
     CVehicle_C* vehicle = this->m_vehicle;
@@ -11625,7 +11629,8 @@ bool CGUnit_C::CanAutoDismount() const {
 void CGUnit_C::UpdateSpellCastBars(uint32_t time) {
     CGNamePlateFrame* namePlate = this->m_namePlateFrame;
 
-    if (!namePlate || this->m_obj->m_guid != CGGameUI::m_lockedTarget) {
+    // MODIFIED: HD client parity; its Wow.exe drops the target check, so every nameplate shows its unit's cast bar
+    if (!namePlate || (!AwesomeNamePlateAllCastBars() && this->m_obj->m_guid != CGGameUI::m_lockedTarget)) {
         return;
     }
 

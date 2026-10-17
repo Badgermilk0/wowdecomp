@@ -2689,7 +2689,11 @@ void CGGameUI::ClearTarget(WOWGUID guid, int32_t a2) {
                 CGUnit_C* unit = static_cast<CGUnit_C*>(object);
                 PlayerNameTriggerColorUpdate(unit->m_nameDesc);
                 unit->UnregisterScript(0x1000);
-                unit->StopNamePlateSpellbar();
+
+                // MODIFIED: HD client parity; with cast bars on every plate the old target's bar keeps running
+                if (!AwesomeNamePlateAllCastBars()) {
+                    unit->StopNamePlateSpellbar();
+                }
             }
         }
     }
@@ -2822,7 +2826,10 @@ void CGGameUI::Target(WOWGUID guid) {
                 unit->ProcessCastNotInterruptible(&spell);
             }
 
-            unit->UpdateSpellCastBars(OsGetAsyncTimeMs());
+            // MODIFIED: HD client parity; with cast bars on every plate the bar is already up, the HD exe skips this
+            if (!AwesomeNamePlateAllCastBars()) {
+                unit->UpdateSpellCastBars(OsGetAsyncTimeMs());
+            }
 
             if (player) {
                 if (player->CanAttackNow(unit)) {

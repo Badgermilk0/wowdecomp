@@ -88,6 +88,9 @@ void AwesomeFrameCaptureRegisterScriptFunctions(lua_State* L);
 void AwesomeFrameCaptureOnEnterWorld();
 void AwesomeFrameCaptureOnLeaveWorld();
 
+// AwesomeHdClient.cpp
+void AwesomeHdClientRegisterCVars();
+
 // AwesomePerf.cpp
 void AwesomePerfRegisterScriptFunctions(lua_State* L);
 void AwesomePerfOnEnterWorld();

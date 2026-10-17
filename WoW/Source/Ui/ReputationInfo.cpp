@@ -1165,6 +1165,8 @@ TSGrowableArray<const FactionRec*>* CGReputationInfo::GetFactionChildren(int32_t
 // VERIFY: 8b2534a1 auto
 // OFFSET: 0x005D24C0
 void CGReputationInfo::LeaveWorld() {
-    CGReputationInfo::m_forcedReactions.m_count = 0;
+    // MODIFIED: HD client parity; its Wow.exe skips this whole call so forced reactions survive a loading screen (a
+    // server that sends SMSG_SET_FORCED_REACTIONS only once would otherwise lose them). Only the forced reactions are
+    // kept here: EnterWorld clears m_factions again anyway, and a new list from the server still replaces them
     CGReputationInfo::m_factions.InternalClear(0);
 }

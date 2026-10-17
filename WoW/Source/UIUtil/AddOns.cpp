@@ -155,6 +155,12 @@ void DeleteInterfaceFiles() {
     for (uint32_t i = 0; i < sizeof(directories) / sizeof(directories[0]); i++) {
         const char* directory = directories[i];
 
+#ifdef DISABLE_SIGNATURE_CHECKS
+        // MODIFIED: HD client parity; its Wow.exe never moves a loose GlueXML or FrameXML folder aside, and with the
+        // signature checks off those files load like any other interface file
+        continue;
+#endif
+
         if (OsDirectoryExists(directory)) {
             char oldPath[260];
             SStrPrintf(oldPath, sizeof(oldPath), "%s.old", directory);

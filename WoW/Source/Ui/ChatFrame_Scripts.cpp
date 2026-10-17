@@ -34,6 +34,7 @@
 #include "WoW/Source/Ui/DanceStudio.h"
 #include "Engine/Source/Os/OsFile.h"
 #include "WoW/Source/Ui/ScriptEvents.h"
+#include "WoW/Source/Awesome/Awesome.h"
 
 // STATIC: 0x00AC7A48
 static const char* s_channelCategories[3] = { "CHANNEL_CATEGORY_GROUP", "CHANNEL_CATEGORY_WORLD", "CHANNEL_CATEGORY_CUSTOM" };
@@ -182,7 +183,8 @@ static int32_t Script_SendChatMessage(lua_State* L) {
         }
     }
 
-    if (player->IsDeadOrGhost() && type != CHAT_MSG_WHISPER && type != CHAT_MSG_PARTY && type != CHAT_MSG_PARTY_LEADER && type != CHAT_MSG_RAID && type != CHAT_MSG_RAID_LEADER && type != CHAT_MSG_RAID_WARNING && type != CHAT_MSG_GUILD && type != CHAT_MSG_OFFICER && type != CHAT_MSG_CHANNEL && type != CHAT_MSG_DND && type != CHAT_MSG_BATTLEGROUND && type != CHAT_MSG_BATTLEGROUND_LEADER) {
+    // MODIFIED: HD client parity; its Wow.exe skips this check, so say, yell and emote work while dead (chatWhileDead)
+    if (player->IsDeadOrGhost() && !AwesomeChatWhileDead() && type != CHAT_MSG_WHISPER && type != CHAT_MSG_PARTY && type != CHAT_MSG_PARTY_LEADER && type != CHAT_MSG_RAID && type != CHAT_MSG_RAID_LEADER && type != CHAT_MSG_RAID_WARNING && type != CHAT_MSG_GUILD && type != CHAT_MSG_OFFICER && type != CHAT_MSG_CHANNEL && type != CHAT_MSG_DND && type != CHAT_MSG_BATTLEGROUND && type != CHAT_MSG_BATTLEGROUND_LEADER) {
         CGGameUI::DisplayError(ERR_CHAT_WHILE_DEAD);
         return 0;
     }

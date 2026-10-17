@@ -250,6 +250,7 @@ void AwesomeRegisterCVars() {
     AwesomeNamePlatesRegisterCVars();
     AwesomeMiscRegisterCVars();
     AwesomeVoiceChatRegisterCVars();
+    AwesomeHdClientRegisterCVars();
 }
 
 void AwesomeRegisterScriptFunctions() {

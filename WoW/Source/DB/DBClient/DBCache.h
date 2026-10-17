@@ -17,6 +17,7 @@
 
 class CHashKeyGUID;
 class CWardenKey;
+class ItemStats_C;
 
 struct HASHKEY_INT {
     HASHKEY_INT();
@@ -691,7 +692,9 @@ void DBCache<T, TKey, THashKey>::Idle() {
     }
 
     this->m_queriesSent = 0;
-    this->m_nextQueryTime = OsGetAsyncTimeMs() + 30000;
+    // MODIFIED: HD client parity; its Wow.exe sends pending item queries every pump instead of every 30 seconds
+    // (ItemStats_C only), so item tooltips and links fill in at once; the per-pump query limit still applies
+    this->m_nextQueryTime = OsGetAsyncTimeMs() + (std::is_same_v<T, ItemStats_C> ? 0 : 30000);
 
     DBCACHEHASH* next;
 

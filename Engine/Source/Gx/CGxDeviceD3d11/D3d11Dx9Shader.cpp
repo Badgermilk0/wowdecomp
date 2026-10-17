@@ -313,6 +313,7 @@ class Writer {
     std::vector<uint32_t> m_loops;
     uint32_t m_loopCount = 0;
     bool m_defined[256] = {};
+    bool m_anyDefs = false;
     uint32_t m_defs[256][4] = {};
     bool m_intDefined[16] = {};
     int32_t m_ints[16][4] = {};
@@ -371,16 +372,20 @@ std::string Writer::Base(const Dx9Operand& o) {
                 return Format("C[%u]", o.m_index);
             }
 
+            // an indexed read sees the shader's own def'd registers where it lands on one (Dx9C), as on D3D9
+            const char* table = m_anyDefs ? "Dx9C(" : "C[";
+            const char* close = m_anyDefs ? ")" : "]";
+
             if (o.m_relType == RT_LOOP) {
                 if (m_loops.empty()) {
                     Fail("aL outside a loop");
                     return "C[0]";
                 }
 
-                return Format("C[%u + aL%u]", o.m_index, m_loops.back());
+                return Format("%s%u + aL%u%s", table, o.m_index, m_loops.back(), close);
             }
 
-            return Format("C[%u + a0.%c]", o.m_index, s_letters[o.m_relComp & 3]);
+            return Format("%s%u + a0.%c%s", table, o.m_index, s_letters[o.m_relComp & 3], close);
         }
 
         case RT_ADDR:
@@ -982,6 +987,7 @@ bool Writer::Run(std::string& out, std::string& error) {
     for (const Dx9Inst& ins : m_insts) {
         if (ins.m_op == OP_DEF && ins.m_dst.m_index < 256) {
             m_defined[ins.m_dst.m_index] = true;
+            m_anyDefs = true;
             memcpy(m_defs[ins.m_dst.m_index], ins.m_values, sizeof(m_defs[0]));
         } else if (ins.m_op == OP_DEFI && ins.m_dst.m_index < 16) {
             m_intDefined[ins.m_dst.m_index] = true;
@@ -1043,6 +1049,19 @@ bool Writer::Run(std::string& out, std::string& error) {
         if (m_defined[c]) {
             Appendf(out, "static const float4 c%u = %s;\n", c, FloatBits(m_defs[c]).c_str());
         }
+    }
+
+    if (m_anyDefs) {
+        // the constant file as D3D9 has it while this shader is bound: its def'd registers over the uploaded ones
+        out += "float4 Dx9C(int i) {\n";
+
+        for (uint32_t c = 0; c < 256; c++) {
+            if (m_defined[c]) {
+                Appendf(out, "    if (i == %u) return c%u;\n", c, c);
+            }
+        }
+
+        out += "    return C[i];\n}\n";
     }
 
     for (uint32_t c = 0; c < 16; c++) {

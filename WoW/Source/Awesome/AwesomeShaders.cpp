@@ -15,7 +15,7 @@
 // CGxDevice::IShaderLoad; here the engine asks CGxDevice::s_shaderLoadOverride first. A shader is found by the name
 // the engine creates it under ("name", or "name:k" for permutation k when reloaded on its own). Its stock .bls
 // fills the metadata and stands in whenever the HLSL is switched off or fails to compile; HLSL is only compiled for
-// the D3D9 devices, capped at shader model 3.
+// the D3D9 devices and the D3D11 one (which translates the bytecode), capped at shader model 3.
 
 static std::vector<const AwesomeShaderSource*> s_sources;
 // compiled bytecode by name|defines|entry|profile; an empty entry is a cached failure
@@ -98,6 +98,11 @@ static bool IsD3d9(CGxDevice* device) {
     return device && (device->m_api == GxApi_D3d9 || device->m_api == GxApi_D3d9Ex);
 }
 
+// MODIFIED: D3D11 device. The HLSL compiles to the same shader model 3 bytecode, which the D3D11 device translates
+static bool TakesShaderModel3(CGxDevice* device) {
+    return IsD3d9(device) || (device && device->m_api == GxApi_D3d11);
+}
+
 // path\<profile>\name.bls records first .. first + count into shaders, like IShaderLoad from record first on
 static bool LoadBls(CGxDevice* device, const char* path, const char* name, EGxShTarget target, CGxShader** shaders, uint32_t count, uint32_t first) {
     if (!path || !name) {
@@ -143,7 +148,7 @@ static bool LoadBls(CGxDevice* device, const char* path, const char* name, EGxSh
 }
 
 static const std::vector<uint8_t>* Compile(const AwesomeShaderSource* source, CGxDevice* device, EGxShTarget target, uint32_t entry) {
-    if (!source->m_hlsl || entry >= source->m_entryCount || !IsD3d9(device)) {
+    if (!source->m_hlsl || entry >= source->m_entryCount || !TakesShaderModel3(device)) {
         return nullptr;
     }
 

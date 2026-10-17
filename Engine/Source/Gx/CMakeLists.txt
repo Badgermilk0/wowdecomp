@@ -1,7 +1,8 @@
 file(GLOB_RECURSE PRIVATE_SOURCES CONFIGURE_DEPENDS "*.cpp")
 
 if (NOT WIN32)
-    list(FILTER PRIVATE_SOURCES EXCLUDE REGEX "/CGxDevice(D3d|D3d9Ex|OpenGL)/")
+    # MODIFIED: D3D11 device
+    list(FILTER PRIVATE_SOURCES EXCLUDE REGEX "/CGxDevice(D3d|D3d9Ex|D3d11|OpenGL)/")
 endif ()
 
 add_library(Gx STATIC
@@ -23,5 +24,9 @@ if (WIN32)
         PRIVATE
             nvapi
             opengl32.lib
+            # MODIFIED: D3D11 device (d3dcompiler_47.dll ships with Windows 10 and 11)
+            d3d11.lib
+            dxgi.lib
+            d3dcompiler.lib
     )
 endif ()

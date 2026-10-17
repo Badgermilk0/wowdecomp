@@ -22,6 +22,10 @@ enum CMDOPT {
     CMD_22050HZ = 14,
     CMD_NO_WARNINGS = 15,
     CMDOPTS = 16,
+    // MODIFIED: D3D11 device. Not in the 3.3.5a binary: "-d3d11" selects it like "-d3d9ex" selects D3D9Ex. Past every
+    // id the client registers (WOWCMDOPT in WoW/Source/Client.h ends at CMD_GX_OVERRIDE = 39): SCmd keys its arguments
+    // on the id, so a reused value would alias another option.
+    CMD_D3D11 = 40,
 };
 
 enum PROPERTY {

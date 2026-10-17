@@ -173,6 +173,38 @@ processing and no multithreading lock. `processAffinityMask` defaults to no rest
 | Live 3D unit portraits | `UIUtil/PortraitButton.*` (`LivePortraitSet`, `UpdateLivePortraits`), called each frame from `Ui/WorldFrame.cpp` (`OnWorldUpdate`); `Frame/CSimpleTexture` `s_destroyCallback`; `Awesome/AwesomeMisc.cpp` | `portraitLive` (**1**; 0 = the stock snapshot), `/liveportraits [on\|off]` | `SetPortraitTexture` on a unit no longer takes one picture: the portrait keeps its own copy of the unit's model (as `PlayerModel:SetUnit` does) playing the idle animation, and redraws it into the portrait's render target every frame through the stock portrait camera, lighting and circular mask, at `portraitResolution`. So every frame that uses `SetPortraitTexture` animates (player, target, focus, both targets-of-target, pet, party, boss, arena, and addon unit frames) with no change to FrameXML. One copy per unit GUID, shared by every texture showing it; it is drawn only while one of those textures is visible, follows the unit's model on shapeshift, display or gear change, keeps animating after the unit leaves view, and is freed once no texture shows it. Up to 32 at once; beyond that, and for units with an icon portrait, party pets (no unit object) and the 64×64 readback path (no render-target alpha), the stock snapshot stays. Takes effect live. Cost per visible portrait is about that of one `PlayerModel` frame. Don't also run the `HDPortraits` addon: it lays `PlayerModel` frames over the same textures. |
 | Indoor minimap resolution | `Ui/MinimapFrame.*` (`CreateIndoorTexture`, `MinimapSetIndoorResolution`), `Awesome/AwesomeMisc.cpp` | `minimapIndoorResolution` (**1024**, 256–2048, rounded up to a power of two) | Inside a WMO (caves, dungeons, buildings) the minimap is drawn into a square render target covering three times the visible radius, and only its middle third is shown. Stock 256 left about 85 texels across the minimap, 3.5× coarser than the WMO minimap textures (0.5 yd per texel) at the widest zoom. 1024 keeps their full detail at every zoom; 2048 adds nothing visible. Takes effect live. The outdoor minimap has no render target: it draws the `Textures\Minimap` tiles directly, so only higher-resolution tile files sharpen it (tile texture coordinates are fractions, so any power-of-two size displays correctly). |
 
+### D3D11 device
+
+A Direct3D 11 device beside the D3D9 ones, behind the same `CGxDevice` interface: `SET gxApi "D3D11"` in
+`Config.wtf`, or `-d3d11` on the command line. The 3.3.5a binary only names the API (`GxApi_D3d11`). D3D9 stays the
+default and is unchanged. Needs a feature level 11_0 GPU and Windows 10 or 11 (`d3dcompiler_47.dll` is part of them).
+The plan beyond this first step is `RENDER_BACKEND_PLAN.md`.
+
+| Part | Where | What it does |
+|---|---|---|
+| Device | `Gx/CGxDeviceD3d11/CGxDeviceD3d11*.cpp` | `CGxDeviceD3d9Ex` rebuilt on D3D11. It reproduces D3D9's behaviour, not D3D11's defaults: the viewport and scissor arithmetic (including a texture target's unflipped y), buffer locks with D3D9's discard / no-overwrite ring for stream pools, texture uploads through the engine's texel callbacks, occlusion queries, `gxFixLag` (event queries, `gxMaxFrameLatency`), screenshots and `GxReadPixels`, and `GetFrameTimings()`. |
+| Rasterisation | `GxFinishVertex` in `D3d11Dx9Shader.cpp` | Every vertex moves half a pixel, so the pixels a triangle covers are D3D9's (D3D9 samples a pixel at its whole coordinate, D3D11 at its centre). UI text and borders land on the same pixels as on D3D9. |
+| The client's shaders | `Gx/CGxDeviceD3d11/D3d11Dx9Shader.*` | The DX9 bytecode (`vs_2_0`/`vs_3_0`, `ps_2_0`/`ps_3_0`, as the caps report shader model 3) is translated to shader model 5 HLSL: every SM2/SM3 instruction, relative addressing, loops, subroutines, predicates. Varyings meet by D3D9 semantic in one struct shared by every shader, so any pair links. All 1,578 SM2/SM3 records of the HD client translate and compile; the 7 SM1 `Terrain1w` ones (a legacy fallback) are refused, as upstream's Vulkan translator refuses them. |
+| Hardware shadow maps | same | A sampler bound to a D24X8 texture compares the coordinate's z with it (D3D9's driver behaviour the `_pcf` shaders rely on): `SampleCmpLevelZero` with a filtered comparison sampler. The `shadowMapSize` maps stay on the PCF path; a colour target always gets a depth buffer of its own size, so the R32F path is not limited by the screen's either. |
+| Fixed function | `Gx/CGxDeviceD3d11/D3d11FixedFunction.*` | D3D11 has none; the UI, cursor, particles and ribbons use D3D9's. Its state (lights and material sources as `IStateSyncLights` / `IStateSyncMaterial` set them, texture generation and the texture matrices of `IXformSetTex`, linear vertex fog, the six stage operations, the specular add, the fog blend, the alpha test) is reduced to a key and written out as HLSL. Points (the snow and sand weather) become sprites in a geometry shader. |
+| Shader cache | `Gx/CGxDeviceD3d11/D3d11Compiler.*` | `D3DCompile`, cached under `Cache\D3D11Shaders\` by a hash of the source. A shader compiles when a draw first needs it, about 20 ms each, so a first session hitches where new effects appear; later sessions read the cache. Deleting the folder is safe. |
+| The frame | `CGxDeviceD3d11.cpp` | An offscreen colour target (multisampled when `gxMultisample` asks), copied to a flip-model swap chain at present, with tearing when `gxVSync` is off. Full screen is a borderless window over the primary monitor at its own resolution, not an exclusive mode; the gamma ramp is applied in the copy there, as D3D9 set it on the display only in full screen. Resizing the window resizes the targets live. |
+| Constants | `CGxDeviceD3d11Draw.cpp` | The constant registers are kept as D3D9's hardware would hold them and uploaded as slices of one ring buffer (D3D11.1 offsets; plain buffers without them). |
+| awesome_wotlk | `Awesome/AwesomeShaders.cpp` | The UI sampling and pixel-snap shaders compile to the same bytecode and are translated, so `uiTextureSampling` and `uiPixelSnap` work on D3D11. MSDF fonts and frame capture call `IDirect3DDevice9` themselves and stay off. |
+
+Not on the D3D11 device: stereo (NVAPI), `DeviceReadDepths` (zeros, as the D3D9 device returns), indexed triangle fans
+(the client draws none; a draw would be skipped and logged), and full-screen exclusive mode.
+
+Checked so far, against the HD client's own data: every shader record through the translator and the compiler, and the
+login screen in five of its random scenes (skinned and lit M2 models, particles, additive glows, the UI), windowed,
+resized live, and with 8× multisampling and `gxFixLag`. The UI matches D3D9's pixel for pixel. **Not yet seen in the
+world:** terrain, WMOs, liquids, shadows, weather, FFX glow, portraits and the minimap all go through paths the login
+screen does not reach.
+
+Debugging: `WOW_D3D11_DEBUG=1` in the environment turns on the D3D11 debug layer (the Graphics Tools optional feature).
+`Logs\gx.log` names the adapter and any shader that did not translate; a shader that does not compile leaves its HLSL
+and the compiler's message in `Logs\d3d11_<hash>.hlsl`, and the draws that need it are skipped.
+
 ## Building
 
 Requirements: Visual Studio 2026 (v18) with the C++ desktop workload, and CMake 4.x. Build x64 only.
@@ -195,3 +227,4 @@ optimisation makes a full Release build and its link noticeably slower; `-DWOWDE
 3. Do not install `AwesomeWotlkLib.dll` or its patcher. Addons written for awesome (including its CVar settings
    addon) work unchanged.
 4. `Data/<locale>/realmlist.wtf` or `-realmlist` picks the server.
+5. `SET gxApi "D3D11"` (or `-d3d11`) runs the D3D11 device, which needs no `d3d9.dll` at all (see "D3D11 device").

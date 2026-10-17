@@ -46,6 +46,8 @@ int32_t CGxDevice::AdapterFormats(EGxApi api, TSGrowableArray<CGxFormat>& format
             break;
 
         case GxApi_D3d9Ex:
+        // MODIFIED: D3D11 device, as Win64
+        case GxApi_D3d11:
             CGxDevice::D3d9ExAdapterFormats(formats);
             break;
 

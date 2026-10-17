@@ -249,6 +249,11 @@ static void SetupMultisampleFormats() {
         api = GxApi_D3d9Ex;
     }
 
+    // MODIFIED: D3D11 device
+    if (CmdLineGetBool(CMD_D3D11) && GxApiSupported(GxApi_D3d11)) {
+        api = GxApi_D3d11;
+    }
+
     int32_t colorBits = 0;
     int32_t depthBits = 0;
 

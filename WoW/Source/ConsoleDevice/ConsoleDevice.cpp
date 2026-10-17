@@ -401,6 +401,11 @@ void ConsoleDeviceInitialize(const char* title, bool unused_a2, bool unused_a3) 
         api = GxApi_D3d9Ex;
     }
 
+    // MODIFIED: D3D11 device
+    if (CmdLineGetBool(CMD_D3D11) && GxApiSupported(GxApi_D3d11)) {
+        api = GxApi_D3d11;
+    }
+
     s_requestedFormat.m_fixLag = s_cvGxFixLag->m_intValue != 0;
     s_requestedFormat.m_hwTnL = !CmdLineGetBool(CMD_SW_TNL);
 
@@ -441,7 +446,8 @@ void ConsoleDeviceInitialize(const char* title, bool unused_a2, bool unused_a3) 
                 const char* caption = titleRec ? titleRec->m_message : "World of Warcraft";
                 const char* message;
 
-                if (api == GxApi_D3d9 || api == GxApi_D3d9Ex) {
+                // MODIFIED: D3D11 device
+                if (api == GxApi_D3d9 || api == GxApi_D3d9Ex || api == GxApi_D3d11) {
                     Startup_StringsRec* rec = g_startup_StringsDB.GetRecord(2);
                     message = rec ? rec->m_message : "World of Warcraft was unable to start up 3D acceleration. Please make sure DirectX 9.0c is installed and your video drivers are up-to-date.";
                 } else {

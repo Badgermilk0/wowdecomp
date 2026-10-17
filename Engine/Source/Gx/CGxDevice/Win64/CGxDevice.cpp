@@ -45,6 +45,9 @@ int32_t CGxDevice::AdapterFormats(EGxApi api, TSGrowableArray<CGxFormat>& format
             break;
 
         case GxApi_D3d9Ex:
+        // MODIFIED: D3D11 device. The display modes are the adapter's; D3D9Ex lists them, and the D3D11 device takes the
+        // multisample counts it can make of what is asked
+        case GxApi_D3d11:
             CGxDevice::D3d9ExAdapterFormats(formats);
             break;
 

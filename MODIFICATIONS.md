@@ -137,6 +137,7 @@ nothing to do with any feature, and running them would crash or hang. Probably a
 
 | Option | Effect |
 |---|---|
+| `-DWOWCLIENT_CRASH_CONSOLE=ON` (off by default) | Upstream's crash logger (`Tools/WowClient/crash_log.cpp`, `WOWCLIENT_CRASH_LOG`) opened a console window at every start. It now only writes `WowClient_crash.log`; this option brings the live console back. |
 | `-DWOWDECOMP_SOUND_TRACE=ON` (off by default) | `Logs\SoundTrace.log`: every sound's request (`kit`, `glue music`), create, file open, reads near the start of a file and every failed read (position and first bytes), seeks, non-blocking load result, play (volume), stop, end and virtual kill, plus FMOD's channel count every 2 s. Also writes every byte FMOD reads for the first file over 1 MB to `Logs\SoundDump.bin`, to compare with the file in the MPQ. Build it in its own folder (`build/x64-trace`); it writes to the same `bin/Win`. |
 
 ### Performance (x64)

@@ -19,7 +19,14 @@ if (WOWCLIENT_CRASH_LOG)
     list(APPEND CLIENT_TOOL_SOURCES crash_log.cpp)
 endif ()
 
+# MODIFIED: the crash logger's console window is opt-in; WowClient_crash.log is written either way
+option(WOWCLIENT_CRASH_CONSOLE "Open a console window that shows the crash log live" OFF)
+
 add_executable(WowClient WIN32 ${CLIENT_SOURCES} ${CLIENT_PLATFORM_SOURCES} ${CLIENT_TOOL_SOURCES})
+
+if (WOWCLIENT_CRASH_CONSOLE)
+    target_compile_definitions(WowClient PRIVATE WOWCLIENT_CRASH_CONSOLE=1)
+endif ()
 
 set_target_properties(WowClient PROPERTIES
     OUTPUT_NAME ${WOWCLIENT_OUTPUT_NAME}

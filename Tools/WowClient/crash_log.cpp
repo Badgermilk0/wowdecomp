@@ -140,10 +140,13 @@ static struct CrashLogInit {
         DeleteFileA(s_logPath);
         s_logFile = CreateFileA(s_logPath, FILE_APPEND_DATA, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
 
+#if defined(WOWCLIENT_CRASH_CONSOLE)
+        // MODIFIED: the console window is opt-in (WOWCLIENT_CRASH_CONSOLE); the crash log file is always written
         if (AllocConsole()) {
             SetConsoleTitleA("WowClient");
             s_console = CreateFileA("CONOUT$", GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_EXISTING, 0, nullptr);
         }
+#endif
 
         AddVectoredExceptionHandler(1, FirstChanceHandler);
         _CrtSetReportHook(CrtReportHook);

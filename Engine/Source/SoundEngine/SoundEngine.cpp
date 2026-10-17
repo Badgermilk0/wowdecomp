@@ -1,4 +1,5 @@
 #include <cstdarg>
+#include <cstdio>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
@@ -12,6 +13,7 @@
 #include "Engine/Source/Os/Processor.h"
 #include "Engine/Source/Os/TimeManager.h"
 #include "Engine/Source/SoundEngine/SoundCache.h"
+#include "Engine/Source/SoundEngine/SoundTrace.h"
 #include "Engine/Source/SoundEngine/fmodex/src/fmod_errors.h"
 #include "Engine/Source/Storm/H/storm.h"
 #include "Engine/Source/Storm/Source/SLock.h"
@@ -324,12 +326,14 @@ static FMOD_RESULT F_CALLBACK SEOpenCallback(const char* name, int unicode, unsi
     SOUND_INTERNAL_LOOKUP* lookup = s_soundLookup.Ptr(id, s_lookupKey);
 
     if (!lookup) {
+        SOUND_TRACE("open #%u: no such sound", id);
         s_soundListCritSect.Leave();
         return FMOD_ERR_FILE_NOTFOUND;
     }
 
     SEFileSound* sound = static_cast<SEFileSound*>(lookup->m_sound);
     *filesize = SFileGetFileSize(sound->m_file, nullptr);
+    SOUND_TRACE("open #%u: file %p size %u", id, sound->m_file, *filesize);
     *handle = sound->m_file;
     *userdata = nullptr;
     sound->m_file = nullptr;
@@ -350,11 +354,46 @@ static FMOD_RESULT F_CALLBACK SECloseCallback(void* handle, void* userdata) {
 static FMOD_RESULT F_CALLBACK SEReadCallback(void* handle, void* buffer, unsigned int sizebytes, unsigned int* bytesread, void* userdata) {
     uint32_t read = 0;
 
+#if defined(WOWDECOMP_SOUND_TRACE)
+    int32_t before = SFile::SetFilePointer(static_cast<SFileImpl*>(handle), 0, nullptr, 1);
+#endif
+
     SFile::SetReadFatal(false);
     int32_t success = SFileReadFile(static_cast<SFileImpl*>(handle), buffer, sizebytes, &read, nullptr, 0);
     SFile::SetReadFatal(true);
 
     *bytesread = read;
+
+#if defined(WOWDECOMP_SOUND_TRACE)
+    {
+        // every read near the start of a file, plus a sample of the rest, with its position and first bytes
+        static uint32_t s_reads;
+        s_reads++;
+
+        // every byte FMOD gets for the first large file, written at its offset to Logs\SoundDump.bin
+        static void* s_dumpHandle;
+        static FILE* s_dump;
+
+        if (!s_dumpHandle && SFileGetFileSize(static_cast<SFileImpl*>(handle), nullptr) > 0x100000) {
+            s_dumpHandle = handle;
+            s_dump = fopen("Logs\\SoundDump.bin", "wb");
+        }
+
+        if (handle == s_dumpHandle && s_dump && read) {
+            _fseeki64(s_dump, before, SEEK_SET);
+            fwrite(buffer, 1, read, s_dump);
+            fflush(s_dump);
+        }
+
+        if (before < 0x4000 || !success || (s_reads % 64) == 0) {
+            const uint8_t* bytes = static_cast<const uint8_t*>(buffer);
+            int32_t after = SFile::SetFilePointer(static_cast<SFileImpl*>(handle), 0, nullptr, 1);
+            SOUND_TRACE("read %p @%d: wanted %u got %u ok %d -> @%d bytes %02x %02x %02x %02x %02x %02x %02x %02x", handle, before, sizebytes, read, success, after,
+                read > 0 ? bytes[0] : 0, read > 1 ? bytes[1] : 0, read > 2 ? bytes[2] : 0, read > 3 ? bytes[3] : 0,
+                read > 4 ? bytes[4] : 0, read > 5 ? bytes[5] : 0, read > 6 ? bytes[6] : 0, read > 7 ? bytes[7] : 0);
+        }
+    }
+#endif
 
     if (success) {
         return FMOD_OK;
@@ -366,7 +405,12 @@ static FMOD_RESULT F_CALLBACK SEReadCallback(void* handle, void* buffer, unsigne
 // VERIFY: e534e8af auto
 // OFFSET: 0x00878200
 static FMOD_RESULT F_CALLBACK SESeekCallback(void* handle, unsigned int pos, void* userdata) {
+#if defined(WOWDECOMP_SOUND_TRACE)
+    int32_t result = SFile::SetFilePointer(static_cast<SFileImpl*>(handle), pos, nullptr, 0);
+    SOUND_TRACE("seek %p to %u -> %d", handle, pos, result);
+#else
     SFile::SetFilePointer(static_cast<SFileImpl*>(handle), pos, nullptr, 0);
+#endif
     return FMOD_OK;
 }
 
@@ -391,6 +435,7 @@ static FMOD_RESULT F_CALLBACK SENonBlockCallback(FMOD_SOUND* fmodSound, FMOD_RES
     }
 
     SEFileSound* sound = static_cast<SEFileSound*>(lookup->m_sound);
+    SOUND_TRACE("loaded #%u: result %d %s", sound->m_id, result, FMOD_ErrorString(result));
 
     if (result != FMOD_OK) {
         sound->m_deleteDelay = 0;
@@ -446,6 +491,7 @@ static FMOD_RESULT F_CALLBACK SoundEndedCallback(FMOD_CHANNEL* channel, FMOD_CHA
     }
 
     SESoundInternal* sound = lookup->m_sound;
+    SOUND_TRACE("ended #%u", sound->m_id);
 
     {
         SESound handle;
@@ -1568,6 +1614,7 @@ void SESoundInternal::Play() {
 
     FMOD_RESULT result = this->m_channel->setPaused(false);
     SE_ERRCHECK(result);
+    SOUND_TRACE("play #%u: volume %.3f (base %.3f, fade in %.2f s) group %d unpause %d", this->m_id, this->GetScaledVolume(), this->m_volume, this->m_fadeInTime, this->m_channelGroup, result);
 }
 
 // VERIFY: 75888758 manual
@@ -1622,6 +1669,8 @@ int32_t SEFileSound::IsReadyForRelease() {
 // VERIFY: 3a718434 manual
 // OFFSET: 0x0087A070
 void SEFileSound::AbortNonBlockingLoad(FMOD_RESULT result) {
+    SOUND_TRACE("abort #%u: %d %s", this->m_id, result, FMOD_ErrorString(result));
+
     if (this->m_sound) {
         if (result != FMOD_ERR_MAXAUDIBLE) {
             char name[256];
@@ -1656,6 +1705,7 @@ void SEFileSound::AbortNonBlockingLoad(FMOD_RESULT result) {
 // OFFSET: 0x0087B5F0
 void SEFileSound::CompleteNonBlockingLoad() {
     this->m_loadCompleted = 1;
+    SOUND_TRACE("complete #%u: stop %d play %d sound %p", this->m_id, this->m_stop, this->m_play, this->m_sound);
 
     if (this->m_stop) {
         this->AbortNonBlockingLoad(FMOD_ERR_MAXAUDIBLE);
@@ -1669,6 +1719,7 @@ void SEFileSound::CompleteNonBlockingLoad() {
     }
 
     FMOD_RESULT result = this->m_system->playSound(FMOD_CHANNEL_FREE, this->m_sound, true, &this->m_channel);
+    SOUND_TRACE("complete #%u: playSound %d %s channel %p", this->m_id, result, FMOD_ErrorString(result), this->m_channel);
 
     if (result != FMOD_OK) {
         if (result != FMOD_ERR_MAXAUDIBLE) {
@@ -2127,6 +2178,8 @@ void SESound::Stop(int32_t immediate, float fadeOutTime) {
     if (fadeOutTime >= 0.0f) {
         this->m_internal->m_fadeOutTime = fadeOutTime;
     }
+
+    SOUND_TRACE("stop #%u: immediate %d fade %.2f channel %p", this->m_internal->m_id, immediate, this->m_internal->m_fadeOutTime, this->m_internal->m_channel);
 
     if (immediate || !(this->m_internal->m_fadeOutTime > 0.0f)) {
         this->m_internal->m_stop = 1;
@@ -2605,6 +2658,7 @@ static void KillVirtualSounds() {
                         }
 
                         if (isVirtual) {
+                            SOUND_TRACE("virtual #%u: stopped", fileSound->m_id);
                             fileSound->m_channel->stop();
                             fileSound->m_channel = nullptr;
                         }
@@ -2691,6 +2745,28 @@ int32_t SE2::HeartBeat(const void* data, void* param) {
     }
 
     s_heartBeatCritSect.Enter();
+
+#if defined(WOWDECOMP_SOUND_TRACE)
+    {
+        static uint32_t s_beats;
+        static uint32_t s_lastReport;
+        uint32_t now = OsGetAsyncTimeMs();
+        s_beats++;
+
+        if (now - s_lastReport >= 2000) {
+            int32_t playing = 0;
+            float dsp = 0.0f;
+            float stream = 0.0f;
+            float update = 0.0f;
+            float total = 0.0f;
+            s_system->getChannelsPlaying(&playing);
+            s_system->getCPUUsage(&dsp, &stream, &update, &total);
+            SOUND_TRACE("heartbeat: %u beats in %u ms, %d channels playing, fmod cpu dsp %.1f stream %.1f update %.1f", s_beats, now - s_lastReport, playing, dsp, stream, update);
+            s_beats = 0;
+            s_lastReport = now;
+        }
+    }
+#endif
 
     ProcessDeleteList(0);
     ProcessWaveDataDeleteList(0);
@@ -2890,12 +2966,14 @@ int32_t SE2::CreateWaveData(FMOD::System* system, const char* filename, FMOD_MOD
                     s_cacheHitsLoading++;
                 }
 
+                SOUND_TRACE("create #%u %s: cache hit, loaded %d", internal->m_id, filename, loaded);
                 goto done;
             }
         }
     }
 
     if (!SFile::OpenEx(nullptr, filename, 1, &internal->m_file)) {
+        SOUND_TRACE("create #%u %s: SFile open FAILED, error %u", internal->m_id, filename, SErrGetLastError());
         SE2::Log_Write(__LINE__, __FILE__, FMOD_ERR_FILE_NOTFOUND, filename);
         s_soundListCritSect.Enter();
         goto fail;
@@ -2929,6 +3007,8 @@ int32_t SE2::CreateWaveData(FMOD::System* system, const char* filename, FMOD_MOD
             result = system->createSound(name, createMode, &exinfo, &internal->m_sound);
             s_soundsCreated++;
         }
+
+        SOUND_TRACE("create #%u %s: %s size %u mode 0x%x -> %d %s", internal->m_id, filename, cacheable ? "sound" : "stream", fileSize, createMode, result, FMOD_ErrorString(result));
 
         if (result != FMOD_OK) {
             if (result != FMOD_ERR_OUTPUT_CREATEBUFFER) {

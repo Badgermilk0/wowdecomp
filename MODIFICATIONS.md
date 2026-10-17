@@ -88,6 +88,57 @@ a build you use yourself; anyone given this exe or its source would get it under
 |---|---|
 | **Scan.dll login bypass** | Not done on purpose; see below. |
 
+### The HD client's Wow.exe patches
+
+The "WoW 3.3.5a HD" client this build replaces ships a patched 32-bit `Wow.exe` (and the stock one as
+`wow (original).exe` in its `reserved.zip`). A section-by-section diff of the two on 2026-10-17 found 45 changed runs.
+Each is listed here with what became of it, so this build does everything that exe did. The CVars are in
+`Awesome/AwesomeHdClient.cpp` and default to the HD behaviour; set one to `0` for stock.
+
+| Patch (32-bit address) | Here | CVar |
+|---|---|---|
+| Far clip caps 791.7 / 1583.3 → 10000 (`World::ValidateFarClip`, 0x780770; constants at 0xA3E70C) | `WorldClient/World.cpp`; `farClipOverride` no longer matters | — |
+| `groundEffectDist` max 140 → 3166.7 (0x78DB10; 0x9E8CFC). Stock rejects a larger value, and the line then vanishes from Config.wtf | `WorldClient/WorldParam_CVar.cpp` | — |
+| `horizonFarclipScale` max 6 → 12 (0x78D7C0) | same | — |
+| `environmentDetail` 0.5–1.5 clamp removed (0x78DC60) | same | — |
+| Cast bars on every nameplate, not only the target's (`UpdateSpellCastBars` 0x720E73/82, `Target` 0x524DC6, `ClearTarget` 0x524276) | `Object_C/Unit_C.cpp`, `Ui/GameUI.cpp` | `nameplateAllCastBars` (1) |
+| The camera does not fade the character it is zoomed in on (`SetMaxAlpha` 0x737441) | `Object_C/Unit_C.cpp` | `cameraPlayerFade` (0) |
+| Say, yell and emote while dead (`Script_SendChatMessage` 0x50D641) | `Ui/ChatFrame_Scripts.cpp` | `chatWhileDead` (1) |
+| Forced reactions kept through `LeaveWorld` (0x528D1E skips `CGReputationInfo::LeaveWorld`) | `Ui/ReputationInfo.cpp`: only the forced reactions are kept; `EnterWorld` rebuilds the faction table anyway | — |
+| Pending item queries sent every pump, not every 30 s (`DBCache<ItemStats_C>::Idle` 0x6695FD) | `DB/DBClient/DBCache.h` | — |
+| `CheckInbox` refresh throttle 60 s → 1 ms (0x56E49A) | `Ui/MailInfo_Scripts.cpp` | — |
+| Area triggers checked every 50 ms, not 100 (`AreaTriggerCheck` 0x6DBE41) | `Object_C/Player_C.cpp` | — |
+| Second moon drawn white instead of black (DayNight static init 0x9D07C0 sets `g_planets.m_moon2.m_color`) | `WorldClient/DayNight.cpp` | — |
+| Patch archives `patch-*.MPQ` / `patch-<locale>-*.MPQ` instead of `?` (strings 0x9E2709/16) | `WowServices/PatchFiles.cpp` | — |
+| Loose `Interface\GlueXML` / `FrameXML` never moved aside (`DeleteInterfaceFiles` 0x5F4DBF) | `UIUtil/AddOns.cpp`, with `WOWDECOMP_DISABLE_SIGNATURE_CHECKS` | — |
+| FrameXML/.toc signature check off (0x816625–0x81675F) | already: `WOWDECOMP_DISABLE_SIGNATURE_CHECKS` | — |
+| Windowed-mode gamma, melee swing on right-click, NPC turn animation, pre-cast animation (0x401A94, 0x6E2867, 0x73E3C9, 0x73ECD6) | already in the decomp (`WoWFix335` comments) | — |
+| Mouselook keeps the cursor where it was (`CenterMouse` 0x869DB1, `OsWindowProc` 0x86A62C + cave 0x9296A2) | already in the decomp (upstream 5b41f72, `Os/Win64/Input.cpp`) | — |
+| HD unit-frame portraits (0x616E0A, 0x6176A0, 0x6180E9, 0x619B73, 0x619FAF, section `.hdp`) | already: `portraitResolution` | — |
+| Loads `AwesomeWotlkLib.dll` (`MainFiberProc` 0x40B7D0 → cave over `CGlueMgr::ScanDLLStart` 0x4E5CB0; `Script_ScanDLLStart` 0x4DCCF0 stubbed because that function is gone) | awesome is built in (above) | — |
+| `FlashWindow()` Lua function written over `BNRemoveFriend` (0x534ED5, name at 0xA086E4) | awesome's `FlashWindow` (above); `BNRemoveFriend` stays | — |
+
+Three runs are not ported because they are byte corruption, not features: they fall mid-instruction in code that has
+nothing to do with any feature, and running them would crash or hang. Probably a patcher written for another exe.
+
+| Address | What it breaks |
+|---|---|
+| 0x414D37 | the CRT's 64-bit unsigned divide (`mul [esp+0x18]; add edx,ecx` becomes `mul [esp+0x10]; daa; …`) |
+| 0x4361BF | a `std::string` replace: its `call memmove` becomes `jmp` to itself minus 3 bytes |
+| 0x5DE85D | `Script_GetTradeSkillTools`: the search flags passed to `FindTotemCategory` go from 0 (equipped + bags + backpack) to 0xEB, which drops the backpack (flag 0x4), so a tool there would show as missing |
+
+### Port fixes (bugs in the decompilation itself)
+
+| Bug | Where | Symptom |
+|---|---|---|
+| `SI2::PlaySoundFile` passed `Create2D` its last three arguments shifted: reverb 0, priority 128/100, decodeBufferSize `0xFFFFFFFF`. The original (call at 0x4C91BF) passes reverb 128/100, priority -1 and decodeBufferSize 0 | `SoundInterface/SoundInterface2ZoneSounds.cpp` | Every Lua `PlayMusic` / `PlaySoundFile` (login-screen music, addon music and sounds) failed: FMOD read the whole file trying to fill a 4 GB decode buffer and gave up after about 6 s with `FMOD_ERR_INVALID_PARAM`. FMOD loads every sound on one thread, so sound effects queued behind it played late or not at all, and quitting hung while that thread was busy. Found with the sound trace below; reproduced and confirmed with the client's FMOD library outside the game. Present in upstream too. |
+
+### Diagnostics
+
+| Option | Effect |
+|---|---|
+| `-DWOWDECOMP_SOUND_TRACE=ON` (off by default) | `Logs\SoundTrace.log`: every sound's request (`kit`, `glue music`), create, file open, reads near the start of a file and every failed read (position and first bytes), seeks, non-blocking load result, play (volume), stop, end and virtual kill, plus FMOD's channel count every 2 s. Also writes every byte FMOD reads for the first file over 1 MB to `Logs\SoundDump.bin`, to compare with the file in the MPQ. Build it in its own folder (`build/x64-trace`); it writes to the same `bin/Win`. |
+
 ### Performance (x64)
 
 | Change | Where | Effect |

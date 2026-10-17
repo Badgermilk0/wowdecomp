@@ -467,7 +467,11 @@ int32_t SI2::PlaySoundFile(const char* filename, int32_t group) {
     SESound localSound;
     SESound* sound = group == 5 ? &s_scriptMusic.m_sound : &localSound;
 
-    sound->Create2D(filename, group != 4, nullptr, nullptr, false, false, 0, group != 5 ? 128 : 100, 0xFFFFFFFF);
+    // MODIFIED: fix; the port had shifted the last three arguments (reverb 0, priority 128/100, decodeBufferSize
+    // 0xFFFFFFFF). The original (0x4C91BF) passes reverb 128/100, priority -1 (default) and decodeBufferSize 0 (default);
+    // FMOD cannot allocate a 4 GB decode buffer, so every PlayMusic / PlaySoundFile stream failed with
+    // FMOD_ERR_INVALID_PARAM after reading the whole file: no login screen or addon music
+    sound->Create2D(filename, group != 4, nullptr, nullptr, false, false, group != 5 ? 128 : 100, -1, 0);
     sound->SetChannelGroup(SI2::s_channelGroupNames[group], true);
 
     SI2SoundUserData* userData = new (SMemAlloc(sizeof(SI2SoundUserData), __FILE__, __LINE__, 0)) SI2SoundUserData();

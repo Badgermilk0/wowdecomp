@@ -31,6 +31,7 @@
 #include "WoW/Source/WorldClient/AreaList.h"
 #include "WoW/Source/WorldClient/Map.h"
 #include "WoW/Source/WorldClient/World.h"
+#include "Engine/Source/SoundEngine/SoundTrace.h"
 
 // STATIC: 0x00B24180
 static const char* s_raceFileNames[] = { nullptr, "Human", "Orc", "Dwarf", "NightElf", "Scourge", "Tauren", "Gnome", "Troll", "Goblin", "BloodElf", "Draenei" };
@@ -697,6 +698,7 @@ int32_t SI2::PlaySoundKit(int32_t soundKitId, const C3Vector* position, SE2Sound
     }
 
     if (SI2::s_channelGroupNumSounds[properties->m_group] >= SI2::s_channelGroupMaxSounds[properties->m_group]) {
+        SOUND_TRACE("kit %d: group %d full (%d of %d)", soundKitId, properties->m_group, SI2::s_channelGroupNumSounds[properties->m_group], SI2::s_channelGroupMaxSounds[properties->m_group]);
         return 14;
     }
 
@@ -765,11 +767,13 @@ int32_t SI2::PlaySoundKit(int32_t soundKitId, const C3Vector* position, SE2Sound
     const char* file = def->SelectFile(properties->m_selectMode, nullptr, properties->m_fileIndex, GetDownloadPriority(properties->m_group));
 
     if (!file) {
+        SOUND_TRACE("kit %d: no file selected", soundKitId);
         return 16;
     }
 
     if (properties->m_checkStreaming) {
         int32_t local = SFile::FileIsLocal(file, GetDownloadPriority(properties->m_group));
+        SOUND_TRACE("kit %d %s: group %d FileIsLocal %d", soundKitId, file, properties->m_group, local);
 
         if (local != 1) {
             if (properties->m_group == 6) {
@@ -903,6 +907,7 @@ int32_t SI2::PlaySoundKit(int32_t soundKitId, const C3Vector* position, SE2Sound
         *soundId = sound->GetID();
     }
 
+    SOUND_TRACE("kit %d %s: group %d (%d playing) -> #%u", soundKitId, file, properties->m_group, SI2::s_channelGroupNumSounds[properties->m_group], sound->GetID());
     sound->Play();
     return 0;
 }
@@ -1003,10 +1008,17 @@ int32_t SI2::PlaySoundKit(const char* name, const C3Vector* position, SE2SoundKi
     int32_t soundKitId = SI2::LookupSoundKitId(name);
 
     if (!soundKitId) {
+        SOUND_TRACE("kit %s: unknown name", name);
         return 7;
     }
 
+#if defined(WOWDECOMP_SOUND_TRACE)
+    int32_t result = SI2::PlaySoundKit(soundKitId, position, object, properties, 0, nullptr, 1, 0);
+    SOUND_TRACE("kit %s (%d): result %d", name, soundKitId, result);
+    return result;
+#else
     return SI2::PlaySoundKit(soundKitId, position, object, properties, 0, nullptr, 1, 0);
+#endif
 }
 
 // VERIFY: 1522defd manual

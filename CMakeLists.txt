@@ -79,6 +79,12 @@ if (WOWDECOMP_DISABLE_SIGNATURE_CHECKS)
     add_compile_definitions(DISABLE_SIGNATURE_CHECKS=1)
 endif ()
 
+# MODIFIED: diagnostics; Logs\SoundTrace.log, see Engine/Source/SoundEngine/SoundTrace.h
+option(WOWDECOMP_SOUND_TRACE "Log every sound's life to Logs\\SoundTrace.log" OFF)
+if (WOWDECOMP_SOUND_TRACE)
+    add_compile_definitions(WOWDECOMP_SOUND_TRACE=1)
+endif ()
+
 # Third-party code is linked, not decompiled, for now.
 if (EXISTS ${CMAKE_SOURCE_DIR}/ThirdParty/CMakeLists.txt)
     add_subdirectory(ThirdParty)

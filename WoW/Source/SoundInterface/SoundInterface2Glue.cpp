@@ -4,6 +4,7 @@
 #include "Engine/Source/Storm/H/storm.h"
 #include "WoW/Source/SoundInterface/SoundInterface2.h"
 #include "WoW/Source/SoundInterface/SoundInterface2Internal.h"
+#include "Engine/Source/SoundEngine/SoundTrace.h"
 
 // STATIC: 0x00DCE8E8
 static char s_creditsMusicName[128];
@@ -140,7 +141,9 @@ void SI2::StartGlueMusic(const char* name) {
     properties.m_group = 1;
     properties.m_decodeBufferSize = 0;
 
-    SI2::PlaySoundKit(s_glueMusicName, nullptr, &s_glueMusic, &properties);
+    int32_t result = SI2::PlaySoundKit(s_glueMusicName, nullptr, &s_glueMusic, &properties);
+    SOUND_TRACE("glue music %s: PlaySoundKit %d", s_glueMusicName, result);
+    static_cast<void>(result);
     EventRegister(EVENT_ID_POLL, SI2::GlueMusicUpdate);
 }
 

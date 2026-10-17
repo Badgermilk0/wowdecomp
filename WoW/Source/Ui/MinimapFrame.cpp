@@ -318,6 +318,9 @@ static uint16_t s_insideIndices[4] = { 0, 1, 3, 2 };
 // STATIC: 0x00ACECFC
 static float s_indoorTexScale = 0.33333334f;
 
+// MODIFIED: indoor minimap render target size (stock 256), set by the minimapIndoorResolution CVar
+static uint32_t s_indoorResolution = 256;
+
 // STATIC: 0x00D3922C
 static uint32_t s_updateFlags;
 
@@ -572,6 +575,12 @@ void CGMinimapFrame::EnterWorld() {
     s_inWorld = 1;
     MinimapInitialize(CGPlayer_C::GetNewContinentID());
     s_indoor.m_radius = 10.0f;
+    CreateIndoorTexture();
+    memset(s_hoverObjects, 0, sizeof(s_hoverObjects));
+}
+
+// MODIFIED: split out of EnterWorld so minimapIndoorResolution can rebuild the render target at a new size
+void CGMinimapFrame::CreateIndoorTexture() {
     EGxTexFormat format = GxTex_Unknown;
 
     if (g_theGxDevicePtr->Caps().m_rttFormat[GxTex_Argb8888]) {
@@ -583,8 +592,32 @@ void CGMinimapFrame::EnterWorld() {
     }
 
     CGxTexFlags flags(GxTex_Linear, 0, 0, 0, 0, 1, 1, 0, 0, 0);
-    s_indoor.m_texture = TextureCreate(256, 256, format, format, flags, nullptr, CGMinimapFrame::MinimapTextureCallback, "MinimapRenderTarget", 0);
-    memset(s_hoverObjects, 0, sizeof(s_hoverObjects));
+    s_indoor.m_texture = TextureCreate(s_indoorResolution, s_indoorResolution, format, format, flags, nullptr, CGMinimapFrame::MinimapTextureCallback, "MinimapRenderTarget", 0);
+}
+
+// MODIFIED: minimapIndoorResolution. The indoor map is drawn into a square render target covering three times the
+// visible radius, and only its middle third is shown: at 256 the minimap shows ~85 texels across, coarser than the
+// WMO minimap textures (0.5 yd per texel) at every zoom but the closest.
+void MinimapSetIndoorResolution(uint32_t resolution) {
+    if (resolution < 256) {
+        resolution = 256;
+    }
+
+    if (resolution == s_indoorResolution) {
+        return;
+    }
+
+    s_indoorResolution = resolution;
+
+    // set before EnterWorld (the CVar registers at startup): EnterWorld creates it at this size
+    if (!s_indoor.m_texture) {
+        return;
+    }
+
+    HandleClose(reinterpret_cast<HOBJECT>(s_indoor.m_texture));
+    s_indoor.m_texture = nullptr;
+    CGMinimapFrame::CreateIndoorTexture();
+    s_indoor.m_dirty = 1;
 }
 
 // VERIFY: 7d4e4155 manual

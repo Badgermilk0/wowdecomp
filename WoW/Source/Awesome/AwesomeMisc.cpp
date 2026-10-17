@@ -23,6 +23,7 @@
 #include "WoW/Source/Object/Unit.h"
 #include "WoW/Source/ObjectMgrClient/ObjectMgrClient.h"
 #include "WoW/Source/Ui/GameUI.h"
+#include "WoW/Source/Ui/MinimapFrame.h"
 #include "WoW/Source/Ui/UIBindings.h"
 #include "WoW/Source/Ui/UIMacros.h"
 #include "WoW/Source/UIUtil/PortraitButton.h"
@@ -65,6 +66,7 @@ static const uint32_t LOCK_KEY_SKILL = 2;
 
 static void OnInteractionHighlight(AwesomeCVar* cvar, bool changed);
 static void OnPortraitResolution(AwesomeCVar* cvar, bool changed);
+static void OnMinimapIndoorResolution(AwesomeCVar* cvar, bool changed);
 static void OnObjectHighlightMode(AwesomeCVar* cvar, bool changed);
 static void OnChatLogSessionKey(AwesomeCVar* cvar, bool changed);
 static void OnCombatLogSessionKey(AwesomeCVar* cvar, bool changed);
@@ -74,6 +76,8 @@ static AwesomeCVar s_cvInteractionMode = AwesomeCVar::Int("interactionMode", 1, 
 static AwesomeCVar s_cvInteractionHighlight = AwesomeCVar::Int("interactionHighlight", 1, 0, 1, OnInteractionHighlight);
 // MODIFIED: 256 by default, the resolution the replaced client's binary patch rendered at (awesome_wotlk: 64)
 static AwesomeCVar s_cvPortraitResolution = AwesomeCVar::Int("portraitResolution", 256, 64, 2048, OnPortraitResolution);
+// MODIFIED: indoor minimap render target (stock 256); 1024 keeps the WMO minimap textures' full detail at every zoom
+static AwesomeCVar s_cvMinimapIndoorResolution = AwesomeCVar::Int("minimapIndoorResolution", 1024, 256, 2048, OnMinimapIndoorResolution);
 static AwesomeCVar s_cvObjectHighlightMode = AwesomeCVar::Int("objectHighlightMode", 0, 0, 2, OnObjectHighlightMode);
 static AwesomeCVar s_cvChatLogSessionKey = AwesomeCVar::Int("chatLogSessionKey", 1, 0, 1, OnChatLogSessionKey);
 static AwesomeCVar s_cvCombatLogSessionKey = AwesomeCVar::Int("combatLogSessionKey", 1, 0, 1, OnCombatLogSessionKey);
@@ -549,6 +553,19 @@ static void OnPortraitResolution(AwesomeCVar* cvar, bool changed) {
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
+// minimapIndoorResolution: the indoor minimap's render target is this many pixels square, rounded up to a power of two
+
+static void OnMinimapIndoorResolution(AwesomeCVar* cvar, bool changed) {
+    uint32_t resolution = 256;
+
+    while (resolution < static_cast<uint32_t>(cvar->m_intValue)) {
+        resolution <<= 1;
+    }
+
+    MinimapSetIndoorResolution(resolution);
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
 // FlashWindow / IsWindowFocused / FocusWindow / CopyToClipboard
 
 static HWND GameWindow() {
@@ -599,6 +616,7 @@ void AwesomeMiscRegisterCVars() {
     s_cvInteractionMode.Register();
     s_cvInteractionHighlight.Register();
     s_cvPortraitResolution.Register();
+    s_cvMinimapIndoorResolution.Register();
     s_cvObjectHighlightMode.Register();
     s_cvChatLogSessionKey.Register();
     s_cvCombatLogSessionKey.Register();

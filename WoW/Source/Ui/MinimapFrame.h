@@ -136,6 +136,8 @@ void DisplayQuestPoint(float x, float y, int32_t importance, const char* name);
 class CGMinimapFrame : public CSimpleFrame {
     public:
     static void EnterWorld();
+    // MODIFIED: (re)creates the indoor render target at the minimapIndoorResolution size
+    static void CreateIndoorTexture();
     static void ShutdownGame();
     static void LeaveWorld();
     static CDataAllocator s_minimapHeap;
@@ -240,5 +242,8 @@ extern CTexture* s_blipTexture;
 extern CTexture* s_iconTexture;
 
 void MinimapSetZoom(uint32_t zoom);
+
+// MODIFIED: indoor minimap render target size in pixels (stock 256); set by the minimapIndoorResolution CVar
+void MinimapSetIndoorResolution(uint32_t resolution);
 
 #endif

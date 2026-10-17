@@ -56,6 +56,12 @@ int32_t ReadyModelForUI(CGUnit_C* unit, uint32_t flags);
 // set by awesome_wotlk's portraitResolution CVar
 void PortraitSetResolution(uint32_t resolution);
 
+// MODIFIED: live portraits. On, unit portraits are animated 3D models redrawn every frame instead of a snapshot; set by
+// the portraitLive CVar. UpdateLivePortraits runs once a frame from CGWorldFrame::OnWorldUpdate.
+void PortraitSetLive(int32_t live);
+int32_t PortraitIsLive();
+void UpdateLivePortraits();
+
 extern const char* s_sexNames[3];
 
 #endif

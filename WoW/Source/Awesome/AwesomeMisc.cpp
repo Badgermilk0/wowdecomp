@@ -66,6 +66,7 @@ static const uint32_t LOCK_KEY_SKILL = 2;
 
 static void OnInteractionHighlight(AwesomeCVar* cvar, bool changed);
 static void OnPortraitResolution(AwesomeCVar* cvar, bool changed);
+static void OnPortraitLive(AwesomeCVar* cvar, bool changed);
 static void OnMinimapIndoorResolution(AwesomeCVar* cvar, bool changed);
 static void OnObjectHighlightMode(AwesomeCVar* cvar, bool changed);
 static void OnChatLogSessionKey(AwesomeCVar* cvar, bool changed);
@@ -76,6 +77,8 @@ static AwesomeCVar s_cvInteractionMode = AwesomeCVar::Int("interactionMode", 1, 
 static AwesomeCVar s_cvInteractionHighlight = AwesomeCVar::Int("interactionHighlight", 1, 0, 1, OnInteractionHighlight);
 // MODIFIED: 256 by default, the resolution the replaced client's binary patch rendered at (awesome_wotlk: 64)
 static AwesomeCVar s_cvPortraitResolution = AwesomeCVar::Int("portraitResolution", 256, 64, 2048, OnPortraitResolution);
+// MODIFIED: animated 3D unit portraits (0 = the stock snapshot)
+static AwesomeCVar s_cvPortraitLive = AwesomeCVar::Int("portraitLive", 1, 0, 1, OnPortraitLive);
 // MODIFIED: indoor minimap render target (stock 256); 1024 keeps the WMO minimap textures' full detail at every zoom
 static AwesomeCVar s_cvMinimapIndoorResolution = AwesomeCVar::Int("minimapIndoorResolution", 1024, 256, 2048, OnMinimapIndoorResolution);
 static AwesomeCVar s_cvObjectHighlightMode = AwesomeCVar::Int("objectHighlightMode", 0, 0, 2, OnObjectHighlightMode);
@@ -553,6 +556,55 @@ static void OnPortraitResolution(AwesomeCVar* cvar, bool changed) {
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
+// portraitLive: unit portraits are animated 3D models (1) or the stock snapshot (0); /liveportraits [on|off] toggles it
+
+static void OnPortraitLive(AwesomeCVar* cvar, bool changed) {
+    PortraitSetLive(cvar->m_intValue);
+}
+
+static int32_t Script_LivePortraitsCommand(lua_State* L) {
+    const char* option = AwesomeLuaIsNoneOrNil(L, 1) ? "" : lua_tolstring(L, 1, nullptr);
+    char word[16] = {};
+
+    if (option) {
+        while (*option == ' ') {
+            option++;
+        }
+
+        for (size_t i = 0; i + 1 < sizeof(word) && option[i] && option[i] != ' '; i++) {
+            word[i] = static_cast<char>(tolower(static_cast<unsigned char>(option[i])));
+        }
+    }
+
+    int32_t live = !PortraitIsLive();
+
+    if (!strcmp(word, "on") || !strcmp(word, "1")) {
+        live = 1;
+    } else if (!strcmp(word, "off") || !strcmp(word, "0")) {
+        live = 0;
+    }
+
+    s_cvPortraitLive.Set(live ? "1" : "0");
+
+    lua_getfield(L, LUA_GLOBALSINDEX, "DEFAULT_CHAT_FRAME");
+
+    if (lua_istable(L, -1)) {
+        lua_getfield(L, -1, "AddMessage");
+
+        if (lua_isfunction(L, -1)) {
+            lua_pushvalue(L, -2);
+            lua_pushstring(L, live ? "Live 3D portraits |cff00ff00on|r (portraitLive 1)" : "Live 3D portraits |cffff5555off|r (portraitLive 0)");
+            lua_pcall(L, 2, 0, 0);
+        } else {
+            lua_pop(L, 1);
+        }
+    }
+
+    lua_pop(L, 1);
+    return 0;
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
 // minimapIndoorResolution: the indoor minimap's render target is this many pixels square, rounded up to a power of two
 
 static void OnMinimapIndoorResolution(AwesomeCVar* cvar, bool changed) {
@@ -616,6 +668,7 @@ void AwesomeMiscRegisterCVars() {
     s_cvInteractionMode.Register();
     s_cvInteractionHighlight.Register();
     s_cvPortraitResolution.Register();
+    s_cvPortraitLive.Register();
     s_cvMinimapIndoorResolution.Register();
     s_cvObjectHighlightMode.Register();
     s_cvChatLogSessionKey.Register();
@@ -638,6 +691,7 @@ void AwesomeMiscOnEnterWorld() {
     lua_State* L = FrameScript_GetContext();
 
     AwesomeLuaRegisterSlashCommand(L, "INTERACTCMD", "/interact", &Script_InteractCommand);
+    AwesomeLuaRegisterSlashCommand(L, "LIVEPORTRAITS", "/liveportraits", &Script_LivePortraitsCommand);
     RegisterInteractionBinding();
 
     if (L) {

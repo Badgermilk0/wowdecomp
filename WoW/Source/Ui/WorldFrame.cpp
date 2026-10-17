@@ -2059,6 +2059,8 @@ void CGWorldFrame::OnWorldUpdate() {
 
     CGObject_C::UpdateAllObjectEffectManagers();
     UpdatePendingPortraits();
+    // MODIFIED: live portraits, one frame of animation for every portrait on screen
+    UpdateLivePortraits();
     this->MoveToFreeList(&this->m_modelList);
     this->MoveToFreeList(&this->m_hitModelList);
     ClntObjMgrEnumVisibleObjects(UnitUpdateProc, nullptr);

@@ -66,6 +66,8 @@ int32_t CSimpleRender::s_mergeEnable;
 const char* CSimpleRender::s_vertexShaderName = "UI";
 void (*CSimpleRender::s_batchTextureCallback)(CGxTex* texture);
 void (*CSimpleTexture::s_positionCallback)(const CRect& rect, C3Vector* position);
+// MODIFIED: live portraits
+void (*CSimpleTexture::s_destroyCallback)(CSimpleTexture* texture);
 
 // STATIC: 0x00B47978
 static char s_displayText[0x2000];
@@ -2218,6 +2220,11 @@ int32_t CSimpleTexture::GetScriptMetaTable() {
 // VERIFY: ec4a9c07 auto
 // OFFSET: [0x00482860, 0x00483010]
 CSimpleTexture::~CSimpleTexture() {
+    // MODIFIED: live portraits
+    if (CSimpleTexture::s_destroyCallback) {
+        CSimpleTexture::s_destroyCallback(this);
+    }
+
     if (this->m_texture) {
         HandleClose(reinterpret_cast<HOBJECT>(this->m_texture));
     }

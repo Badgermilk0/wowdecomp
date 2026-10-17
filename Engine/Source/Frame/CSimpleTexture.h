@@ -28,6 +28,8 @@ class CSimpleTexture : public CSimpleRegion {
     static const char* s_imageModePixelShaderNames[2];
     // MODIFIED: awesome_wotlk uiPixelSnap; adjusts the quad SetPosition just built from rect
     static void (*s_positionCallback)(const CRect& rect, C3Vector* position);
+    // MODIFIED: live portraits; told about each texture as it is destroyed, so the portrait code can drop its pointer
+    static void (*s_destroyCallback)(CSimpleTexture* texture);
     static int32_t s_metatable;
     static int32_t s_objectType;
     static const char* s_objectTypeName;

@@ -811,6 +811,13 @@ int32_t CGxDeviceD3d11::DeviceWM(EGxWM wm, uintptr_t param1, uintptr_t param2) {
         case GxWM_Destroy:
         case GxWM_KillFocus:
             this->m_windowFocus = 0;
+
+            // full screen clips the cursor to the window on focus (ISetWindowFocus); a borderless window stays on the
+            // desktop after alt-tab, so the clip, which is system-wide, goes with the focus
+            if (!this->m_format.m_window) {
+                ClipCursor(nullptr);
+            }
+
             break;
 
         case GxWM_SetFocus:

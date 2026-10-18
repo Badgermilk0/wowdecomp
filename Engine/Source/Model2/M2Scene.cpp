@@ -6,6 +6,8 @@
 #include <xmmintrin.h>
 #include "Engine/Source/Model2/M2Scene.h"
 #include "Engine/Source/Base/ObjectAlloc.h"
+#include "Engine/Source/Base/FrameProfile.h"
+#include "Engine/Source/Base/ParallelFor.h"
 #include "Engine/Source/Gx/CGxDevice/CGxDevice.h"
 #include "Engine/Source/Model2/M2Cache.h"
 #include "Engine/Source/Model2/M2Light.h"
@@ -1699,7 +1701,47 @@ int32_t CM2Scene::Animate(const C3Vector& cameraPos) {
     this->m_view.Translate(move);
     this->m_viewInv = this->m_view.Inverse(this->m_view.Determinant());
 
-    if (this->m_cache->m_flags & 4) {
+    // MODIFIED: performance, multithreaded scene. The stock client splits AnimateMT two ways, alternate models on its
+    // "Model2" thread; that split is the proof that each root model (with its attachments) animates independently. With
+    // the scene pool on, the roots are spread over every pool thread instead, a few at a time, so the slow ones (a crowd
+    // of player models with many bones) do not leave one thread doing the rest
+    uint64_t animStart = FrameProfileNow();
+
+    if ((this->m_cache->m_flags & 4) && ParallelThreadCount() > 1) {
+        // one Animate at a time runs on the main thread, so one list does for every scene
+        static TSGrowableArray<CM2Model*> s_roots;
+        s_roots.SetCount(0);
+
+        for (CM2Model* model = this->m_animateList; model; model = model->m_animateNext) {
+            if (!model->m_attachParent) {
+                *s_roots.New() = model;
+            }
+        }
+
+        struct AnimateJob {
+            CM2Scene* m_scene;
+            CM2Model** m_roots;
+
+            static void Run(void* context, uint32_t begin, uint32_t end) {
+                AnimateJob* job = static_cast<AnimateJob*>(context);
+
+                for (uint32_t i = begin; i < end; i++) {
+                    CM2Model* model = job->m_roots[i];
+
+                    if (model->m_fFlags & 0x1000) {
+                        model->AnimateMTSimple(&job->m_scene->m_view, C3Vector(1.0f, 1.0f, 1.0f), C3Vector(0.0f, 0.0f, 0.0f), 1.0f, 1.0f);
+                    } else {
+                        model->AnimateMT(&job->m_scene->m_view, C3Vector(1.0f, 1.0f, 1.0f), C3Vector(0.0f, 0.0f, 0.0f), 1.0f, 1.0f);
+                    }
+                }
+            }
+        };
+
+        AnimateJob job = { this, s_roots.m_data };
+        // small pieces: a model costs from almost nothing (a static doodad) to a lot (a character with gear attached)
+        ParallelFor(s_roots.Count(), 4, &AnimateJob::Run, &job);
+        FrameProfileCount(FRAMEPROFILE_MODELS, s_roots.Count());
+    } else if (this->m_cache->m_flags & 4) {
         this->m_cache->BeginThread(&CM2Scene::AnimateThread, this);
 
         for (CM2Model* model = this->m_animateList; model; ) {
@@ -1735,6 +1777,10 @@ int32_t CM2Scene::Animate(const C3Vector& cameraPos) {
         }
     }
 
+    // MODIFIED: performance diagnostics (FrameProfile.h)
+    uint64_t serialStart = FrameProfileNow();
+    FrameProfileAdd(FRAMEPROFILE_ANIM_PARALLEL, animStart, serialStart);
+
     for (CM2Model* model = this->m_animateList; model; model = model->m_animateNext) {
         if (!model->m_attachParent) {
             model->AnimateST();
@@ -1748,6 +1794,10 @@ int32_t CM2Scene::Animate(const C3Vector& cameraPos) {
         model->m_animateNext = nullptr;
         model->SetupLighting();
     }
+
+    // MODIFIED: performance diagnostics (FrameProfile.h)
+    FrameProfileAdd(FRAMEPROFILE_ANIM_SERIAL, serialStart, FrameProfileNow());
+    FrameProfileScope batchScope(FRAMEPROFILE_ANIM_BATCH);
 
     this->m_doodadElements.m_count = 0;
 

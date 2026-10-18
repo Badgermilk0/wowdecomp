@@ -88,6 +88,7 @@
 #include "WoW/Source/WorldClient/World.h"
 #include <cfloat>
 #include <cmath>
+#include "Engine/Source/Base/FrameProfile.h"
 #include "WoW/Source/Ui/SpellBookFrame.h"
 
 // STATIC: 0x009F9864
@@ -1727,6 +1728,8 @@ void CGWorldFrame::OnWorldRender() {
 
     CShaderEffect::UpdateProjMatrix();
     CWorld::Render(this->m_camera->m_position, this->m_elapsedSec);
+    // MODIFIED: performance diagnostics (FrameProfile.h)
+    FrameProfileScope postScope(FRAMEPROFILE_POST);
     CMap::RenderFootprints();
     ClntObjMgrEnumVisibleObjects(UnitPostAnimateProc, this);
     CGUnit_C::NamePlateSetResortAll(false);
@@ -1963,6 +1966,8 @@ void CGWorldFrame::OnLayerUpdate(float elapsedSec) {
 // VERIFY: b7190175 manual
 // OFFSET: 0x004FA5F0
 void CGWorldFrame::OnWorldUpdate() {
+    // MODIFIED: performance diagnostics (FrameProfile.h); the unit updates are their own section
+    uint64_t updateStart = FrameProfileNow();
     float elapsedSec = this->m_elapsedSec;
     CGPlayer_C* player = static_cast<CGPlayer_C*>(ClntObjMgrObjectPtr(ClntObjMgrGetActivePlayer(), TYPEMASK_PLAYER, __FILE__, __LINE__));
 
@@ -2063,7 +2068,10 @@ void CGWorldFrame::OnWorldUpdate() {
     UpdateLivePortraits();
     this->MoveToFreeList(&this->m_modelList);
     this->MoveToFreeList(&this->m_hitModelList);
+    uint64_t unitStart = FrameProfileNow();
     ClntObjMgrEnumVisibleObjects(UnitUpdateProc, nullptr);
+    uint64_t unitEnd = FrameProfileNow();
+    FrameProfileAdd(FRAMEPROFILE_UNIT_UPDATE, unitStart, unitEnd);
     World::SetObjectCollisionCallback(ObjectCollisionProc);
     CEffect::CleanUpStaticLists();
     CMissile::UpdateStaticLists();
@@ -2093,6 +2101,8 @@ void CGWorldFrame::OnWorldUpdate() {
 
     CGUnit_C::UpdateAllSmoothFacing();
     CheckEventWorldStateUITimerUpdate();
+
+    FrameProfileAdd(FRAMEPROFILE_WORLD_UPDATE, updateStart + (unitEnd - unitStart), FrameProfileNow());
 }
 
 // VERIFY: 09c5961f manual

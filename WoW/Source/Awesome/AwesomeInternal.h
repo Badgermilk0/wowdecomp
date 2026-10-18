@@ -95,6 +95,7 @@ void AwesomeHdClientRegisterCVars();
 void AwesomeShadowsRegisterCVars();
 
 // AwesomePerf.cpp
+void AwesomePerfRegisterCVars();
 void AwesomePerfRegisterScriptFunctions(lua_State* L);
 void AwesomePerfOnEnterWorld();
 

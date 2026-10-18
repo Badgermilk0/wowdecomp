@@ -1,5 +1,6 @@
 #include <cfloat>
 #include "CWorldSceneRender.h"
+#include "Engine/Source/Base/FrameProfile.h"
 #include "WoW/Source/WorldClient/Map.h"
 #include "WoW/Source/WorldClient/World.h"
 #include "Engine/Source/Gx/Gx.h"
@@ -69,6 +70,9 @@ void CWorldScene::RenderCollisionDebug() {
 // VERIFY: cd492c82 manual
 // OFFSET: 0x0079A870
 void CWorldScene::Render(const C3Vector& cameraPos, float time) {
+    // MODIFIED: performance diagnostics (FrameProfile.h)
+    uint64_t cullStart = FrameProfileNow();
+
     if (!CWorldScene::s_viewerMapObjDef) {
         CWorldScene::ComputeExteriorSortDistances();
     }
@@ -182,6 +186,8 @@ void CWorldScene::Render(const C3Vector& cameraPos, float time) {
     }
 
     CM2Scene* scene = World::s_m2Scene;
+    // MODIFIED: performance diagnostics; Animate times its own parts
+    FrameProfileAdd(FRAMEPROFILE_CULL, cullStart, FrameProfileNow());
 
     if (scene) {
         scene->m_flags |= 0x1;
@@ -189,6 +195,8 @@ void CWorldScene::Render(const C3Vector& cameraPos, float time) {
         scene->Animate(cameraPos);
         scene->m_flags &= ~0x1;
     }
+
+    FrameProfileScope drawScope(FRAMEPROFILE_DRAW);
 
     CGUnit_C::UpdateMissileTrajectoryTargeting();
     CShadowQuery::Update();

@@ -532,10 +532,13 @@ void CGxString::InitializeTextLine(const char* text, uint32_t numBytes, CImVecto
                     CRect coords = desc->m_bitmapData.m_textureCoords;
 
                     if (this->m_flags & 0x80) {
-                        coords.minY = coords.minY + pixelAdjustments.minY;
-                        coords.minX = coords.minX + pixelAdjustments.minX;
-                        coords.maxY = coords.maxY + pixelAdjustments.maxY;
-                        coords.maxX = coords.maxX + pixelAdjustments.maxX;
+                        // MODIFIED: font rendering; half a texel of the glyph's own page (the constants are for the
+                        // stock 256 pages)
+                        float inset = 256.0f / static_cast<float>(this->m_currentFace->m_textureCache[desc->m_textureNumber & 7].m_pageSize);
+                        coords.minY = coords.minY + pixelAdjustments.minY * inset;
+                        coords.minX = coords.minX + pixelAdjustments.minX * inset;
+                        coords.maxY = coords.maxY + pixelAdjustments.maxY * inset;
+                        coords.maxX = coords.maxX + pixelAdjustments.maxX * inset;
                     }
 
                     verts[2].m_tc.y = coords.maxY;

@@ -79,6 +79,9 @@ void AwesomeItemRegisterScriptFunctions(lua_State* L);
 
 void AwesomeUiFixesRegisterCVars();
 
+// AwesomeFonts.cpp
+void AwesomeFontsRegisterCVars();
+
 // Msdf/AwesomeMsdf.cpp
 void AwesomeMsdfRegisterCVars();
 void AwesomeMsdfOnEnterWorld();

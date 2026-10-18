@@ -245,6 +245,7 @@ void AwesomeRegisterCVars() {
 
     AwesomeCommandLineInitialize();
     AwesomeUiFixesRegisterCVars();
+    AwesomeFontsRegisterCVars();
     AwesomeMsdfRegisterCVars();
     AwesomeCameraRegisterCVars();
     AwesomeNamePlatesRegisterCVars();

@@ -14,8 +14,9 @@
 //    D3D9's discard / no-overwrite rules, texture uploads through the engine's texel callbacks, the D3D9 hardware
 //    shadow map (a depth texture compared at the coordinate's z), occlusion queries, gxFixLag
 //
-// Not done here: stereo (NVAPI), DeviceReadDepths (zero, as in the D3D9 device), and awesome_wotlk's features that
-// call IDirect3DDevice9 themselves (MSDF fonts, frame capture), which stay off on this device.
+// Not done here: stereo (NVAPI), DeviceReadDepths (zero, as in the D3D9 device), and awesome_wotlk's frame capture,
+// which calls IDirect3DDevice9 itself and stays off on this device. (MSDF fonts bind their atlas pages through texture
+// states 12-15 on this device.)
 
 #include <cstddef>
 #include <cstdint>

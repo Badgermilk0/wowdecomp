@@ -317,14 +317,31 @@ void CGxDeviceD3d11::ITexUpload(CGxTex* texId) {
                     C2iVector size;
                     size.x = right - left;
                     size.y = bottom - top;
+                    uint32_t srcPitch = texelStrideInBytes;
+                    std::vector<uint8_t> repeated;
+
+                    // MODIFIED: a stride of 0 repeats one row (the MSDF atlas clears a page that way); D3D9's
+                    // row-by-row copy takes it, UpdateSubresource does not promise to, so the rows are written out
+                    if (srcPitch == 0 && size.y > 1 && !compressed) {
+                        uint32_t rowBytes = (static_cast<uint32_t>(size.x) * s_texFormatBitDepth[texId->m_dataFormat]) >> 3;
+                        repeated.resize(static_cast<size_t>(rowBytes) * size.y);
+
+                        for (int32_t row = 0; row < size.y; row++) {
+                            memcpy(repeated.data() + static_cast<size_t>(rowBytes) * row, src, rowBytes);
+                        }
+
+                        src = repeated.data();
+                        srcPitch = rowBytes;
+                    }
+
                     const uint8_t* data = src;
-                    uint32_t pitch = texelStrideInBytes;
+                    uint32_t pitch = srcPitch;
 
                     if (texId->m_dataFormat != texId->m_format) {
                         pitch = GxCalcTexelStrideInBytes(texId->m_format, size.x);
                         uint32_t rows = IsDxt(texId->m_format) ? (size.y + 3) / 4 : size.y;
                         this->m_texScratch.resize(static_cast<size_t>(pitch) * rows);
-                        Blit(size, BlitAlpha_0, src, texelStrideInBytes, GxGetBlitFormat(texId->m_dataFormat), this->m_texScratch.data(), pitch, GxGetBlitFormat(texId->m_format));
+                        Blit(size, BlitAlpha_0, src, srcPitch, GxGetBlitFormat(texId->m_dataFormat), this->m_texScratch.data(), pitch, GxGetBlitFormat(texId->m_format));
                         data = this->m_texScratch.data();
                     }
 

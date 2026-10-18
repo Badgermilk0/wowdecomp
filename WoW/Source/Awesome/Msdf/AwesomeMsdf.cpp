@@ -3,8 +3,8 @@
 // The engine still lays text out with its FreeType raster metrics; InitializeTextLine tags each glyph quad of an MSDF
 // font with its code point and puts it on page 0. Before a batch draws, every pending quad is moved and re-mapped onto
 // the glyph's MSDF atlas cell (the atlas page goes in the sign bits of u and v), and the font shaders turn the distance
-// field into coverage, outline and shadow. Fonts the validator rejects, monochrome fonts and every non-D3D9 device keep
-// the stock path.
+// field into coverage, outline and shadow. Fonts the validator rejects, monochrome fonts and OpenGL keep the stock
+// path. The D3D11 device runs the same shader model 3 bytecode through its translator.
 
 #include "WoW/Source/Awesome/AwesomeInternal.h"
 #include "WoW/Source/Awesome/AwesomeD3d.h"
@@ -170,12 +170,19 @@ void ProcessGeometry(CGxString* string, MSDFFont* font, std::vector<uint32_t>* m
 
         const GlyphMetrics* gm = misses ? font->findGlyph(codepoint) : font->getGlyph(codepoint);
 
-        if (!gm) {
-            if (misses) {
-                misses->push_back(codepoint);
-                complete = false;
-            }
+        if (!gm && misses) {
+            misses->push_back(codepoint);
+            complete = false;
+            continue;
+        }
 
+        // MODIFIED: font rendering; a glyph no MSDF face can draw (the engine took it from a fallback face the validator
+        // rejected) shows as '?', as the stock client drew every missing glyph, instead of a quad left on the raw atlas
+        if (!gm && codepoint != '?') {
+            gm = font->getGlyph('?');
+        }
+
+        if (!gm) {
             continue;
         }
 
@@ -302,9 +309,38 @@ void SetStringShaderState(const CGxString* string, const MSDFFont* font) {
     SetFontShaderState({ is3d ? 1.0f : 0.0f, outlineMode, static_cast<float>(msdf::kSdfSpread), static_cast<float>(msdf::kAtlasSize) }, font->getFaceMetrics());
 }
 
+bool IsD3d11() {
+    return g_theGxDevicePtr && g_theGxDevicePtr->m_api == GxApi_D3d11;
+}
+
+// MODIFIED: D3D11 device. The atlas pages go through the engine's texture states 12-15, which the device creates,
+// uploads and binds (clamped, linear) like any other texture; UnbindAtlasPages clears them after the batch so no
+// state keeps a page a font may destroy.
+void BindAtlasPagesD3d11(const MSDFFont* font) {
+    for (size_t index = 0; index < msdf::kMaxAtlasPages; index++) {
+        auto* page = index < font->getAtlasPageCount() ? font->getAtlasPage(index) : nullptr;
+        g_theGxDevicePtr->RsSet(static_cast<EGxRenderState>(GxRs_Texture0 + kFirstAtlasSampler + index), page ? page->texture : nullptr);
+    }
+}
+
+void UnbindAtlasPages() {
+    if (!IsD3d11()) {
+        return;
+    }
+
+    for (size_t index = 0; index < msdf::kMaxAtlasPages; index++) {
+        g_theGxDevicePtr->RsSet(static_cast<EGxRenderState>(GxRs_Texture0 + kFirstAtlasSampler + index), static_cast<void*>(nullptr));
+    }
+}
+
 // the atlas pages only depend on the font, and a BATCHEDRENDERFONTDESC holds exactly one; the engine never uses the
-// samplers past 11, so they are set on the device directly
+// samplers past 11, so on D3D9 they are set on the device directly
 void BindAtlasPages(const MSDFFont* font) {
+    if (IsD3d11()) {
+        BindAtlasPagesD3d11(font);
+        return;
+    }
+
     IDirect3DDevice9* d3d = AwesomeD3dDevice();
 
     if (!d3d) {
@@ -470,6 +506,11 @@ int32_t RenderBatch(BATCHEDRENDERFONTDESC* desc) {
 
     // balances the relock of the last flush, or the first lock
     GxBufUnlock(buf, 0);
+
+    if (font) {
+        UnbindAtlasPages();
+    }
+
     return 1;
 }
 
@@ -520,8 +561,10 @@ void OnFontInitialize() {
 
     CGxDevice* device = g_theGxDevicePtr;
 
-    // the font shaders need D3D9 and shader model 3
-    if (s_cvMode.m_intValue == MODE_DISABLED || !device || (device->m_api != GxApi_D3d9 && device->m_api != GxApi_D3d9Ex) || device->m_caps.m_shaderTargets[GxSh_Pixel] < 4 || device->m_caps.m_shaderTargets[GxSh_Vertex] < 3) {
+    // the font shaders need D3D9 (or D3D11, which translates them) and shader model 3
+    bool api = device && (device->m_api == GxApi_D3d9 || device->m_api == GxApi_D3d9Ex || device->m_api == GxApi_D3d11);
+
+    if (s_cvMode.m_intValue == MODE_DISABLED || !api || device->m_caps.m_shaderTargets[GxSh_Pixel] < 4 || device->m_caps.m_shaderTargets[GxSh_Vertex] < 3) {
         return;
     }
 

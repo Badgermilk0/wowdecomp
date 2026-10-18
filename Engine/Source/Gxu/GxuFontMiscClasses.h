@@ -10,6 +10,7 @@
 #include "Engine/Source/Tempest/C3Vector.h"
 #include "Engine/Source/Tempest/CImVector.h"
 #include "Engine/Source/Tempest/CRect.h"
+#include "Engine/Source/Tempest/CiRect.h"
 
 class CGxVertexPCT;
 class CTexture;
@@ -45,7 +46,8 @@ struct CHARCODEDESC : public TSHashObject<CHARCODEDESC, HASHKEY_NONE> {
     /* 0038 */ GLYPHBITMAPDATA m_bitmapData;
 
     CHARCODEDESC();
-    void GenerateTextureCoords(uint32_t rowNumber, uint32_t cellHeight);
+    // MODIFIED: font rendering; the page is pageSize texels square (256 in the stock client)
+    void GenerateTextureCoords(uint32_t rowNumber, uint32_t cellHeight, uint32_t pageSize);
     uint32_t GapToPrevious();
 };
 
@@ -94,6 +96,8 @@ struct CGxStringBatch : public TSLinkedNode<CGxStringBatch> {
 struct TEXTURECACHEROW {
     /* 0000 */ uint32_t m_widestFreeSlot;
     /* 0004 */ TSExplicitList<CHARCODEDESC, offsetof(CHARCODEDESC, m_textureRowLink)> m_glyphlist;
+    // MODIFIED: font rendering; the row's width, the cache page's size
+    uint32_t m_pageSize;
 
     TEXTURECACHEROW();
     CHARCODEDESC* CreateNewDesc(GLYPHBITMAPDATA* data, uint32_t rowNumber, uint32_t cellHeight);
@@ -107,6 +111,14 @@ struct TEXTURECACHE {
     /* 0004 */ CGxFont* m_theFace;
     /* 0008 */ uint8_t m_anyDirtyGlyphs;
     /* 000C */ TSFixedArray<TEXTURECACHEROW> m_textureRows;
+    // MODIFIED: font rendering. The page is m_pageSize texels square and ARGB8888 (256 and ARGB4444 in the stock
+    // client); m_dirtyRect bounds the glyphs placed since the last upload, the only part UpdateDirty sends, and
+    // TextureCallback pastes just the rectangle the device latches.
+    uint32_t m_pageSize;
+    CiRect m_dirtyRect;
+
+    static uint32_t PageSizeFor(uint32_t cellHeight);
+    void MarkDirty(const CHARCODEDESC* desc);
 
     TEXTURECACHE();
     ~TEXTURECACHE();
@@ -114,10 +126,11 @@ struct TEXTURECACHE {
     void CreateTexture(int32_t filter);
     void Destroy();
     void Initialize(CGxFont* face, uint32_t cellHeight);
-    void PasteGlyphNonOutlinedAA(const GLYPHBITMAPDATA& data, uint16_t* dest);
-    void PasteGlyphNonOutlinedMonochrome(const GLYPHBITMAPDATA& data, uint16_t* dest);
-    void PasteGlyphOutlinedAA(const GLYPHBITMAPDATA& data, uint16_t* dest);
-    void PasteGlyphOutlinedMonochrome(const GLYPHBITMAPDATA& data, uint16_t* dest);
+    // MODIFIED: font rendering; ARGB8888 texels, m_pageSize to a row
+    void PasteGlyphNonOutlinedAA(const GLYPHBITMAPDATA& data, uint32_t* dest);
+    void PasteGlyphNonOutlinedMonochrome(const GLYPHBITMAPDATA& data, uint32_t* dest);
+    void PasteGlyphOutlinedAA(const GLYPHBITMAPDATA& data, uint32_t* dest);
+    void PasteGlyphOutlinedMonochrome(const GLYPHBITMAPDATA& data, uint32_t* dest);
     void UpdateDirty();
 };
 

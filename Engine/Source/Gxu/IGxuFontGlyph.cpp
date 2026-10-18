@@ -53,7 +53,7 @@ static void CalculateYOffset(uint32_t pixelSize, int32_t baseline, FT_Face face,
 
 // VERIFY: 86715750 manual
 // OFFSET: 0x006C8CC0
-bool IGxuFontGlyphRenderGlyph(FT_Face face, uint32_t pixelSize, uint32_t code, uint32_t baseline, GLYPHBITMAPDATA* dataPtr, int32_t monochrome, uint32_t padding) {
+bool IGxuFontGlyphRenderGlyph(FT_Face face, uint32_t pixelSize, uint32_t code, uint32_t baseline, GLYPHBITMAPDATA* dataPtr, int32_t monochrome, uint32_t padding, FT_Face fontFace) {
     if (!face || !pixelSize || !dataPtr) {
         SErrSetLastError(STORM_ERROR_INVALID_PARAMETER);
         return false;
@@ -114,8 +114,8 @@ bool IGxuFontGlyphRenderGlyph(FT_Face face, uint32_t pixelSize, uint32_t code, u
     dataPtr->m_yStart = 0;
     dataPtr->m_glyphBearing = face->glyph->metrics.horiBearingX * (1.0 / 64.0);
 
-    // MODIFIED: awesome_wotlk MSDF fonts
-    bool msdf = !monochrome && g_gxuFontMsdf.m_isMsdfFace && g_gxuFontMsdf.m_isMsdfFace(face);
+    // MODIFIED: awesome_wotlk MSDF fonts; the font's own face decides, a fallback glyph is laid out as the font is
+    bool msdf = !monochrome && g_gxuFontMsdf.m_isMsdfFace && g_gxuFontMsdf.m_isMsdfFace(fontFace ? fontFace : face);
 
     if (width && data && !placeholder) {
         CalculateYOffset(pixelSize, baseline, face, height, &dataPtr->m_yOffset, &dataPtr->m_yStart, msdf);

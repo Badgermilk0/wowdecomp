@@ -5,6 +5,7 @@
 #include "Engine/Source/Gxu/GxuFontFont.h"
 #include "Engine/Source/Base/ConvertUTF.h"
 #include "Engine/Source/Gxu/GxuFontFace.h"
+#include "Engine/Source/Gxu/GxuFontFallback.h"
 #include "Engine/Source/Gxu/GxuFont.h"
 #include "Engine/Source/Gxu/GxuFontUtil.h"
 #include "Engine/Source/Gxu/IGxuFontGlyph.h"
@@ -68,8 +69,9 @@ int32_t CGxFont::UpdateDimensions() {
 
     uint32_t pixelSize = static_cast<uint32_t>(ScreenToPixelHeight(0, height));
 
-    if (pixelSize > 32) {
-        pixelSize = 32;
+    // MODIFIED: font rendering; g_gxuFontMaxPixelSize (32 in the stock client)
+    if (pixelSize > g_gxuFontMaxPixelSize) {
+        pixelSize = g_gxuFontMaxPixelSize;
     } else if (pixelSize == 0) {
         DebugLog("Error, font %s being created with height %g at screen res of %dx%d which is %d pixels!", this->m_fontName, height, g_widthPixels, g_heightPixels, pixelSize);
     }
@@ -103,7 +105,19 @@ int32_t CGxFont::UpdateDimensions() {
 // VERIFY: c831afcc auto
 // OFFSET: 0x006C2480
 bool CGxFont::GetGlyphData(GLYPHBITMAPDATA* data, uint32_t code) {
-    FT_Face face = FontFaceGetFace(this->m_fontFaceHandle);
+    FT_Face primary = FontFaceGetFace(this->m_fontFaceHandle);
+    FT_Face face = primary;
+
+    // MODIFIED: font rendering; a glyph the face lacks comes from the fallback chain, sized and placed on this
+    // font's baseline (the stock client drew '?')
+    if (face && !FT_Get_Char_Index(face, code)) {
+        FT_Face fallback = GxuFontFallbackFind(face, code, true);
+
+        if (fallback) {
+            face = fallback;
+        }
+    }
+
     FT_Set_Pixel_Sizes(face, this->m_pixelSize, 0);
 
     uint32_t padding = 0;
@@ -114,7 +128,7 @@ bool CGxFont::GetGlyphData(GLYPHBITMAPDATA* data, uint32_t code) {
         padding = 2;
     }
 
-    return IGxuFontGlyphRenderGlyph(face, this->m_pixelSize, code, this->m_baseline, data, this->m_fontFlags & 2, padding);
+    return IGxuFontGlyphRenderGlyph(face, this->m_pixelSize, code, this->m_baseline, data, this->m_fontFlags & 2, padding, primary);
 }
 
 // VERIFY: 3597e899 auto
@@ -355,8 +369,9 @@ CHARCODEDESC* CGxFont::NewCodeDesc(uint32_t code) {
 
         if (!current->m_texture || !TextureGetGxTex(current->m_texture, 1, nullptr)) {
             cache = current;
-            cache->CreateTexture(this->m_fontFlags & 4);
+            // MODIFIED: font rendering; Initialize first, it sizes the page CreateTexture makes
             cache->Initialize(this, this->m_cellHeight);
+            cache->CreateTexture(this->m_fontFlags & 4);
             desc = cache->AllocateNewGlyph(&data);
             break;
         }
@@ -397,7 +412,8 @@ CHARCODEDESC* CGxFont::NewCodeDesc(uint32_t code) {
         this->m_activeCharacterCache.LinkToHead(desc);
 
         if (cache) {
-            cache->m_anyDirtyGlyphs = 1;
+            // MODIFIED: font rendering; the cell joins the next upload's rectangle
+            cache->MarkDirty(desc);
         }
     }
 

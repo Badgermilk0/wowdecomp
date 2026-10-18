@@ -13,6 +13,7 @@
 #include "Engine/Source/Gx/Gx.h"
 #include "Engine/Source/Gxu/Gxu.h"
 #include "Engine/Source/Gxu/GxuFontFont.h"
+#include "Engine/Source/Gxu/GxuFontFallback.h"
 #include "Engine/Source/Gxu/GxuFontMiscClasses.h"
 #include "Engine/Source/Gxu/GxuFontMsdf.h"
 #include "Engine/Source/Gxu/GxuFontUtil.h"
@@ -105,6 +106,8 @@ CGxShader* g_fontVertexShader[2];
 
 // MODIFIED: awesome_wotlk MSDF fonts; the font shaders' name under Shaders\Vertex and Shaders\Pixel
 const char* g_fontShaderName = "UI";
+// MODIFIED: font rendering
+uint32_t g_gxuFontMaxPixelSize = 32;
 
 // VERIFY: 4776da25 manual
 // OFFSET: 0x006BCD60
@@ -949,6 +952,17 @@ void GxuFontWindowSizeChanged() {
     }
 }
 
+// MODIFIED: font rendering
+void GxuFontRefreshSizes() {
+    if (!g_FTLibrary) {
+        return;
+    }
+
+    for (CGxFont* face = g_fonts.Head(); face; face = g_fonts.Next(face)) {
+        face->HandleScreenSizeChange();
+    }
+}
+
 // VERIFY: c5d92c78 auto
 // OFFSET: 0x006BE230
 void GxuFontInitialize() {
@@ -1181,6 +1195,9 @@ void GxuFontShutdown() {
 
     TEXTLINETEXTURE::Shutdown();
     BATCHEDRENDERFONTDESC::Shutdown();
+
+    // MODIFIED: font rendering; the fallback faces go while the MSDF hooks can still unregister them
+    GxuFontFallbackShutdown();
 
     // MODIFIED: awesome_wotlk MSDF fonts
     if (g_gxuFontMsdf.m_shutdown) {

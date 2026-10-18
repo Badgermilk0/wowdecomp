@@ -12,6 +12,7 @@
 #include "Engine/Source/Gx/CGxTex.h"
 #include "Engine/Source/Gx/CGxTexFlags.h"
 #include "Engine/Source/Gx/Gx.h"
+#include "Engine/Source/Gxu/GxuFontFallback.h"
 #include "MSDFCache.h"
 #include "MSDFUtils.h"
 #include "MSDFValidator.h"
@@ -124,7 +125,7 @@ bool MSDFFont::AtlasPage::needsCreate() const {
 }
 
 MSDFFont::MSDFFont(FT_Face face, const FT_Byte* font_data, FT_Long data_size)
-    : font_data_(font_data), data_size_(data_size) {
+    : face_(face), font_data_(font_data), data_size_(data_size) {
     if (face == nullptr) { return; }
 
     const char* family = face->family_name != nullptr ? face->family_name : "Unknown";
@@ -186,7 +187,7 @@ const GlyphMetrics* MSDFFont::getGlyph(uint32_t codepoint) {
     }
 
     GlyphMetricsToStore storage;
-    if (!generateGlyphData(codepoint, storage)) {
+    if (!generateGlyphData(codepoint, storage, true)) {
         glyph_pool_.erase(it);
         return nullptr;
     }
@@ -380,7 +381,7 @@ void MSDFFont::generateMsdf(std::vector<uint8_t>& out_data, const msdfgen::Shape
     msdf_pool_.release(std::move(sdf_buf));
 }
 
-bool MSDFFont::generateGlyphData(uint32_t codepoint, GlyphMetricsToStore& out_storage) const {
+bool MSDFFont::generateGlyphData(uint32_t codepoint, GlyphMetricsToStore& out_storage, bool fallback) const {
     out_storage.codepoint = codepoint;
     out_storage.width = 0;
     out_storage.height = 0;
@@ -391,8 +392,24 @@ bool MSDFFont::generateGlyphData(uint32_t codepoint, GlyphMetricsToStore& out_st
 
     msdfgen::GlyphIndex index;
     msdfgen::Shape shape;
-    if (em_size_ <= 0.0 || !msdfgen::getGlyphIndex(index, msdf_font_, codepoint) ||
-        !msdfgen::loadGlyph(shape, msdf_font_, index)) {
+    msdfgen::FontHandle* source = msdf_font_;
+    double em_size = em_size_;
+    if (em_size_ <= 0.0) { return false; }
+
+    // wowdecomp: a glyph the face lacks comes from the first fallback face that has it and passed the validator, scaled
+    // to its own em as the engine's raster path scales it; the engine opened that face when it laid the glyph out
+    if (!msdfgen::getGlyphIndex(index, msdf_font_, codepoint)) {
+        const FT_Face fallback_face = fallback ? GxuFontFallbackFind(face_, codepoint, false) : nullptr;
+        const MSDFFont* fallback_font = fallback_face != nullptr ? MSDFFont::get(fallback_face) : nullptr;
+        if (fallback_font == nullptr || fallback_font->em_size_ <= 0.0 ||
+            !msdfgen::getGlyphIndex(index, fallback_font->msdf_font_, codepoint)) {
+            return false;
+        }
+        source = fallback_font->msdf_font_;
+        em_size = fallback_font->em_size_;
+    }
+
+    if (!msdfgen::loadGlyph(shape, source, index)) {
         return false;
     }
     if (shape.contours.empty()) { return true; }
@@ -401,7 +418,7 @@ bool MSDFFont::generateGlyphData(uint32_t codepoint, GlyphMetricsToStore& out_st
     // the generator's overlapSupport and the validator keeps self-intersecting faces on the engine path
     msdfgen::edgeColoringInkTrap(shape, 3.0, 0);
 
-    const double scale = msdf::kSdfRenderSize / em_size_;
+    const double scale = msdf::kSdfRenderSize / em_size;
     const auto [l, b, r, t] = shape.getBounds();
     if (r <= l || t <= b) { return true; }
 

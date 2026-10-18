@@ -38,11 +38,13 @@ must not be used with this exe.** Addons see `AwesomeWotlk = 38`, the same as up
 | UI footprint texture sampling (HLSL pixel shaders) | `AwesomeUiFixes.cpp`, `AwesomeShaders.cpp`, `Frame/CSimpleRender.cpp`, `Gx/CGxDevice` | `uiTextureSampling` (**1**: 0 engine, 1 box, 2 tent) | — |
 | UI pixel snap (HLSL vertex shader + sub-pixel quad widening) | same | `uiPixelSnap` (**1**) | — |
 | MSDF font rendering: text drawn from multi-channel signed distance fields, sharp at any size, with SDF outlines | `Msdf/` (see below), `Gxu/GxuFontMsdf.*` and hooks in `Gxu/GxuFontString.cpp`, `GxuFontFace.cpp`, `IGxuFontGlyph.cpp`, `GxuFontMiscClasses.cpp`, `GxuFontMain.cpp` | `MSDFMode` (**1**: 0 off, 1 on, 2 also fonts that fail validation; read at startup), `MSDFOutlinePass` (1) | `/msdfpregen` |
+| Raster fonts at high resolution: the 32 px glyph cap lifted, glyph pages grow with the font, 8-bit glyph alpha | `AwesomeFonts.cpp`, `Gxu/GxuFontTextureCache.cpp`, `GxuFontFont.cpp` (`UpdateDimensions`), `GxuFontMiscClasses.*`, `GxuFontString.cpp` | `fontMaxPixelSize` (**128**; 32 = stock; live) | — |
+| Fallback-font chain: a glyph the font lacks comes from the first listed font that has it, on both the raster and the MSDF path | `AwesomeFonts.cpp`, `Gxu/GxuFontFallback.*`, `GxuFontFont.cpp` (`GetGlyphData`), `IGxuFontGlyph.cpp`, `Msdf/MSDFFont.cpp`, `Msdf/AwesomeMsdf.cpp` | `fontFallback` (game `Fonts\ARIALN.TTF`, `FRIZQT__.TTF`, then Windows' Segoe UI, Segoe UI Symbol, Microsoft YaHei, Malgun Gothic; empty = stock `?`) | — |
 | Frame capture: one frame tree rendered offscreen to a transparent PNG in `Screenshots\` | `AwesomeFrameCapture.cpp`; filters in `Frame/CSimpleTop.*`, `CSimpleFrame.cpp`, `CRenderBatch.*`, `Ui/CGCooldown.cpp` | — | `CaptureFrame(frame[, size])`, `/fcapture [name] [2048\|2x]` (`/framecapture`) |
 
 The HLSL shaders compile at load time with `d3dcompiler_47.dll`, which ships with Windows 10/11. They need
-shader model 3 and a D3D9 device. Without SM3, or on OpenGL, the stock `.bls` shaders load instead, and MSDF and
-frame capture stay off.
+shader model 3 and a D3D9 or D3D11 device (D3D11 translates the same bytecode). Without SM3, or on OpenGL, the stock
+`.bls` shaders load instead, and MSDF and frame capture stay off; frame capture also stays off on D3D11.
 
 **Defaults that change the look:** `uiHalfPixelFix`, `uiTextureSampling`, `uiPixelSnap` and `MSDFMode` default to on,
 as in awesome's current source. Set any of them to `0` for the stock look. The three UI fixes take effect live;
@@ -65,6 +67,30 @@ as in awesome's current source. Set any of them to `0` for the stock look. The t
 - Unchanged from upstream: the glyph cache in `Cache_AwesomeWotLK\` (same binary format, so a cache the awesome DLL
   wrote is reused), the font blacklist folder `Fonts_AwesomeWotLK\`, the background scan of AddOn fonts, the
   `/msdfpregen` console for CJK locales, and the shaders (plus a stereo entry point for the second permutation).
+
+#### Font rendering at high resolution (beyond awesome)
+
+- **The raster cap.** `CGxFont::UpdateDimensions` clamped every font to a 32 px raster, which the string then
+  stretched to its size on screen: at 2160p a 40 px damage number came from a 32 px glyph and a crit (about 120 px)
+  from the same. The cap is `fontMaxPixelSize` (`g_gxuFontMaxPixelSize`); a change re-rasterises every font, as a
+  resolution change does. MSDF fonts lay out with these raster metrics (whole-pixel advances), so they space better too.
+- **Glyph pages.** A font's glyphs sat on 256 x 256 ARGB4444 pages, sized for the 36 px cell of a 32 px outlined font.
+  `TEXTURECACHE::PageSizeFor` now gives each font pages of at least seven cell rows (256 for every stock-sized font,
+  up to 2048), in ARGB8888, so anti-aliased edges keep 256 alpha levels instead of 16 (the outline's own 10-step ramp
+  is unchanged). The paste routines take the cell's own stride, and an upload re-pastes and sends only the rectangle
+  of the cells placed since the last one; the stock client re-pasted the whole page into an uncleared buffer each time.
+  3D strings' half-texel inset follows the page size.
+- **Fallback chain.** `GxuFontFallback` holds the `fontFallback` list and opens each face the first time a lookup
+  reaches it (game paths through `FontFaceGetHandle`, absolute paths read from disk, `%NAME%` expanded).
+  `CGxFont::GetGlyphData` rasterises a missing glyph from the first face that maps it, on the font's own baseline; the
+  layout still follows the font's own face (`IGxuFontGlyphRenderGlyph`'s `fontFace`). The MSDF atlas generates the same
+  glyph into the font's own atlas from the fallback face's outline, if that face passed the validator
+  (`MSDFFont::generateGlyphData`, main thread only, never the pregen workers); otherwise the MSDF pass draws `?`.
+  Fallback glyphs are cached in the font's own `Cache_AwesomeWotLK\` file, so delete it after reordering the list.
+- **MSDF on D3D11.** The atlas pages go through the engine's texture states 12-15 (`BindAtlasPagesD3d11`), which the
+  device creates, uploads and binds like any texture, and are cleared after each batch; the D3D11 upload writes out a
+  0-stride source (how the atlas clears a page) row by row. The four font shader permutations translate and compile
+  (checked offline: `ps_3_0` with both `OUTLINE_PASS` values, `vs_3_0` `main` and `mainStereo`).
 
 The `Msdf/` files from awesome (`MSDFCache`, `MSDFManager`, `MSDFFaceSweep`, `MSDFPregen`, `MSDFUtils`, `MSDFValidator`,
 `MSDFFont`, `MSDFShaders`) are copied with only the changes above and 64-bit fixes; `MsdfSupport.h` stands in for the
@@ -195,7 +221,7 @@ The plan beyond this first step is `RENDER_BACKEND_PLAN.md`.
 | Shader cache | `Gx/CGxDeviceD3d11/D3d11Compiler.*` | `D3DCompile`, cached under `Cache\D3D11Shaders\` by a hash of the source. As the engine loads a shader file (well before it draws with it), every permutation is translated and queued to worker threads (half the cores, at most 8, below normal priority); a draw that needs a shader still queued compiles it itself, one being compiled waits for it. From an empty cache the login screen alone fills it with about 1,050 shaders; later sessions read them back. Deleting the folder is safe. |
 | The frame | `CGxDeviceD3d11.cpp` | An offscreen colour target (multisampled when `gxMultisample` asks), copied to a flip-model swap chain at present, with tearing when `gxVSync` is off. Full screen is a borderless window over the primary monitor at its own resolution, not an exclusive mode; the gamma ramp is applied in the copy there, as D3D9 set it on the display only in full screen. Resizing the window resizes the targets live. |
 | Constants | `CGxDeviceD3d11Draw.cpp` | The constant registers are kept as D3D9's hardware would hold them and uploaded as slices of one ring buffer (D3D11.1 offsets; plain buffers without them). |
-| awesome_wotlk | `Awesome/AwesomeShaders.cpp` | The UI sampling and pixel-snap shaders compile to the same bytecode and are translated, so `uiTextureSampling` and `uiPixelSnap` work on D3D11. MSDF fonts and frame capture call `IDirect3DDevice9` themselves and stay off. |
+| awesome_wotlk | `Awesome/AwesomeShaders.cpp` | The UI sampling and pixel-snap shaders compile to the same bytecode and are translated, so `uiTextureSampling` and `uiPixelSnap` work on D3D11. MSDF fonts bind their atlas pages through texture states 12-15 here (see "Font rendering at high resolution"). Frame capture calls `IDirect3DDevice9` itself and stays off. |
 
 Not on the D3D11 device: stereo (NVAPI), `DeviceReadDepths` (zeros, as the D3D9 device returns), indexed triangle fans
 (the client draws none; a draw would be skipped and logged), and full-screen exclusive mode.

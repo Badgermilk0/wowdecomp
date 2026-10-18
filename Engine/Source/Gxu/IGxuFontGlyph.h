@@ -7,6 +7,7 @@
 
 struct GLYPHBITMAPDATA;
 
-bool IGxuFontGlyphRenderGlyph(FT_Face face, uint32_t pixelSize, uint32_t code, uint32_t baseline, GLYPHBITMAPDATA* dataPtr, int32_t monochrome, uint32_t padding);
+// MODIFIED: font rendering; fontFace is the font's own face when face is a fallback for the glyph
+bool IGxuFontGlyphRenderGlyph(FT_Face face, uint32_t pixelSize, uint32_t code, uint32_t baseline, GLYPHBITMAPDATA* dataPtr, int32_t monochrome, uint32_t padding, FT_Face fontFace = nullptr);
 
 #endif

@@ -129,12 +129,16 @@ private:
     GlyphMetrics* uploadGlyphToAtlas(GlyphMetrics& metrics, uint32_t codepoint);
     static void generateMsdf(std::vector<uint8_t>& out_data, const msdfgen::Shape& shape,
         const msdfgen::Projection& projection, double scale, int sdf_w, int sdf_h);
-    bool generateGlyphData(uint32_t codepoint, GlyphMetricsToStore& out_storage) const;
+    // wowdecomp: fallback, a code point the face lacks is generated from the engine's fallback chain (GxuFontFallback);
+    // main thread only, the pregen workers never ask
+    bool generateGlyphData(uint32_t codepoint, GlyphMetricsToStore& out_storage, bool fallback = false) const;
 
     static msdfgen::FontHandle* createMsdfHandle(const FT_Byte* data, FT_Long size);
     static MSDFCache::FaceRecord evaluateFace(msdfgen::FontHandle* font);
 
     msdfgen::FontHandle* msdf_font_ = nullptr;
+    // wowdecomp: the engine face, so the fallback chain can skip it
+    FT_Face face_ = nullptr;
     double em_size_ = 0.0;
     msdf_validator::FaceMetrics face_metrics_;
     bool is_valid_ = false;

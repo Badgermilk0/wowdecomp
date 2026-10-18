@@ -1728,8 +1728,8 @@ void CGWorldFrame::OnWorldRender() {
 
     CShaderEffect::UpdateProjMatrix();
     CWorld::Render(this->m_camera->m_position, this->m_elapsedSec);
-    // MODIFIED: performance diagnostics (FrameProfile.h)
-    FrameProfileScope postScope(FRAMEPROFILE_POST);
+    // MODIFIED: performance diagnostics (FrameProfile.h), the FrameProfileSwitch calls below
+    FrameProfileSwitch(FRAMEPROFILE_NAMEPLATES);
     CMap::RenderFootprints();
     ClntObjMgrEnumVisibleObjects(UnitPostAnimateProc, this);
     CGUnit_C::NamePlateSetResortAll(false);
@@ -1746,9 +1746,11 @@ void CGWorldFrame::OnWorldRender() {
     CM2Scene* scene = World::s_m2Scene;
 
     if (!scene) {
+        FrameProfileSwitch(FRAMEPROFILE_NONE);
         return;
     }
 
+    FrameProfileSwitch(FRAMEPROFILE_MODELS);
     scene->SetFloat18(-CWorld::s_unk_CD7758);
     scene->m_passMask = CWorld::m_M2PassMask;
     scene->Draw(M2PASS_0);
@@ -1759,21 +1761,31 @@ void CGWorldFrame::OnWorldRender() {
 
     GxuSortDrawList(GxuCat_0, GxuSort_VtxStream, *World::GetCamPos());
     GxuFlushDrawList(GxuCat_0, *World::GetCamPos());
+    FrameProfileSwitch(FRAMEPROFILE_DETAIL);
     CWorldScene::RenderDetailDoodads();
 
     if (World::SceneCamLiquidStatus(nullptr)) {
+        FrameProfileSwitch(FRAMEPROFILE_LIQUID);
         CWorldScene::RenderBarriers(this->m_elapsedSec);
+        FrameProfileSwitch(FRAMEPROFILE_MODELS);
         scene->Draw(M2PASS_1);
+        FrameProfileSwitch(FRAMEPROFILE_LIQUID);
         CWorldScene::RenderWeather();
         CWorldScene::RenderLiquidPass();
+        FrameProfileSwitch(FRAMEPROFILE_MODELS);
         scene->Draw(M2PASS_2);
     } else {
+        FrameProfileSwitch(FRAMEPROFILE_MODELS);
         scene->Draw(M2PASS_2);
+        FrameProfileSwitch(FRAMEPROFILE_LIQUID);
         CWorldScene::RenderLiquidPass();
         CWorldScene::RenderWeather();
         CWorldScene::RenderBarriers(this->m_elapsedSec);
+        FrameProfileSwitch(FRAMEPROFILE_MODELS);
         scene->Draw(M2PASS_1);
     }
+
+    FrameProfileSwitch(FRAMEPROFILE_EFFECTS);
 
     if (s_spellShadowStyle < 2) {
         DrawSpellCursorShadow(0x20000);
@@ -1799,6 +1811,7 @@ void CGWorldFrame::OnWorldRender() {
     GxXformSetViewport(minX, maxX, minY, maxY, minZ, maxZ);
     FFX::Finish();
     CVehiclePassenger_C::PostRenderUpdateAll();
+    FrameProfileSwitch(FRAMEPROFILE_NONE);
 }
 
 // VERIFY: 79b17fb9 manual
@@ -1967,7 +1980,7 @@ void CGWorldFrame::OnLayerUpdate(float elapsedSec) {
 // OFFSET: 0x004FA5F0
 void CGWorldFrame::OnWorldUpdate() {
     // MODIFIED: performance diagnostics (FrameProfile.h); the unit updates are their own section
-    uint64_t updateStart = FrameProfileNow();
+    FrameProfileSwitch(FRAMEPROFILE_WORLD_UPDATE);
     float elapsedSec = this->m_elapsedSec;
     CGPlayer_C* player = static_cast<CGPlayer_C*>(ClntObjMgrObjectPtr(ClntObjMgrGetActivePlayer(), TYPEMASK_PLAYER, __FILE__, __LINE__));
 
@@ -2068,10 +2081,9 @@ void CGWorldFrame::OnWorldUpdate() {
     UpdateLivePortraits();
     this->MoveToFreeList(&this->m_modelList);
     this->MoveToFreeList(&this->m_hitModelList);
-    uint64_t unitStart = FrameProfileNow();
+    FrameProfileSwitch(FRAMEPROFILE_UNIT_UPDATE);
     ClntObjMgrEnumVisibleObjects(UnitUpdateProc, nullptr);
-    uint64_t unitEnd = FrameProfileNow();
-    FrameProfileAdd(FRAMEPROFILE_UNIT_UPDATE, unitStart, unitEnd);
+    FrameProfileSwitch(FRAMEPROFILE_WORLD_UPDATE);
     World::SetObjectCollisionCallback(ObjectCollisionProc);
     CEffect::CleanUpStaticLists();
     CMissile::UpdateStaticLists();
@@ -2102,7 +2114,7 @@ void CGWorldFrame::OnWorldUpdate() {
     CGUnit_C::UpdateAllSmoothFacing();
     CheckEventWorldStateUITimerUpdate();
 
-    FrameProfileAdd(FRAMEPROFILE_WORLD_UPDATE, updateStart + (unitEnd - unitStart), FrameProfileNow());
+    FrameProfileSwitch(FRAMEPROFILE_NONE);
 }
 
 // VERIFY: 09c5961f manual

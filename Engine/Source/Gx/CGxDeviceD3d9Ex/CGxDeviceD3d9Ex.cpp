@@ -13,6 +13,7 @@
 #include "Engine/Source/Os/TimeManager.h"
 #include "Engine/Source/Storm/H/storm.h"
 #include "ThirdParty/nvapi/nvapi.h"
+#include "Engine/Source/Base/FrameProfile.h"
 
 typedef IDirect3D9* (WINAPI* Direct3DCreate9Proc)(UINT sdkVersion);
 
@@ -3097,6 +3098,9 @@ void CGxDeviceD3d9Ex::Draw(CGxBatch* batch, int32_t count) {
     if (!this->m_context || this->m_intF5C) {
         return;
     }
+
+    // MODIFIED: performance diagnostics (FrameProfile.h)
+    FrameProfileCount(FRAMEPROFILE_DRAW_CALLS, 1);
 
     this->IStateSync();
 

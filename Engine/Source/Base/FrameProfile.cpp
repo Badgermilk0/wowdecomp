@@ -7,6 +7,8 @@ FrameProfileStats g_frameProfile;
 
 static uint64_t s_ticks[FRAMEPROFILE_COUNT];
 static uint32_t s_counters[FRAMEPROFILE_COUNTERS];
+static FrameProfileSection s_current = FRAMEPROFILE_NONE;
+static uint64_t s_mark;
 
 uint64_t FrameProfileNow() {
     LARGE_INTEGER now;
@@ -16,6 +18,17 @@ uint64_t FrameProfileNow() {
 
 void FrameProfileAdd(FrameProfileSection section, uint64_t start, uint64_t end) {
     s_ticks[section] += end - start;
+}
+
+void FrameProfileSwitch(FrameProfileSection section) {
+    uint64_t now = FrameProfileNow();
+
+    if (s_current != FRAMEPROFILE_NONE) {
+        s_ticks[s_current] += now - s_mark;
+    }
+
+    s_current = section;
+    s_mark = now;
 }
 
 void FrameProfileCount(FrameProfileCounter counter, uint32_t value) {

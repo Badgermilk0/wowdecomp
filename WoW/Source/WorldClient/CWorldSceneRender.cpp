@@ -70,8 +70,8 @@ void CWorldScene::RenderCollisionDebug() {
 // VERIFY: cd492c82 manual
 // OFFSET: 0x0079A870
 void CWorldScene::Render(const C3Vector& cameraPos, float time) {
-    // MODIFIED: performance diagnostics (FrameProfile.h)
-    uint64_t cullStart = FrameProfileNow();
+    // MODIFIED: performance diagnostics (FrameProfile.h), the FrameProfileSwitch calls below
+    FrameProfileSwitch(FRAMEPROFILE_CULL);
 
     if (!CWorldScene::s_viewerMapObjDef) {
         CWorldScene::ComputeExteriorSortDistances();
@@ -186,8 +186,8 @@ void CWorldScene::Render(const C3Vector& cameraPos, float time) {
     }
 
     CM2Scene* scene = World::s_m2Scene;
-    // MODIFIED: performance diagnostics; Animate times its own parts
-    FrameProfileAdd(FRAMEPROFILE_CULL, cullStart, FrameProfileNow());
+    // Animate times its own parts
+    FrameProfileSwitch(FRAMEPROFILE_NONE);
 
     if (scene) {
         scene->m_flags |= 0x1;
@@ -196,15 +196,19 @@ void CWorldScene::Render(const C3Vector& cameraPos, float time) {
         scene->m_flags &= ~0x1;
     }
 
-    FrameProfileScope drawScope(FRAMEPROFILE_DRAW);
+    FrameProfileSwitch(FRAMEPROFILE_WORLD_OTHER);
 
     CGUnit_C::UpdateMissileTrajectoryTargeting();
     CShadowQuery::Update();
     CShaderEffect::UpdateProjMatrix();
     CWorldScene::ApplyFogState();
+    FrameProfileSwitch(FRAMEPROFILE_TERRAIN);
     CWorldScene::RenderChunks();
+    FrameProfileSwitch(FRAMEPROFILE_WMO);
     CWorldScene::RenderMapObjDefGroups();
+    FrameProfileSwitch(FRAMEPROFILE_TERRAIN);
     CWorldScene::RenderHorizon();
+    FrameProfileSwitch(FRAMEPROFILE_WMO);
 
     if (CWorldScene::s_unk_ADF570.m_maxViewDepth >= 0.0f) {
         if (CWorldScene::s_exteriorPortalViews.Count()) {
@@ -226,6 +230,7 @@ void CWorldScene::Render(const C3Vector& cameraPos, float time) {
         }
     }
 
+    FrameProfileSwitch(FRAMEPROFILE_WORLD_OTHER);
     CWorldScene::RenderEntitys();
     Liquid::UpdateProceduralTextures();
     CWorldScene::PrepareLiquidInstances();
@@ -256,6 +261,8 @@ void CWorldScene::Render(const C3Vector& cameraPos, float time) {
         CMap::debugVertexArray.SetCount(0);
         CMap::debugIndexArray.m_count = 0;
     }
+
+    FrameProfileSwitch(FRAMEPROFILE_NONE);
 }
 
 

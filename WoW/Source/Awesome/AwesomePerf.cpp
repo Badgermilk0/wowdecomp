@@ -31,15 +31,17 @@ static int32_t Script_GetFrameTimings(lua_State* L) {
     return 5;
 }
 
-// unitUpdate, worldUpdate, cull, animParallel, animSerial, animBatch, draw, post (ms), models, threads
+// ms per FrameProfileSection in enum order (unitUpdate, worldUpdate, cull, animParallel, animSerial, animBatch,
+// terrain, wmo, worldOther, nameplates, models, detail, liquid, effects), then models animated, draw calls, threads
 static int32_t Script_GetSceneTimings(lua_State* L) {
     for (uint32_t i = 0; i < FRAMEPROFILE_COUNT; i++) {
         lua_pushnumber(L, g_frameProfile.m_ms[i]);
     }
 
-    lua_pushnumber(L, g_frameProfile.m_counters[FRAMEPROFILE_MODELS]);
+    lua_pushnumber(L, g_frameProfile.m_counters[FRAMEPROFILE_MODELS_ANIMATED]);
+    lua_pushnumber(L, g_frameProfile.m_counters[FRAMEPROFILE_DRAW_CALLS]);
     lua_pushnumber(L, ParallelThreadCount());
-    return FRAMEPROFILE_COUNT + 2;
+    return FRAMEPROFILE_COUNT + 3;
 }
 
 static const char* s_slashCommand = R"lua(
@@ -48,9 +50,12 @@ SlashCmdList.FRAMETIMES = function()
     local cpu, gpuWait, capWait, present, frame = GetFrameTimings()
     print(("|cff33ff99Frame|r %.2f ms (%.0f fps): cpu %.2f, gpu wait %.2f, fps cap %.2f, present %.2f"):format(
         frame, frame > 0 and 1000 / frame or 0, cpu, gpuWait, capWait, present))
-    local units, update, cull, animMT, animST, batch, draw, post, models, threads = GetSceneTimings()
-    print(("|cff33ff99World|r units %.2f, update %.2f, cull %.2f, animate %.2f (%d threads) + %.2f serial + %.2f batch, draw %.2f, post %.2f; %.0f models"):format(
-        units, update, cull, animMT, threads, animST, batch, draw, post, models))
+    local units, update, cull, animMT, animST, batch, terrain, wmo, other, plates, models, detail, liquid, effects,
+        animated, draws, threads = GetSceneTimings()
+    print(("|cff33ff99World|r units %.2f, update %.2f, cull %.2f, animate %.2f (%d threads) + %.2f serial + %.2f batch; %.0f models"):format(
+        units, update, cull, animMT, threads, animST, batch, animated))
+    print(("|cff33ff99Draw|r terrain %.2f, wmo %.2f, models %.2f, grass %.2f, liquid %.2f, effects %.2f, plates %.2f, other %.2f; %.0f draw calls"):format(
+        terrain, wmo, models, detail, liquid, effects, plates, other, draws))
 end
 )lua";
 

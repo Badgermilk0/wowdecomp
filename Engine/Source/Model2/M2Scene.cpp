@@ -1740,7 +1740,7 @@ int32_t CM2Scene::Animate(const C3Vector& cameraPos) {
         AnimateJob job = { this, s_roots.m_data };
         // small pieces: a model costs from almost nothing (a static doodad) to a lot (a character with gear attached)
         ParallelFor(s_roots.Count(), 4, &AnimateJob::Run, &job);
-        FrameProfileCount(FRAMEPROFILE_MODELS, s_roots.Count());
+        FrameProfileCount(FRAMEPROFILE_MODELS_ANIMATED, s_roots.Count());
     } else if (this->m_cache->m_flags & 4) {
         this->m_cache->BeginThread(&CM2Scene::AnimateThread, this);
 
@@ -1796,8 +1796,13 @@ int32_t CM2Scene::Animate(const C3Vector& cameraPos) {
     }
 
     // MODIFIED: performance diagnostics (FrameProfile.h)
-    FrameProfileAdd(FRAMEPROFILE_ANIM_SERIAL, serialStart, FrameProfileNow());
-    FrameProfileScope batchScope(FRAMEPROFILE_ANIM_BATCH);
+    uint64_t batchStart = FrameProfileNow();
+    FrameProfileAdd(FRAMEPROFILE_ANIM_SERIAL, serialStart, batchStart);
+    // the batch build has early returns; charge it whichever way it leaves
+    struct BatchTimer {
+        uint64_t m_start;
+        ~BatchTimer() { FrameProfileAdd(FRAMEPROFILE_ANIM_BATCH, this->m_start, FrameProfileNow()); }
+    } batchTimer = { batchStart };
 
     this->m_doodadElements.m_count = 0;
 

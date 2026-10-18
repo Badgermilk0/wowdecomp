@@ -5,6 +5,10 @@
 // smoothed, in milliseconds (GetSceneTimings() and /frametimes in Lua). Sections add up over a frame, so a section that
 // runs several times (one Animate per model scene: world, portraits, UI models) reports their sum. FrameProfileEndFrame
 // runs once per Present.
+//
+// Two ways to time: FrameProfileSwitch charges the time since the last switch to the current section and makes another
+// current (FRAMEPROFILE_NONE stops), for long functions cut into consecutive parts; FrameProfileAdd charges an explicit
+// interval, for code that may run inside a switched part (CM2Scene::Animate), which then switches to NONE around it.
 
 #include <cstdint>
 
@@ -15,13 +19,21 @@ enum FrameProfileSection {
     FRAMEPROFILE_ANIM_PARALLEL, // CM2Model::AnimateMT, bone matrices, split across threads
     FRAMEPROFILE_ANIM_SERIAL,   // AnimateST (particles, ribbons, lights) and SetupLighting, main thread
     FRAMEPROFILE_ANIM_BATCH,    // CM2Scene::Animate's draw-list walk that builds the render elements
-    FRAMEPROFILE_DRAW,          // CWorldScene::Render after animation: terrain, WMOs, models, liquid submitted
-    FRAMEPROFILE_POST,          // after the world render: unit PostAnimate, nameplates
-    FRAMEPROFILE_COUNT
+    FRAMEPROFILE_TERRAIN,       // CWorldScene::RenderChunks and RenderHorizon: terrain and the far horizon
+    FRAMEPROFILE_WMO,           // RenderMapObjDefGroups, portal lists and sky: buildings and caves
+    FRAMEPROFILE_WORLD_OTHER,   // the rest of CWorldScene::Render: map entities, liquid instances and flush
+    FRAMEPROFILE_NAMEPLATES,    // after the world render: footprints, unit PostAnimate, nameplates
+    FRAMEPROFILE_MODELS,        // CM2Scene::Draw (three passes) and the opaque Gxu draw list: doodads, units, objects
+    FRAMEPROFILE_DETAIL,        // CWorldScene::RenderDetailDoodads: grass and ground clutter
+    FRAMEPROFILE_LIQUID,        // liquid pass, weather, barriers
+    FRAMEPROFILE_EFFECTS,       // spell visuals, particulate, transparent Gxu draw list, glares, chat bubbles
+    FRAMEPROFILE_COUNT,
+    FRAMEPROFILE_NONE = FRAMEPROFILE_COUNT
 };
 
 enum FrameProfileCounter {
-    FRAMEPROFILE_MODELS, // models animated (attached ones count with their root)
+    FRAMEPROFILE_MODELS_ANIMATED, // models animated (attached ones count with their root)
+    FRAMEPROFILE_DRAW_CALLS,      // CGxDevice::Draw calls, one API draw each (UI included)
     FRAMEPROFILE_COUNTERS
 };
 
@@ -34,18 +46,8 @@ extern FrameProfileStats g_frameProfile;
 
 uint64_t FrameProfileNow();
 void FrameProfileAdd(FrameProfileSection section, uint64_t start, uint64_t end);
+void FrameProfileSwitch(FrameProfileSection section);
 void FrameProfileCount(FrameProfileCounter counter, uint32_t value);
 void FrameProfileEndFrame();
-
-// times its scope into a section
-class FrameProfileScope {
-    public:
-    explicit FrameProfileScope(FrameProfileSection section) : m_section(section), m_start(FrameProfileNow()) {}
-    ~FrameProfileScope() { FrameProfileAdd(this->m_section, this->m_start, FrameProfileNow()); }
-
-    private:
-    FrameProfileSection m_section;
-    uint64_t m_start;
-};
 
 #endif

@@ -8,6 +8,7 @@
 #include "Engine/Source/Gx/CGxPool.h"
 #include "Engine/Source/Gx/Gx.h"
 #include "Engine/Source/Os/OsFile.h"
+#include "Engine/Source/Base/FrameProfile.h"
 
 // MODIFIED: D3D11 device, see CGxDeviceD3d11.h. Render state, shaders, constants and the draw.
 
@@ -1379,6 +1380,9 @@ void CGxDeviceD3d11::Draw(CGxBatch* batch, int32_t count) {
     if (!this->m_context || this->m_intF5C || !batch || batch->m_primType >= GxPrims_Last || !batch->m_count) {
         return;
     }
+
+    // MODIFIED: performance diagnostics (FrameProfile.h)
+    FrameProfileCount(FRAMEPROFILE_DRAW_CALLS, 1);
 
     if (!this->IStateSync(batch->m_primType)) {
         return;

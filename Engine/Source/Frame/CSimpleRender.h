@@ -32,8 +32,9 @@ class CSimpleRender {
     static int32_t s_mergeEnable;
     // MODIFIED: awesome_wotlk uiPixelSnap; the shader Init creates under Shaders\Vertex ("UI" in the stock client)
     static const char* s_vertexShaderName;
-    // MODIFIED: awesome_wotlk uiTextureSampling / uiPixelSnap; DrawBatch passes every batch's texture before binding it
-    static void (*s_batchTextureCallback)(CGxTex* texture);
+    // MODIFIED: awesome_wotlk uiTextureSampling / uiPixelSnap, uiUpscale; DrawBatch passes every batch's texture and
+    // blend mode (EGxBlend) before binding them
+    static void (*s_batchTextureCallback)(CGxTex* texture, int32_t alphaMode);
 
     static int32_t CalcBatchCounts(CRenderBatch* batch, uint32_t* vertCounts, uint32_t* idxCounts);
     static void Destroy();

@@ -1118,6 +1118,21 @@ void TextureNotifyGxRestart() {
     }
 }
 
+// MODIFIED: UI upscaling; true for the shared texture of an atlas (8 x 8 cells, one small texture each)
+int32_t TextureGxTexIsAtlas(CGxTex* gxTex) {
+    if (!gxTex) {
+        return 0;
+    }
+
+    for (CTextureAtlas* atlas = s_atlasList.Head(); atlas; atlas = atlas->m_link.Next()) {
+        if (atlas->m_gxTex == gxTex) {
+            return 1;
+        }
+    }
+
+    return 0;
+}
+
 // VERIFY: 7a43e0c3 auto
 // OFFSET: 0x004B6610
 int32_t TextureGetDimensions(CTexture* texture, uint32_t* width, uint32_t* height, int32_t wait) {

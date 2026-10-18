@@ -146,6 +146,8 @@ void TextureFreeMippedImg(MipBits* bits);
 void TextureFreeMippedImg(MipBits* bits, PIXEL_FORMAT format, uint32_t width, uint32_t height);
 void TextureGenerateMips(uint32_t width, uint32_t height, uint32_t firstLevel, uint32_t levelCount, MipBits* images);
 CGxTex* TextureGetGxTex(CTexture* texture, int32_t wait, CStatus* status);
+// MODIFIED: UI upscaling
+int32_t TextureGxTexIsAtlas(CGxTex* gxTex);
 int32_t TextureGetAtlasOffsetAndScale(CTexture* texture, C2Vector& offset, float& scale);
 uint32_t TextureGetBytesPerBlock(PIXEL_FORMAT format);
 int32_t TextureGetDimensions(CTexture* texture, uint32_t* width, uint32_t* height, int32_t wait);

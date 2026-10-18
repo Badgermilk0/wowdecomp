@@ -47,7 +47,7 @@ shader model 3 and a D3D9 or D3D11 device (D3D11 translates the same bytecode). 
 `.bls` shaders load instead, and MSDF and frame capture stay off; frame capture also stays off on D3D11.
 
 **Defaults that change the look:** `uiHalfPixelFix`, `uiTextureSampling`, `uiPixelSnap` and `MSDFMode` default to on,
-as in awesome's current source. Set any of them to `0` for the stock look. The three UI fixes take effect live;
+as in awesome's current source. `uiUpscale` and `uiUpscaleEdges` (see "UI upscaling for high resolutions", beyond awesome) are on too. Set any of them to `0` for the stock look. The three UI fixes take effect live;
 `MSDFMode` needs a restart.
 
 #### MSDF fonts, how this port differs from awesome
@@ -251,6 +251,42 @@ values (`asyncReadThreads 1`, `asyncPostloadBudget 0`, `textureLoadBudget 4`, `M
 | Stable shadows | `CShadowCache::GatherBands` / `Update`, `SnapToShadowTexels` | `shadowStable` (**1**) | The cascades (`extShadowQuality` 5) and the near map are centred on whole texels of the sun's view plane, not on whole-yard world cells (2/4/16 yards) or 1/size-yard steps. The texel grid then stays put in the world, and shadow edges no longer crawl and flicker while you move. They still creep slowly as the sun moves. |
 | Live 3D unit portraits | `UIUtil/PortraitButton.*` (`LivePortraitSet`, `UpdateLivePortraits`), called each frame from `Ui/WorldFrame.cpp` (`OnWorldUpdate`); `Frame/CSimpleTexture` `s_destroyCallback`; `Awesome/AwesomeMisc.cpp` | `portraitLive` (**1**; 0 = the stock snapshot), `/liveportraits [on\|off]` | `SetPortraitTexture` on a unit no longer takes one picture: the portrait keeps its own copy of the unit's model (as `PlayerModel:SetUnit` does) playing the idle animation, and redraws it into the portrait's render target every frame through the stock portrait camera, lighting and circular mask, at `portraitResolution`. So every frame that uses `SetPortraitTexture` animates (player, target, focus, both targets-of-target, pet, party, boss, arena, and addon unit frames) with no change to FrameXML. One copy per unit GUID, shared by every texture showing it; it is drawn only while one of those textures is visible, follows the unit's model on shapeshift, display or gear change, keeps animating after the unit leaves view, and is freed once no texture shows it. Up to 32 at once; beyond that, and for units with an icon portrait, party pets (no unit object) and the 64×64 readback path (no render-target alpha), the stock snapshot stays. Takes effect live. Cost per visible portrait is about that of one `PlayerModel` frame. Don't also run the `HDPortraits` addon: it lays `PlayerModel` frames over the same textures. |
 | Indoor minimap resolution | `Ui/MinimapFrame.*` (`CreateIndoorTexture`, `MinimapSetIndoorResolution`), `Awesome/AwesomeMisc.cpp` | `minimapIndoorResolution` (**1024**, 256–2048, rounded up to a power of two) | Inside a WMO (caves, dungeons, buildings) the minimap is drawn into a square render target covering three times the visible radius, and only its middle third is shown. Stock 256 left about 85 texels across the minimap, 3.5× coarser than the WMO minimap textures (0.5 yd per texel) at the widest zoom. 1024 keeps their full detail at every zoom; 2048 adds nothing visible. Takes effect live. The outdoor minimap has no render target: it draws the `Textures\Minimap` tiles directly, so only higher-resolution tile files sharpen it (tile texture coordinates are fractions, so any power-of-two size displays correctly). |
+
+### UI upscaling for high resolutions (branch `feature/ui-upscale`)
+
+FrameXML lays the interface out on a screen 768 units high, so at 2160p every texture of the UI is drawn about 2.8
+times its size (1440p: 1.9). The stock client magnifies it with one bilinear tap, or point-samples it (a texture under
+256 px with no mips gets `GxTex_Nearest` in `CTexture` creation), and the whole UI looks soft. awesome's
+`uiTextureSampling` only treats the opposite case (a texture drawn smaller than it is). Most of the art is the stock
+size (64 px icons, 128 × 32 buttons, 128 × 16 borders); the HD client replaces a few files at 2 to 4 times.
+
+This sharpens the existing art without new files and without addons doing anything: the reconstruction runs in the UI
+pixel shader that awesome already replaces (`Awesome/AwesomeUiFixes.cpp`), for every `CSimpleTexture`, backdrop, status
+bar and cooldown in FrameXML, GlueXML and addons. Fonts are already handled by MSDF and `fontMaxPixelSize`.
+
+| Part | CVars (**default**) | How |
+|---|---|---|
+| Magnified textures | `uiUpscale` (**2**: 0 engine, 1 bicubic, 2 edge-adaptive; live) | When a texture is drawn larger than it is (under 0.98 texels per pixel), the pixel is rebuilt from its 4 × 4 texel neighbourhood: Catmull-Rom, or (2) an edge-directed Lanczos after AMD FSR 1's EASU, which finds the art's local edge direction and stretches the kernel along it, so diagonals stay clean instead of stepping. The result is held to the range of the four nearest texels: no ringing, no colours the art does not have, and nothing from beyond what bilinear already reaches (sub-images packed into one file do not bleed further than before). Taps are at texel centres, so a point-sampled texture is reconstructed too. At 1:1 the output is the stock tap, bit for bit. |
+| Premultiplied filtering | — | For the blends that weight colour by alpha (`AlphaKey`, `Alpha`, `Add`), colour is filtered premultiplied, so the colour of transparent texels (often black or garbage) no longer seeps into edges as a dark fringe. Opaque and modulate blends filter the colour as it is. |
+| Alpha edges | `uiUpscaleEdges` (**1**, 0–1; live) | Where a magnified texture's alpha steps from transparent to opaque within a texel (button rims, rings, check marks, icon masks), a smooth cubic fit of the 4 × 4 alpha (Mitchell-Netravali B 0.6, C 0.2) is read as a distance field and its 50% contour is drawn one screen pixel wide, measured along the edge's own direction (correct for stretched and rotated quads). The cubic is smooth enough to straighten the stairs of 1-bit (DXT1) alpha into the diagonal they stand for, and sharp enough that a lone opaque texel and a 1-texel diagonal line survive (the B-spline erases both). Soft alpha (glows, shadows: under 0.5 change between neighbouring texels) is left alone. |
+| Atlas cells | — | Icons and other square textures up to 64 px share 512 px atlases (`uiFaster` bit 1, on by default). `TextureGxTexIsAtlas` tells the batch callback, and the taps are clamped to the drawn cell, so neighbouring icons never bleed in. The stock bilinear tap bled up to 82/255 along a cell's border; with the clamp an atlased icon renders exactly as the same icon on its own. |
+
+Plumbing: `CSimpleRender::s_batchTextureCallback` now also receives the batch's blend mode; pixel constant c223 holds
+the atlas cell count, `uiUpscaleEdges` and the premultiply flag (c222 stays the texture size). The shader permutations
+are `FOOTPRINT` (uiTextureSampling on), `TENT` and `UPSCALE`; the stock `.bls` loads only when both `uiTextureSampling`
+and `uiUpscale` are 0. The edge-adaptive permutation is about 625 ps_3_0 instruction slots (fine on any GPU with
+D3D10-class hardware or later); D3D11 translates it like the other awesome shaders.
+
+Tested offline: every permutation of both entry points through `D3DCompile` (ps_3_0), the D3D11 translator and SM5;
+real UI textures from the HD data rendered through that chain at 2.81× (comparisons of stock, bicubic, edge-adaptive and
+edges); synthetic alpha (lone texels, 1-texel lines, 1-bit and anti-aliased circles, a soft glow); the atlas clamp; the
+three blend paths; and the login screen at 2560 × 1440 on D3D11 (modes 0, 1, 2) and on D3D9, with no shader failures.
+**Not yet seen in the world UI** (action bars, unit frames, bags), which uses the same path.
+
+Not done: a separate retained-mode UI layer (the engine's UI is already retained: `CSimpleTop` keeps the frame tree and
+`CRenderBatch` rebuilds a batch only when a region changes), and 9-slice (`SetTextureSliceMargins`) or SVG textures,
+which would sharpen only art written for them. Without a texture change, the outdoor minimap tiles (drawn by the
+minimap's own pass) and the hardware cursor (fixed 32 px) are not covered.
 
 ### Audio engine upgrade (branch `feature/audio-engine`)
 

@@ -64,7 +64,7 @@ int32_t CSimpleRender::s_mergeEnable;
 
 // MODIFIED: awesome_wotlk uiPixelSnap / uiTextureSampling
 const char* CSimpleRender::s_vertexShaderName = "UI";
-void (*CSimpleRender::s_batchTextureCallback)(CGxTex* texture);
+void (*CSimpleRender::s_batchTextureCallback)(CGxTex* texture, int32_t alphaMode);
 void (*CSimpleTexture::s_positionCallback)(const CRect& rect, C3Vector* position);
 // MODIFIED: live portraits
 void (*CSimpleTexture::s_destroyCallback)(CSimpleTexture* texture);
@@ -744,7 +744,7 @@ void CSimpleRender::DrawBatch(CRenderBatch* batch) {
 
                 // MODIFIED: awesome_wotlk uiTextureSampling / uiPixelSnap shader constants
                 if (CSimpleRender::s_batchTextureCallback) {
-                    CSimpleRender::s_batchTextureCallback(gxTex);
+                    CSimpleRender::s_batchTextureCallback(gxTex, alphaMode);
                 }
 
                 GxRsSet(GxRs_Texture0, gxTex);

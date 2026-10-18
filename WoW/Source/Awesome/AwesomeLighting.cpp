@@ -98,6 +98,23 @@ static uint32_t s_statsViews = 0;
 static C3Vector s_statsOrigin;
 static GxLightingLight s_statsLight;
 
+// where the light gathering dropped lights, for /lighting
+struct GatherDiag {
+    uint32_t m_m2Grid;        // 1 when the M2 scene has a light grid
+    uint32_t m_m2Seen;
+    uint32_t m_m2Invisible;
+    uint32_t m_m2NotPoint;
+    uint32_t m_m2Stale;
+    uint32_t m_wmoDefs;
+    uint32_t m_wmoWithLights;
+    uint32_t m_wmoInReach;
+    uint32_t m_moltSeen;
+    uint32_t m_moltSkipped;   // directional / ambient, or no attenuation
+    uint32_t m_rejected;      // too dark, too small or out of reach
+};
+
+static GatherDiag s_diag;
+
 static uint32_t Features() {
     uint32_t features = 0;
 
@@ -170,12 +187,14 @@ static float FlickerFor(const C3Vector& linear) {
 
 static void AddLight(const C3Vector& position, const C3Vector& gamma, float scale, float start, float radius, const C3Vector& camera, float reach) {
     if (radius <= 0.1f || scale <= 0.0f) {
+        s_diag.m_rejected++;
         return;
     }
 
     float limit = reach + radius;
 
     if (DistanceSquared(position, camera) > limit * limit) {
+        s_diag.m_rejected++;
         return;
     }
 
@@ -189,6 +208,7 @@ static void AddLight(const C3Vector& position, const C3Vector& gamma, float scal
     light.m_specular = 1.0f;
 
     if (light.m_color.x + light.m_color.y + light.m_color.z < 0.003f) {
+        s_diag.m_rejected++;
         return;
     }
 
@@ -200,6 +220,8 @@ static void GatherM2Lights(CM2Scene* scene, const C3Vector& camera, float reach)
     if (!scene || !scene->m_lightGrid || s_cvDynamicM2.m_floatValue <= 0.0f) {
         return;
     }
+
+    s_diag.m_m2Grid = 1;
 
     const float cellScale = 0.05f;
     int32_t cells = static_cast<int32_t>(ceilf(reach * cellScale)) + 1;
@@ -214,7 +236,20 @@ static void GatherM2Lights(CM2Scene* scene, const C3Vector& camera, float reach)
 
             for (; light; light = light->m_lightNext) {
                 // CM2Scene::SelectLights' test: a light its model did not animate this frame is gone
-                if (!light->m_visible || light->m_type != M2LIGHT_POINT || (light->m_scene && light->m_stamp != scene->m_frameStamp)) {
+                s_diag.m_m2Seen++;
+
+                if (!light->m_visible) {
+                    s_diag.m_m2Invisible++;
+                    continue;
+                }
+
+                if (light->m_type != M2LIGHT_POINT) {
+                    s_diag.m_m2NotPoint++;
+                    continue;
+                }
+
+                if (light->m_scene && light->m_stamp != scene->m_frameStamp) {
+                    s_diag.m_m2Stale++;
                     continue;
                 }
 
@@ -246,10 +281,13 @@ static void GatherWmoLights(const C3Vector& camera, float reach) {
 
     for (CMapObjDef* def = CMap::mapObjDefHash.m_fulllist.Head(); def; def = CMap::mapObjDefHash.Next(def)) {
         CMapObj* owner = def->m_owner;
+        s_diag.m_wmoDefs++;
 
         if ((def->m_flags & 0x20) || !owner || !owner->m_lightList || owner->m_ligtsCount <= 0) {
             continue;
         }
+
+        s_diag.m_wmoWithLights++;
 
         // the placement's bounds within reach of the camera
         const CAaBox& box = def->m_bbox;
@@ -261,11 +299,15 @@ static void GatherWmoLights(const C3Vector& camera, float reach) {
             continue;
         }
 
+        s_diag.m_wmoInReach++;
+
         for (int32_t i = 0; i < owner->m_ligtsCount; i++) {
             const SMOLight& molt = owner->m_lightList[i];
+            s_diag.m_moltSeen++;
 
             // omni and spot lights (a spot lights all round here); directional and ambient ones are the stock lighting
             if (molt.m_type > 1 || molt.m_attenEnd <= 0.25f) {
+                s_diag.m_moltSkipped++;
                 continue;
             }
 
@@ -345,6 +387,7 @@ static void SetupView(CM2Scene* scene, const C3Vector& camera, const C3Vector& o
     s_lights.clear();
     s_statsM2 = 0;
     s_statsWmo = 0;
+    s_diag = GatherDiag();
 
     if (s_params.m_features & GxLighting_Dynamic) {
         float reach = s_cvDynamicDistance.m_floatValue;
@@ -547,7 +590,12 @@ static int32_t Script_LightingCommand(lua_State* L) {
     char line[512];
     snprintf(line, sizeof(line), "|cff33ff99Lighting|r features 0x%03X, %u views; lights: %u from models, %u from WMOs, %u kept, %u drawn", Features(), s_statsViews, s_statsM2, s_statsWmo, s_statsKept, stats.m_lights);
     Print(L, line);
+    snprintf(line, sizeof(line), "  viewport %.0f,%.0f %.0fx%.0f, depth %.4f-%.4f", stats.m_viewport[0], stats.m_viewport[1], stats.m_viewport[2], stats.m_viewport[3], stats.m_viewport[4], stats.m_viewport[5]);
+    Print(L, line);
     snprintf(line, sizeof(line), "  origin (%.1f %.1f %.1f), camera (%.1f %.1f %.1f) relative", s_statsOrigin.x, s_statsOrigin.y, s_statsOrigin.z, s_params.m_cameraPosition.x, s_params.m_cameraPosition.y, s_params.m_cameraPosition.z);
+    Print(L, line);
+
+    snprintf(line, sizeof(line), "  M2: grid %u, %u seen, %u invisible, %u not point, %u stale; WMO: %u placed, %u with lights, %u in reach, %u MOLT, %u skipped; %u rejected", s_diag.m_m2Grid, s_diag.m_m2Seen, s_diag.m_m2Invisible, s_diag.m_m2NotPoint, s_diag.m_m2Stale, s_diag.m_wmoDefs, s_diag.m_wmoWithLights, s_diag.m_wmoInReach, s_diag.m_moltSeen, s_diag.m_moltSkipped, s_diag.m_rejected);
     Print(L, line);
 
     if (s_statsKept) {

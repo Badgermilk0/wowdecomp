@@ -987,10 +987,7 @@ void D3d11Lighting::ICaptureView() {
     CopyMatrix(this->m_viewInv, view.Inverse());
     CopyMatrix(this->m_proj, dev->m_projNative);
     CopyMatrix(this->m_projInv, dev->m_projNative.Inverse());
-
-    // the world viewport, as the draws set it
-    dev->IXformSetViewport();
-    this->m_viewport = dev->m_boundViewport;
+    // the viewport is BeginWorld's: here the shadow maps have just drawn, with their own
 }
 
 void D3d11Lighting::IRestoreDevice() {
@@ -1017,6 +1014,10 @@ void D3d11Lighting::BeginWorld(const GxLightingParams& params) {
     this->m_lightsActive = false;
     this->m_lightCount = 0;
     this->IWriteConstants(false);
+
+    // the world viewport: CGWorldFrame::OnWorldRender has just set it, on the frame
+    dev->IXformSetViewport();
+    this->m_viewport = dev->m_boundViewport;
 
     bool hdr = (params.m_features & GxLighting_Hdr) && this->ICreateShaders() && this->IEnsureScene();
 
@@ -1300,4 +1301,10 @@ void D3d11Lighting::GetStats(GxLightingStats& stats) {
     stats.m_lights = this->m_statsLights;
     stats.m_clusterOverflows = 0;
     stats.m_gpuMs = 0.0f;
+    stats.m_viewport[0] = this->m_viewport.TopLeftX;
+    stats.m_viewport[1] = this->m_viewport.TopLeftY;
+    stats.m_viewport[2] = this->m_viewport.Width;
+    stats.m_viewport[3] = this->m_viewport.Height;
+    stats.m_viewport[4] = this->m_viewport.MinDepth;
+    stats.m_viewport[5] = this->m_viewport.MaxDepth;
 }

@@ -83,6 +83,7 @@ struct GxLightingStats {
     uint32_t m_lights;
     uint32_t m_clusterOverflows;     // clusters that had more lights than they hold (last read back)
     float m_gpuMs;                   // not measured yet: 0
+    float m_viewport[6];             // the world viewport: left, top, width, height, depth min, max
 };
 
 class IGxLighting {

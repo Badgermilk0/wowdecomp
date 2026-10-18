@@ -330,8 +330,13 @@ void AwesomeLightingBeginWorld() {
     s_inWorld = true;
 }
 
-static void SetupView(CM2Scene* scene, const C3Vector& camera, bool wmo, bool testLights) {
+// origin: the world draws relative to it (CWorldScene::s_activeWorldView: every object's world matrix subtracts it, so
+// the view matrix and the depth buffer are in that space); the lights, the camera and the fog's base height are moved
+// into it
+static void SetupView(CM2Scene* scene, const C3Vector& camera, const C3Vector& origin, bool wmo, bool testLights) {
     BuildParams(s_params, camera);
+    s_params.m_cameraPosition = camera - origin;
+    s_params.m_heightFogBase -= origin.z;
     s_lights.clear();
     s_statsM2 = 0;
     s_statsWmo = 0;
@@ -342,6 +347,10 @@ static void SetupView(CM2Scene* scene, const C3Vector& camera, bool wmo, bool te
 
         if (wmo) {
             GatherWmoLights(camera, reach);
+        }
+
+        for (GxLightingLight& light : s_lights) {
+            light.m_position = light.m_position - origin;
         }
 
         if (testLights) {
@@ -366,8 +375,9 @@ static void SetupView(CM2Scene* scene, const C3Vector& camera, bool wmo, bool te
         const size_t keep = 256;
 
         if (s_lights.size() > keep) {
-            auto nearer = [&camera](const GxLightingLight& a, const GxLightingLight& b) {
-                return sqrtf(DistanceSquared(a.m_position, camera)) - a.m_radius < sqrtf(DistanceSquared(b.m_position, camera)) - b.m_radius;
+            C3Vector eye = s_params.m_cameraPosition;
+            auto nearer = [&eye](const GxLightingLight& a, const GxLightingLight& b) {
+                return sqrtf(DistanceSquared(a.m_position, eye)) - a.m_radius < sqrtf(DistanceSquared(b.m_position, eye)) - b.m_radius;
             };
 
             std::nth_element(s_lights.begin(), s_lights.begin() + keep, s_lights.end(), nearer);
@@ -384,7 +394,7 @@ void AwesomeLightingSetupView(const C3Vector& camera) {
         return;
     }
 
-    SetupView(World::s_m2Scene, camera, true, false);
+    SetupView(World::s_m2Scene, camera, CWorldScene::s_activeWorldView, true, false);
 }
 
 // lightingGlueTest: the login screen's model scene goes through the same passes as the world (CSimpleModelFFX::Render
@@ -395,7 +405,7 @@ static void GlueRenderCallback(CSimpleModel* model, uint32_t phase, const C3Vect
     }
 
     if (phase == 0) {
-        SetupView(model->GetScene(), camera, false, s_cvGlueTest.m_intValue >= 2);
+        SetupView(model->GetScene(), camera, C3Vector(0.0f, 0.0f, 0.0f), false, s_cvGlueTest.m_intValue >= 2);
     } else if (phase == 1) {
         g_gxLighting->OpaqueDone();
     }

@@ -92,7 +92,7 @@ class D3d11Lighting : public IGxLighting {
     static const uint32_t s_clustersX = 16;
     static const uint32_t s_clustersY = 9;
     static const uint32_t s_clustersZ = 24;
-    static const uint32_t s_clusterStride = 32;
+    static const uint32_t s_clusterStride = 64;
 
     CGxDeviceD3d11* m_device;
     GxLightingParams m_params;

@@ -131,7 +131,7 @@ const char* const s_hlslLighting =
     "#define GX_LIGHT_DYNAMIC 2u\n"
     "#define GX_LIGHT_SPECULAR 4u\n"
     "#define GX_LIGHT_HEMISPHERE 8u\n"
-    "#define GX_CLUSTER_STRIDE 32u\n"
+    "#define GX_CLUSTER_STRIDE 64u\n"
     "\n"
     "// gxF.x: the family in bits 0-2, the stock point lights in 3-5, 64 a normal, 128 WMO specular, 256 sphere-mapped\n"
     "// M2, 512 a WMO that adds its vertex colour to the lit material (MapObjUDiffuse_Comp). gxF.yzw: the terrain's\n"

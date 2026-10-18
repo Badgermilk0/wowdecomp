@@ -332,7 +332,8 @@ static void OnParticlesAnimated(CM2Model* model) {
         const M2Particle& particle = data->m_particles[i];
         const M2ModelParticle& state = model->m_particles[i];
 
-        if (!state.m_visibilityTrack.m_currentValue || state.m_emissionRateTrack.m_currentValue < 1.0f) {
+        // visible counts, whatever the emission rate this frame: many flames pulse theirs, and the fire would flicker with it
+        if (!state.m_visibilityTrack.m_currentValue || state.m_emissionRateTrack.m_currentValue <= 0.0f) {
             continue;
         }
 
@@ -573,9 +574,13 @@ static void SmoothLights() {
         tracked.m_seen = false;
     }
 
+    // a found light's colour, radius and place eased toward over about a quarter second: a fire's emitters come and go,
+    // and its light would jump with them
+    float ease = 1.0f - expf(-dt / 0.25f);
+
     for (const GxLightingLight& light : s_lights) {
         TrackedLight* match = nullptr;
-        float best = 1.5f * 1.5f;
+        float best = 3.0f * 3.0f;
 
         for (TrackedLight& tracked : s_tracked) {
             float d = DistanceSquared(tracked.m_light.m_position, light.m_position);
@@ -587,7 +592,13 @@ static void SmoothLights() {
         }
 
         if (match) {
-            match->m_light = light;
+            GxLightingLight& kept = match->m_light;
+            kept.m_position = kept.m_position + (light.m_position - kept.m_position) * ease;
+            kept.m_color = kept.m_color + (light.m_color - kept.m_color) * ease;
+            kept.m_radius += (light.m_radius - kept.m_radius) * ease;
+            kept.m_start += (light.m_start - kept.m_start) * ease;
+            kept.m_flicker = light.m_flicker;
+            kept.m_specular = light.m_specular;
             match->m_seen = true;
         } else {
             s_tracked.push_back(TrackedLight { light, 0.0f, true });

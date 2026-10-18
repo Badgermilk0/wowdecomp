@@ -423,9 +423,10 @@ static void GatherFireLights(CM2Scene* scene, const C3Vector& camera, float reac
 
     for (const Fire& fire : fires) {
         // a torch lights a few yards, a bonfire with many emitters much more
-        float radius = 5.0f + fire.m_size * 3.0f + 1.5f * static_cast<float>(fire.m_count < 6 ? fire.m_count : 6);
-        radius = radius > 18.0f ? 18.0f : radius;
-        float strength = s_cvFire.m_floatValue * (0.6f + 0.15f * static_cast<float>(fire.m_count < 4 ? fire.m_count : 4));
+        // a candle lights a yard or three, a brazier several, a bonfire up to 12
+        float radius = 3.0f + fire.m_size * 2.0f + 0.75f * static_cast<float>(fire.m_count < 6 ? fire.m_count : 6);
+        radius = radius > 12.0f ? 12.0f : radius;
+        float strength = s_cvFire.m_floatValue * 0.3f * (0.7f + 0.1f * static_cast<float>(fire.m_count < 3 ? fire.m_count : 3));
         size_t before = s_lights.size();
         // the light sits a little above the base of the flames
         C3Vector position = fire.m_sum * (1.0f / fire.m_count);
@@ -558,13 +559,27 @@ void AwesomeLightingBeginWorld() {
 struct TrackedLight {
     GxLightingLight m_light;
     float m_weight;
+    float m_unseen;       // seconds held off screen
     bool m_seen;
 };
 
 static std::vector<TrackedLight> s_tracked;
 static uint32_t s_trackedTime = 0;
 
-static void SmoothLights() {
+// true when a world position (relative to the render origin) is inside the view: a model there is drawn and animated,
+// so a light of it that was not found this frame is really gone
+static bool OnScreen(const C3Vector& relative) {
+    CGxMatrixStack& viewStack = g_theGxDevicePtr->m_xforms[GxXform_View];
+    const C44Matrix& view = viewStack.m_mtx[viewStack.m_level];
+    const C44Matrix& proj = g_theGxDevicePtr->m_projNative;
+    C3Vector v = Transform(relative, view);
+    float x = v.x * proj.a0 + v.y * proj.b0 + v.z * proj.c0 + proj.d0;
+    float y = v.x * proj.a1 + v.y * proj.b1 + v.z * proj.c1 + proj.d1;
+    float w = v.x * proj.a3 + v.y * proj.b3 + v.z * proj.c3 + proj.d3;
+    return w > 0.5f && fabsf(x) < w * 0.9f && fabsf(y) < w * 0.9f;
+}
+
+static void SmoothLights(const C3Vector& origin) {
     uint32_t now = OsGetAsyncTimeMs();
     float dt = s_trackedTime ? static_cast<float>(now - s_trackedTime) * 0.001f : 0.0f;
     dt = dt > 0.25f ? 0.25f : dt;
@@ -601,7 +616,7 @@ static void SmoothLights() {
             kept.m_specular = light.m_specular;
             match->m_seen = true;
         } else {
-            s_tracked.push_back(TrackedLight { light, 0.0f, true });
+            s_tracked.push_back(TrackedLight { light, 0.0f, 0.0f, true });
         }
     }
 
@@ -609,7 +624,17 @@ static void SmoothLights() {
 
     for (size_t i = 0; i < s_tracked.size();) {
         TrackedLight& tracked = s_tracked[i];
-        tracked.m_weight += tracked.m_seen ? dt / 0.3f : -dt / 0.6f;
+        if (tracked.m_seen) {
+            tracked.m_weight += dt / 0.3f;
+            tracked.m_unseen = 0.0f;
+        } else if (!OnScreen(tracked.m_light.m_position - origin) && tracked.m_unseen < 20.0f) {
+            // off screen its model is not animated, so it is not found: it still lights what is on screen. Kept up to
+            // 20 s unseen
+            tracked.m_unseen += dt;
+        } else {
+            tracked.m_weight -= dt / 0.6f;
+        }
+
         tracked.m_weight = tracked.m_weight > 1.0f ? 1.0f : tracked.m_weight;
 
         if (tracked.m_weight <= 0.0f && !tracked.m_seen) {
@@ -648,7 +673,7 @@ static void SetupView(CM2Scene* scene, const C3Vector& camera, const C3Vector& o
             GatherWmoLights(camera, reach);
         }
 
-        SmoothLights();
+        SmoothLights(origin);
 
         for (GxLightingLight& light : s_lights) {
             light.m_position = light.m_position - origin;

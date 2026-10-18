@@ -74,7 +74,7 @@ static AwesomeCVar s_cvScattering = AwesomeCVar::Float("fogScattering", 0.0f, 0.
 // off by turns every 4 seconds
 static AwesomeCVar s_cvGlueTest = AwesomeCVar::Int("lightingGlueTest", 0, 0, 3);
 // 1: the SSAO term alone; 2: the lit surfaces by kind (green relit per pixel, red unlit, blue face normal); 3: the dynamic light alone
-static AwesomeCVar s_cvDebug = AwesomeCVar::Int("lightingDebug", 0, 0, 4);
+static AwesomeCVar s_cvDebug = AwesomeCVar::Int("lightingDebug", 0, 0, 5);
 
 static AwesomeCVar* const s_cvars[] = {
     &s_cvGlueTest,

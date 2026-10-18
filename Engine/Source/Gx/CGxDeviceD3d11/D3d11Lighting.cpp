@@ -169,7 +169,8 @@ const char* const s_postHlsl =
     "    n = dot(n, p) > 0.0 ? -n : n;\n"
     "\n"
     "    float radius = gxAo.x;\n"
-    "    float radiusPx = clamp(radius * gxAoProj.x / max(w, 0.01), 3.0, 96.0);\n"
+    "    // the cap follows the screen: a fixed 96 shrank the radius at 4K to a fraction of a yard\n"
+    "    float radiusPx = clamp(radius * gxAoProj.x / max(w, 0.01), 3.0, gxViewportPx.w * 0.15);\n"
     "    float noise = frac(52.9829189 * frac(dot(i.pos.xy, float2(0.06711056, 0.00583715))));\n"
     "    // two depth-buffer steps at this distance: a neighbour nearer than that may be the same surface, quantised\n"
     "    float bias = 2.0 * gxAoProj.y * w * w;\n"
@@ -227,7 +228,7 @@ const char* const s_postHlsl =
     "    // lightingDebug 4: red geometry, green clip w / 200, blue the half-resolution occlusion under the pixel\n"
     "    if (gxTone.z > 3.5) {\n"
     "        float2 h4 = gxColor.Load(int3(int2((i.pos.xy - gxViewportPx.xy) * 0.5), 0)).xy;\n"
-    "        return float4(GxIsGeometry(d) ? 1.0 : 0.0, saturate(w / 200.0), h4.x, 1.0);\n"
+    "        return float4(GxIsGeometry(d) ? 1.0 : 0.0, gxTone.z > 4.5 ? d : saturate(w / 200.0), h4.x, 1.0);\n"
     "    }\n"
     "\n"
     "    if (!GxIsGeometry(d)) {\n"
@@ -1117,6 +1118,10 @@ void D3d11Lighting::SetupView(const GxLightingParams& params, const GxLightingLi
     if (s_logged < 3) {
         s_logged++;
         CGxDevice::Log("D3d11Lighting: view %u: features 0x%03X, hdr %u, %u lights, viewport %.0f,%.0f %.0fx%.0f depth %.3f-%.3f, proj w (%.3f %.3f %.3f %.3f)", s_logged, params.m_features, this->m_hdrActive ? 1 : 0, this->m_lightCount, this->m_viewport.TopLeftX, this->m_viewport.TopLeftY, this->m_viewport.Width, this->m_viewport.Height, this->m_viewport.MinDepth, this->m_viewport.MaxDepth, this->m_proj[3], this->m_proj[7], this->m_proj[11], this->m_proj[15]);
+        const float* m = this->m_proj;
+        const float* n = this->m_projInv;
+        CGxDevice::Log("D3d11Lighting:   proj %g %g %g %g / %g %g %g %g / %g %g %g %g / %g %g %g %g", m[0], m[1], m[2], m[3], m[4], m[5], m[6], m[7], m[8], m[9], m[10], m[11], m[12], m[13], m[14], m[15]);
+        CGxDevice::Log("D3d11Lighting:   inv  %g %g %g %g / %g %g %g %g / %g %g %g %g / %g %g %g %g", n[0], n[1], n[2], n[3], n[4], n[5], n[6], n[7], n[8], n[9], n[10], n[11], n[12], n[13], n[14], n[15]);
 
         for (uint32_t i = 0; i < count && i < 3; i++) {
             float view[3];
@@ -1192,7 +1197,7 @@ void D3d11Lighting::OpaqueDone() {
             this->IWritePostConstants(vp, dev->m_frameWidth, dev->m_frameHeight, source);
             // lightingDebug 1: the occlusion itself instead of the scene
             // (colour only: the frame's alpha is FFX glow's mask)
-            ID3D11BlendState* blend = this->m_params.m_debug == 1 || this->m_params.m_debug == 4 ? this->m_blendOpaqueRgb : this->m_blendMultiply;
+            ID3D11BlendState* blend = this->m_params.m_debug == 1 || this->m_params.m_debug >= 4 ? this->m_blendOpaqueRgb : this->m_blendMultiply;
             this->IDrawFullscreen(msaa ? Shader_AoCompositePsMs : Shader_AoCompositePs, frame, vp, blend, composite, 2);
         }
     }

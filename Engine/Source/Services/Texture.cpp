@@ -1022,6 +1022,32 @@ void CTextureAtlas::Reload() {
     this->m_dirty &= ~1;
 }
 
+#if defined(WOWDECOMP_ARCH_64)
+// MODIFIED: performance. Texture files are read into memory only while the bytes already in flight (read, waiting to be
+// read or waiting for their upload) stay within a budget, stock a fixed 4 MB. That is three or four HD textures, so a
+// city's textures trickled in one small batch at a time, and a file over 4 MB (a 2048 x 2048 DXT5 BLP is 5.3 MB) never
+// fitted: it stayed queued until something drew it with wait = 1 and loaded it on the spot. The budget is now
+// textureLoadBudget (64 MB), and a file larger than the budget starts whenever nothing else is in flight
+static uint32_t s_textureLoadBudget = 0x4000000;
+
+static bool TextureLoadFits(uint32_t size) {
+    if (!s_asyncLoadBufferUsed) {
+        return true;
+    }
+
+    return s_asyncLoadBufferUsed < s_textureLoadBudget && s_textureLoadBudget - s_asyncLoadBufferUsed >= size;
+}
+
+void TextureSetLoadBudget(uint32_t bytes) {
+    s_textureLoadBudget = bytes < 0x400000 ? 0x400000 : bytes;
+}
+
+void TextureGetLoadStats(uint32_t& pending, uint32_t& bytesInFlight) {
+    pending = AsyncTextureStatus();
+    bytesInFlight = s_asyncLoadBufferUsed;
+}
+#endif
+
 // VERIFY: 7f5ee904 manual
 // OFFSET: 0x004B64E0
 void AsyncTextureProcess(CAsyncObject* object, int32_t immediate) {
@@ -1215,6 +1241,31 @@ void FillInSolidTexture(const CImVector& color, CTexture* texture) {
 // VERIFY: f77dd4dd manual
 // OFFSET: 0x004B69E0
 void AsyncTextureHandler() {
+#if defined(WOWDECOMP_ARCH_64)
+    // MODIFIED: performance; the same two passes against textureLoadBudget (see TextureLoadFits)
+    for (CAsyncObject* object = s_asyncLoadList.Head(); !s_asyncLoadList.IsEnd(object); ) {
+        CAsyncObject* next = s_asyncLoadList.RawNext(object);
+
+        if (TextureLoadFits(object->m_size)) {
+            AsyncTextureProcess(object, 0);
+        }
+
+        object = next;
+    }
+
+    for (CAsyncObject* object = s_asyncTextureList.Head(); !s_asyncTextureList.IsEnd(object); ) {
+        CAsyncObject* next = s_asyncTextureList.RawNext(object);
+
+        if (TextureLoadFits(object->m_size)) {
+            AsyncTextureProcess(object, 0);
+        }
+
+        object = next;
+    }
+
+    return;
+#endif
+
     uint32_t available = 0x400000 - s_asyncLoadBufferUsed;
 
     for (CAsyncObject* object = s_asyncLoadList.Head(); !s_asyncLoadList.IsEnd(object); ) {
@@ -2239,6 +2290,7 @@ CTexture* CreateBlpAsync(char* extension, const char* fileName, uint32_t flags, 
     texture->m_asyncObject->m_userPostUnloadCallback = reinterpret_cast<void*>(AsyncTextureFailureCallback);
     texture->m_asyncObject->m_file = file;
     texture->m_asyncObject->m_size = SFileGetFileSize(file, nullptr);
+    ASYNC_SET_KIND(texture->m_asyncObject, ASYNC_KIND_TEXTURE);
 
     if (blobTexture) {
         texture->m_asyncObject->m_priority = 131;
@@ -2250,7 +2302,12 @@ CTexture* CreateBlpAsync(char* extension, const char* fileName, uint32_t flags, 
 
     CAsyncObject* object = texture->m_asyncObject;
 
+#if defined(WOWDECOMP_ARCH_64)
+    // MODIFIED: performance; see TextureLoadFits
+    if (!TextureLoadFits(object->m_size)) {
+#else
     if (0x400000 - s_asyncLoadBufferUsed < object->m_size) {
+#endif
         s_asyncTextureList.LinkNode(object, 2, nullptr);
     } else {
         AsyncTextureProcess(object, 0);

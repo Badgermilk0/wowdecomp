@@ -254,6 +254,7 @@ void AwesomeRegisterCVars() {
     AwesomeHdClientRegisterCVars();
     AwesomeShadowsRegisterCVars();
     AwesomePerfRegisterCVars();
+    AwesomeStreamingRegisterCVars();
     AwesomeAudioRegisterCVars();
 }
 
@@ -274,6 +275,7 @@ void AwesomeRegisterScriptFunctions() {
     AwesomeVoiceChatRegisterScriptFunctions(L);
     AwesomeFrameCaptureRegisterScriptFunctions(L);
     AwesomePerfRegisterScriptFunctions(L);
+    AwesomeStreamingRegisterScriptFunctions(L);
     AwesomeAudioRegisterScriptFunctions(L);
 }
 

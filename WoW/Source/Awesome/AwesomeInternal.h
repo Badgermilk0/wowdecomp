@@ -102,6 +102,10 @@ void AwesomeAudioRegisterCVars();
 void AwesomeAudioRegisterScriptFunctions(lua_State* L);
 void AwesomeAudioOnEnterWorld();
 
+// AwesomeStreaming.cpp
+void AwesomeStreamingRegisterCVars();
+void AwesomeStreamingRegisterScriptFunctions(lua_State* L);
+
 // AwesomePerf.cpp
 void AwesomePerfRegisterCVars();
 void AwesomePerfRegisterScriptFunctions(lua_State* L);

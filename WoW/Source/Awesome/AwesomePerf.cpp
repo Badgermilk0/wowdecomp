@@ -105,6 +105,16 @@ SlashCmdList.FRAMETIMES = function()
         print(("|cff33ff99GPU|r %.2f ms: shadows %.2f, terrain %.2f, wmo %.2f, models %.2f, grass %.2f, liquid %.2f, effects %.2f, other %.2f, ui and rest %.2f"):format(
             gpuFrame, gShadows, gTerrain, gWmo, gModels, gDetail, gLiquid, gEffects, gOther + gPlates, math.max(gpuFrame - world, 0)))
     end
+    if GetLoadTimings then
+        local lTex, lModel, lSkin, lAnim, lAdt, lWmo, lGroup, lOther, lPeak, lWait, lWaitPeak, lWaits, lLoads, lPrepare,
+            lMBps, lQueued, lReading, lPosted, lThreads, lTexPending, lTexMB = GetLoadTimings()
+        if lTex then
+            print(("|cff33ff99Load|r %.2f ms (worst frame %.1f): textures %.2f, models %.2f, skins %.2f, anims %.2f, adt %.2f, wmo %.2f, groups %.2f, other %.2f"):format(
+                lTex + lModel + lSkin + lAnim + lAdt + lWmo + lGroup + lOther, lPeak, lTex, lModel, lSkin, lAnim, lAdt, lWmo, lGroup, lOther))
+            print(("|cff33ff99Load|r waits %.2f ms (%d per 5 s, longest %.1f); %d loads per 5 s, %.1f MB/s on %d threads (prepare %.1f ms/s); queued %d, reading %d, posted %d; textures waiting %d, %.1f MB in flight"):format(
+                lWait, lWaits, lWaitPeak, lLoads, lMBps, lThreads, lPrepare, lQueued, lReading, lPosted, lTexPending, lTexMB))
+        end
+    end
 end
 )lua";
 

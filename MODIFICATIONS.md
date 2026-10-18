@@ -167,6 +167,7 @@ nothing to do with any feature, and running them would crash or hang. Probably a
 | Option | Effect |
 |---|---|
 | `-DWOWCLIENT_CRASH_CONSOLE=ON` (off by default) | Upstream's crash logger (`Tools/WowClient/crash_log.cpp`, `WOWCLIENT_CRASH_LOG`) opened a console window at every start. It now only writes `WowClient_crash.log`; this option brings the live console back. |
+| Thread names | `Storm/Source/Win64/SLock.cpp` (`SThread::Create`): the name each caller passes ("Disk Queue 2", "Model2", "NetThread 0", ...) is set with `SetThreadDescription` (looked up at run time, Windows 10 1607+), so debuggers and profilers show it. |
 | `-DWOWDECOMP_SOUND_TRACE=ON` (off by default) | `Logs\SoundTrace.log`: every sound's request (`kit`, `glue music`), create, file open, reads near the start of a file and every failed read (position and first bytes), seeks, non-blocking load result, play (volume), stop, end and virtual kill, plus FMOD's channel count every 2 s. Also writes every byte FMOD reads for the first file over 1 MB to `Logs\SoundDump.bin`, to compare with the file in the MPQ. Build it in its own folder (`build/x64-trace`); it writes to the same `bin/Win`. |
 
 ### Performance (x64)
@@ -194,6 +195,51 @@ All of these keep the Win32 layout build as it was. Investigated and left alone:
 thread (`M2UseThreads`, default on); spreading it over several cores needs the animation code made thread-safe, which
 cannot be verified without running the client. The D3D9 device is already created pure, with hardware vertex
 processing and no multithreading lock. `processAffinityMask` defaults to no restriction.
+
+### Asset streaming (branch `feature/async-assets`, x64)
+
+How the stock client streams the world: every M2, skin, `.anim`, ADT, WMO root, WMO group and BLP is read by the
+async file loader (`Services/AsyncFile.cpp`). One "Disk Queue" thread pops the head of a priority-sorted list and
+reads the whole file. Storm already decompresses a large file's MPQ sectors on several cores (`IOMpqUnit`), so the
+read itself was never on the main thread. Everything after the read was: each file's post-load callback (BLP parse and
+GPU upload, M2 relocation and setup, WMO and ADT chunk indexing, which in turn create textures) ran in the frame's poll
+event for up to 100 ms per frame. Code that cannot wait blocks the main thread until its file is read and processed
+(`AsyncFileReadWait`): unit, mount, game-object and missile models (`CM2Model::WaitForLoad`), liquid animation frames
+and FFX textures (`TextureGetGxTex(..., 1)`), WMOs, and ADTs inside the view while `waitForLoad` is set. That wait sat
+behind whatever the single reader was busy with, then behind up to 100 ms of other post-load work before it checked
+again. Both are the familiar hitches: entering a city full of player models, crossing a tile border, the first look at
+water.
+
+| Change | Where | CVars (**default**) | Effect |
+|---|---|---|---|
+| Reader thread pool | `AsyncFile.cpp` (`AsyncFileReadSetDiskThreads`, `CAsyncThread::m_index`) | `asyncReadThreads` (**0** = auto: half the logical processors, 2 to 4; 1 = stock; up to 8) | The disk queue is served by several threads, each popping the head of the same sorted list under `g_queueLock`, so priorities and urgent reads still go first and a waited-on file starts as soon as any thread is free. Completion order no longer follows queue order; nothing depends on it, because a dependent file (a skin, a WMO group) is only queued by its parent's post-load callback. Concurrent reads were already routine (the main thread's synchronous reads and FMOD's loader run beside the disk thread). Threads are created on demand and never destroyed before shutdown; lowering the count idles the surplus ones. Takes effect live. |
+| Prepare stage on the reader threads | `CAsyncObject::m_prepareCallback` / `m_prepared` (x64 fields after `m_link`), `AsyncFileReadThread`; `CM2Shared::PrepareLoad` | — | After a successful read the thread runs the object's prepare callback before posting it. For model files that is `M2Init`: checking every array against the file size and turning file offsets into pointers, a walk over every track of every bone, texture transform, particle and ribbon, which `CM2Shared::LoadSucceededCallback` did on the main thread. `s_sequenceIndex`/`s_sequenceData`/`s_sequenceSize` are `thread_local`, as the main thread may be relocating a low-priority sequence at the same time. A prepare callback may only touch the read buffer, which a `Cancel` keeps alive until its cleanup callback runs; `Cancel` clears a callback that has not started. |
+| Post-load frame budget | `AsyncFileReadPollEvent` (the `EVENT_ID_POLL` handler), `AsyncFileReadProcessPostList` | `asyncPostloadBudget` (**8** ms; 0 = stock 100) | The frame's post-load pass stops after the callback that crosses the budget, so a burst of finished files spreads over frames instead of making one long frame. Loading screens and the map's own load loops still call `AsyncFileReadPollHandler`, which keeps the stock 100 ms. `asyncHandlerTimeout`, the stock knob, never took a `Config.wtf` value: it is read before the file is loaded. |
+| Waits jump the post list | `AsyncFileReadProcessPostList`, `AsyncFileReadWait` | — | The object the main thread waits on is processed as soon as it is read, before older finished files, and the wait returns right after it; the others get the frame budget per pass instead of 100 ms before every check. |
+| Texture load budget 4 → 64 MB, and files over the budget | `Services/Texture.cpp` (`TextureLoadFits`, `AsyncTextureHandler`, `CreateBlpAsync`) | `textureLoadBudget` (**64** MB; 4 = stock) | A BLP is read only while the texture bytes in flight (queued, being read, waiting for upload) fit the budget. 4 MB is three or four HD textures, so a city's textures trickled in. Worse, a file over 4 MB (a 2048 × 2048 DXT5 BLP is 5.3 MB) never fitted at all: it stayed queued until something drew it with `wait = 1` and loaded it synchronously. Now a file larger than the budget starts whenever nothing else is in flight. The stock code also relied on unsigned wrap-around: once a synchronous load pushed the bytes in flight past 4 MB, the "space left" became about 4 GB and everything queued started at once. |
+| Unused models kept 10 → 120 s, capped by size | `Model2/M2Cache.cpp` (`GarbageCollect`, `g_m2CacheFreeBytes`), `CM2Shared::AddRef` / `Release` | `M2CacheTime` (**120** s; 10 = stock), `M2CacheSize` (**256** MB of model files on the free list; 0 = no cap, as stock) | A model nobody uses waits on the cache's free list and is reused as is. Stock deleted it after 10 s, so a spell effect cast every 15 s, a mount, or a ride back across a border read and parsed its models again. Above the size cap the oldest go first. Freed models keep their textures referenced, so this also keeps those textures. |
+| Unused WMOs kept 10 → 120 s | `WorldClient/MapObj.cpp` (`CMapObj::s_flushTime`) | `wmoCacheTime` (**120** s; 10 = stock) | A WMO no longer placed in the world (its ADT purged) is freed after this long, so flying back over a town does not read its root and every group again. Group vertex buffers are still freed after 5 s unseen, as stock. |
+| Load timings | `AsyncLoadStats` / `AsyncFileReadGetStats`, `Awesome/AwesomeStreaming.cpp`, two Load lines in `/frametimes` | — | `GetLoadTimings()`: main-thread ms per frame in post-load callbacks by kind (texture, model, skin, anim, ADT, WMO, WMO group, other; `ASYNC_KIND_*` set where each file is queued), the worst frame's post-load ms, ms per frame and the longest blocked in `AsyncFileReadWait`, waits and loads per 5 s, reader-thread prepare ms per second, MB read per second, files queued / being read / read but not processed, reader threads, then textures waiting for the budget and texture MB in flight. Peaks cover the current and the last 5 s window. |
+
+Also fixed: `AsyncFileReadWait` returned early for an object that had already been processed without lowering its
+re-entry guard, so the next wait would have ended in the fatal error "s_waiting != FALSE".
+
+Not moved off the main thread, on purpose: the GPU upload of a texture (`GxTexUpdate` in `PumpBlpTextureAsync`), the
+texture and shader-effect creation inside the M2/WMO/ADT callbacks, and `CM2Model::InitializeLoaded`. They go through
+the device and the handle and hash tables, none of them thread-safe. BLP "decoding" is already free for DXT files: the
+mip pointers are aimed into the read buffer. Only palettised BLPs are decoded on the CPU, and that is not moved yet;
+the texture line of `/frametimes` shows whether it matters. Everything is x64 only; the Win32 layout build is unchanged.
+
+The CVars are registered in `InitializeGlobal`, before the engine context creates the async queues, and the engine runs
+a CVar's callback at registration only for a saved value. So `AwesomeStreamingRegisterCVars` applies each value once
+itself, and `AsyncFileReadSetDiskThreads` remembers the count until `AsyncFileReadInitialize` creates the queue.
+
+Tested offline (scratch install on the HD data copy, D3D11, login screen): `asyncReadThreads` 0 gives four named
+"Disk Queue" threads on this 16-thread machine, 1 gives the stock one, 8 gives eight; the login scene's models and
+textures load and render; the client exits cleanly (code 0, empty crash log). **Not yet run in the world**, where the
+waits, the frame budget and the caches actually matter: compare `/frametimes` Load lines with the CVars at their stock
+values (`asyncReadThreads 1`, `asyncPostloadBudget 0`, `textureLoadBudget 4`, `M2CacheTime 10`, `M2CacheSize 0`,
+`wmoCacheTime 10`).
 
 ### Graphics (x64)
 

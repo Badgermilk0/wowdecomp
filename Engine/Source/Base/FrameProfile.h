@@ -27,6 +27,9 @@ enum FrameProfileSection {
     FRAMEPROFILE_DETAIL,        // CWorldScene::RenderDetailDoodads: grass and ground clutter
     FRAMEPROFILE_LIQUID,        // liquid pass, weather, barriers
     FRAMEPROFILE_EFFECTS,       // spell visuals, particulate, transparent Gxu draw list, glares, chat bubbles
+    // parts of a section above, timed with FrameProfileAdd; never switched to
+    FRAMEPROFILE_GRASS_FILL,    // of DETAIL: grass batches rebuilt on the CPU (FillVertices/FillIndices)
+    FRAMEPROFILE_GRASS_LIGHTS,  // of DETAIL: the lights picked for each grass chunk
     FRAMEPROFILE_COUNT,
     FRAMEPROFILE_NONE = FRAMEPROFILE_COUNT
 };
@@ -34,6 +37,10 @@ enum FrameProfileSection {
 enum FrameProfileCounter {
     FRAMEPROFILE_MODELS_ANIMATED, // models animated (attached ones count with their root)
     FRAMEPROFILE_DRAW_CALLS,      // CGxDevice::Draw calls, one API draw each (UI included)
+    FRAMEPROFILE_GRASS_CHUNKS,    // terrain chunks with grass drawn
+    FRAMEPROFILE_GRASS_DRAWS,     // grass batches drawn (up to four per chunk, one per texture)
+    FRAMEPROFILE_GRASS_FILLS,     // grass batches rebuilt on the CPU
+    FRAMEPROFILE_GRASS_STREAMED,  // grass batches that found no free baked buffer and went to a stream buffer
     FRAMEPROFILE_COUNTERS
 };
 

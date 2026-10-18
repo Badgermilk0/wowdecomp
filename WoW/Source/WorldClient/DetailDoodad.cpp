@@ -1,5 +1,6 @@
 #include "DetailDoodad.h"
 #include <cmath>
+#include "Engine/Source/Base/FrameProfile.h"
 #include "Engine/Source/Base/Handle.h"
 #include "Engine/Source/Base/ObjectAlloc.h"
 #include "Engine/Source/Gx/CGxBuf.h"
@@ -61,6 +62,9 @@ uint32_t CDetailDoodad::s_idxBufItems;
 // STATIC: 0x00D1C4D0
 uint32_t CDetailDoodad::s_vtxBufItems;
 
+// MODIFIED: performance (DetailDoodad.h)
+uint32_t CDetailDoodad::s_bufferPairs = 128;
+
 // STATIC: 0x00D1C4D4
 CGxPool* CDetailDoodad::s_gxIndexPool;
 
@@ -111,6 +115,11 @@ static void __stdcall BuildInstanceMatrix(C33Matrix& result, C33Matrix& rotation
 // OFFSET: 0x007B2CA0
 static void AcquireBuffers(uint32_t vertexCount, CGxBuf** vertexBuf, uint32_t indexCount, CGxBuf** indexBuf) {
     uint32_t count = CDetailDoodad::s_freeGxBufs.Count();
+
+    // MODIFIED: performance diagnostics (FrameProfile.h)
+    if (!count) {
+        FrameProfileCount(FRAMEPROFILE_GRASS_STREAMED, 1);
+    }
 
     if (count) {
         *vertexBuf = CDetailDoodad::s_freeGxBufs[count - 2];
@@ -573,18 +582,20 @@ void CDetailDoodad::UpdatePools() {
     s_vertexBufferSize = sizeof(CGxVertexPNCT) * vertexItems;
     s_indexBufferSize = sizeof(uint16_t) * indexItems;
 
-    CDetailDoodad::s_gxVertexPool = g_theGxDevicePtr->PoolCreate(GxPoolTarget_Vertex, GxPoolUsage_Dynamic, 128 * sizeof(CGxVertexPNCT) * vertexItems, GxPoolHintBit_Unk3, "CDetailDoodad_vtx");
-    CDetailDoodad::s_gxIndexPool = g_theGxDevicePtr->PoolCreate(GxPoolTarget_Index, GxPoolUsage_Dynamic, 128 * sizeof(uint16_t) * indexItems, GxPoolHintBit_Unk0, "CDetailDoodad_idx");
+    // MODIFIED: performance, s_bufferPairs pairs instead of 128 (see DetailDoodad.h)
+    uint32_t pairs = CDetailDoodad::s_bufferPairs;
+    CDetailDoodad::s_gxVertexPool = g_theGxDevicePtr->PoolCreate(GxPoolTarget_Vertex, GxPoolUsage_Dynamic, pairs * sizeof(CGxVertexPNCT) * vertexItems, GxPoolHintBit_Unk3, "CDetailDoodad_vtx");
+    CDetailDoodad::s_gxIndexPool = g_theGxDevicePtr->PoolCreate(GxPoolTarget_Index, GxPoolUsage_Dynamic, pairs * sizeof(uint16_t) * indexItems, GxPoolHintBit_Unk0, "CDetailDoodad_idx");
 
-    CDetailDoodad::s_freeGxBufs.Reserve(256, 0);
+    CDetailDoodad::s_freeGxBufs.Reserve(2 * pairs, 0);
 
-    for (uint32_t i = 0; i < 256; i += 2) {
+    for (uint32_t i = 0; i < 2 * pairs; i += 2) {
         *CDetailDoodad::s_freeGxBufs.New() = g_theGxDevicePtr->BufCreate(CDetailDoodad::s_gxVertexPool, sizeof(CGxVertexPNCT), CDetailDoodad::s_vtxBufItems, sizeof(CGxVertexPNCT) * CDetailDoodad::s_vtxBufItems * (i >> 1));
         *CDetailDoodad::s_freeGxBufs.New() = g_theGxDevicePtr->BufCreate(CDetailDoodad::s_gxIndexPool, sizeof(uint16_t), CDetailDoodad::s_idxBufItems, sizeof(uint16_t) * CDetailDoodad::s_idxBufItems * (i >> 1));
         unk_D1C4E8 += 2;
     }
 
-    unk_D1C4DC = 256;
+    unk_D1C4DC = 2 * pairs;
     CDetailDoodad::s_bPoolsDirty = 0;
 }
 
@@ -724,15 +735,28 @@ void CDetailDoodadInstBatch::Draw() {
         AcquireBuffers(this->m_vertexCount, &this->m_vertexBuf, this->m_indexCount, &this->m_indexBuf);
     }
 
+    // MODIFIED: performance diagnostics (FrameProfile.h), rebuilding the batch on the CPU
+    uint64_t fillStart = FrameProfileNow();
+    bool filled = false;
+
     if (!this->m_vertexBuf->m_hasData || !this->m_vertexBuf->m_valid) {
         this->FillVertices();
+        filled = true;
     }
 
     GxPrimVertexPtr(this->m_vertexBuf, GxVBF_PNCT);
 
     if (!this->m_indexBuf->m_hasData || !this->m_indexBuf->m_valid) {
         this->FillIndices();
+        filled = true;
     }
+
+    if (filled) {
+        FrameProfileAdd(FRAMEPROFILE_GRASS_FILL, fillStart, FrameProfileNow());
+        FrameProfileCount(FRAMEPROFILE_GRASS_FILLS, 1);
+    }
+
+    FrameProfileCount(FRAMEPROFILE_GRASS_DRAWS, 1);
 
     g_theGxDevicePtr->PrimIndexPtr(this->m_indexBuf);
     g_theGxDevicePtr->RsSet(GxRs_Texture0, gxTex);

@@ -35,6 +35,10 @@ class CDetailDoodad {
     static SShaderConstants s_shaderConstants;
     static CGxShader* s_vertexShader[6];
     static uint32_t s_vtxBufItems;
+    // MODIFIED: performance. Vertex/index buffer pairs the chunks' grass batches are baked into (stock 128, the
+    // groundEffectBuffers CVar). A batch that finds none free falls back to a stream buffer and is rebuilt on the CPU
+    // every frame it is drawn
+    static uint32_t s_bufferPairs;
 
     static CDetailDoodadInst* AllocInst();
     static void CreateAlphaRampTexture(const void*& texels);

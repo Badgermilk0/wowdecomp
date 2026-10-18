@@ -549,6 +549,71 @@ void AwesomeLightingBeginWorld() {
     }
 }
 
+// a light kept from frame to frame: the client animates a model (and so places its lights and flames) only on the frames
+// it draws or updates it, so a light found one frame may be missing the next. Matched by position (world space), each
+// fades in over 0.3 s and out over 0.6 s instead of switching
+struct TrackedLight {
+    GxLightingLight m_light;
+    float m_weight;
+    bool m_seen;
+};
+
+static std::vector<TrackedLight> s_tracked;
+static uint32_t s_trackedTime = 0;
+
+static void SmoothLights() {
+    uint32_t now = OsGetAsyncTimeMs();
+    float dt = s_trackedTime ? static_cast<float>(now - s_trackedTime) * 0.001f : 0.0f;
+    dt = dt > 0.25f ? 0.25f : dt;
+    s_trackedTime = now;
+
+    for (TrackedLight& tracked : s_tracked) {
+        tracked.m_seen = false;
+    }
+
+    for (const GxLightingLight& light : s_lights) {
+        TrackedLight* match = nullptr;
+        float best = 1.5f * 1.5f;
+
+        for (TrackedLight& tracked : s_tracked) {
+            float d = DistanceSquared(tracked.m_light.m_position, light.m_position);
+
+            if (!tracked.m_seen && d < best) {
+                best = d;
+                match = &tracked;
+            }
+        }
+
+        if (match) {
+            match->m_light = light;
+            match->m_seen = true;
+        } else {
+            s_tracked.push_back(TrackedLight { light, 0.0f, true });
+        }
+    }
+
+    s_lights.clear();
+
+    for (size_t i = 0; i < s_tracked.size();) {
+        TrackedLight& tracked = s_tracked[i];
+        tracked.m_weight += tracked.m_seen ? dt / 0.3f : -dt / 0.6f;
+        tracked.m_weight = tracked.m_weight > 1.0f ? 1.0f : tracked.m_weight;
+
+        if (tracked.m_weight <= 0.0f && !tracked.m_seen) {
+            s_tracked[i] = s_tracked.back();
+            s_tracked.pop_back();
+            continue;
+        }
+
+        float w = tracked.m_weight > 0.0f ? tracked.m_weight : 0.0f;
+        GxLightingLight light = tracked.m_light;
+        float fade = w * w * (3.0f - 2.0f * w);
+        light.m_color = light.m_color * fade;
+        s_lights.push_back(light);
+        i++;
+    }
+}
+
 // origin: the world draws relative to it (CWorldScene::s_activeWorldView: every object's world matrix subtracts it, so
 // the view matrix and the depth buffer are in that space); the lights, the camera and the fog's base height are moved
 // into it
@@ -569,6 +634,8 @@ static void SetupView(CM2Scene* scene, const C3Vector& camera, const C3Vector& o
         if (wmo) {
             GatherWmoLights(camera, reach);
         }
+
+        SmoothLights();
 
         for (GxLightingLight& light : s_lights) {
             light.m_position = light.m_position - origin;

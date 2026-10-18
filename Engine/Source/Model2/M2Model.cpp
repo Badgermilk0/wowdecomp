@@ -44,6 +44,9 @@ static const uint32_t s_ribbonBlendModes[] = { 0, 1, 2, 10, 3, 4, 5 };
 // STATIC: 0x00D4118C
 void (*CM2Model::s_transformVertices[5])(CM2Model*, M2SkinSection*, uint8_t*, int32_t);
 
+// MODIFIED: modern lighting (M2Model.h)
+void (*CM2Model::s_particlesAnimatedCallback)(CM2Model* model) = nullptr;
+
 // STATIC: 0x00D411A0
 TSGrowableArray<C3Vector> CM2Model::s_collisionPositions;
 
@@ -2591,6 +2594,11 @@ void CM2Model::AnimateST() {
 
     for (uint32_t i = 0; i < data->m_particles.m_count; i++) {
         this->AnimateParticleST(deltaTime, i);
+    }
+
+    // MODIFIED: modern lighting: fires as lights (M2Model.h)
+    if (data->m_particles.m_count && CM2Model::s_particlesAnimatedCallback) {
+        CM2Model::s_particlesAnimatedCallback(this);
     }
 
     if (this->m_fFlags & 8) {

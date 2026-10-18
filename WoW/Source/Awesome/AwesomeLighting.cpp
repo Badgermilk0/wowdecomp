@@ -32,7 +32,10 @@
 #include "Engine/Source/Gx/CGxDevice/CGxDevice.h"
 #include "Engine/Source/Gx/CGxMatrixStack.h"
 #include "Engine/Source/Gx/GxLighting.h"
+#include "Engine/Source/Model2/M2Data.h"
 #include "Engine/Source/Model2/M2Light.h"
+#include "Engine/Source/Model2/M2Model.h"
+#include "Engine/Source/Model2/M2Shared.h"
 #include "Engine/Source/Model2/M2ModelLight.h"
 #include "Engine/Source/Model2/M2Scene.h"
 #include "Engine/Source/Os/TimeManager.h"
@@ -70,6 +73,9 @@ static AwesomeCVar s_cvHeightFogFalloff = AwesomeCVar::Float("fogHeightFalloff",
 static AwesomeCVar s_cvHeightFogOffset = AwesomeCVar::Float("fogHeightOffset", -5.0f, -500.0f, 500.0f, nullptr, "%.0f");
 static AwesomeCVar s_cvHeightFogMax = AwesomeCVar::Float("fogHeightMax", 0.85f, 0.0f, 1.0f);
 static AwesomeCVar s_cvScattering = AwesomeCVar::Float("fogScattering", 0.0f, 0.0f, 1.0f);
+// fires as lights: the warm additive particle emitters of the world's models (bonfires, braziers, torches), which carry
+// no light of their own (0 off, else the intensity)
+static AwesomeCVar s_cvFire = AwesomeCVar::Float("lightFire", 0.0f, 0.0f, 4.0f);
 // the passes on the login screen's model, for a look without a realm: 1, 2 with three test lights, 3 as 2 but on and
 // off by turns every 4 seconds
 static AwesomeCVar s_cvGlueTest = AwesomeCVar::Int("lightingGlueTest", 0, 0, 3);
@@ -82,7 +88,7 @@ static AwesomeCVar* const s_cvars[] = {
     &s_cvHdr, &s_cvExposure, &s_cvTonemap, &s_cvBloom, &s_cvBloomThreshold, &s_cvSsao, &s_cvSsaoRadius, &s_cvSsaoDistance,
     &s_cvPerPixel, &s_cvDynamic, &s_cvDynamicIntensity, &s_cvDynamicM2, &s_cvDynamicWmo, &s_cvDynamicDistance, &s_cvFlicker,
     &s_cvWrap, &s_cvSpecular, &s_cvSpecularM2, &s_cvSpecularWmo, &s_cvSkyAmbient, &s_cvHeightFog, &s_cvHeightFogFalloff,
-    &s_cvHeightFogOffset, &s_cvHeightFogMax, &s_cvScattering,
+    &s_cvHeightFogOffset, &s_cvHeightFogMax, &s_cvScattering, &s_cvFire,
 };
 
 // the world pass of this frame, between BeginWorld and EndWorld
@@ -95,6 +101,8 @@ static uint32_t s_statsM2 = 0;
 static uint32_t s_statsWmo = 0;
 static uint32_t s_statsKept = 0;
 static uint32_t s_statsViews = 0;
+static uint32_t s_statsFires = 0;
+static uint32_t s_statsFireEmitters = 0;
 static C3Vector s_statsOrigin;
 static GxLightingLight s_statsLight;
 
@@ -292,6 +300,141 @@ static void GatherM2Lights(CM2Scene* scene, const C3Vector& camera, float reach)
     s_statsM2 = static_cast<uint32_t>(s_lights.size() - before);
 }
 
+// fires: an emitter whose particles glow (additive, or a bright alpha one) in a flame's colours. CM2Model::AnimateST
+// hands each model with emitters over once they have animated; held and spell attachments are left out
+struct FireCandidate {
+    CM2Scene* m_scene;
+    uint32_t m_stamp;
+    C3Vector m_position;      // world
+    C3Vector m_color;         // 0 to 1, gamma
+    float m_size;             // particle size in yards
+};
+
+static std::vector<FireCandidate> s_fires;
+
+static void OnParticlesAnimated(CM2Model* model) {
+    if (model->m_attachParent || !model->m_shared || !model->m_scene || !model->m_particles || !model->m_boneMatrices) {
+        return;
+    }
+
+    // a portrait or a glue scene that never reaches SetupView must not grow this for ever
+    if (s_fires.size() > 8192) {
+        s_fires.clear();
+    }
+
+    M2Data* data = model->m_shared->m_data;
+    CM2Scene* scene = model->m_scene;
+    float modelScale = model->m_scaleSq > 0.0f ? sqrtf(model->m_scaleSq) : 1.0f;
+
+    for (uint32_t i = 0; i < data->m_particles.m_count; i++) {
+        const M2Particle& particle = data->m_particles[i];
+        const M2ModelParticle& state = model->m_particles[i];
+
+        if (!state.m_visibilityTrack.m_currentValue || state.m_emissionRateTrack.m_currentValue < 1.0f) {
+            continue;
+        }
+
+        // 2 alpha, 3 additive without alpha, 4 additive
+        uint8_t blend = particle.m_blendMode;
+
+        if (blend < 2 || blend > 4 || !particle.m_colorTrack.m_values.m_count || particle.m_boneIndex >= data->m_bones.m_count) {
+            continue;
+        }
+
+        // the colour in the middle of a particle's life (0 to 255)
+        const C3Vector& mid = particle.m_colorTrack.m_values[particle.m_colorTrack.m_values.m_count / 2];
+        C3Vector color(mid.x / 255.0f, mid.y / 255.0f, mid.z / 255.0f);
+
+        // a flame: red over green over blue, and bright; an alpha-blended one brighter still
+        if (!(color.x > (blend == 2 ? 0.75f : 0.5f) && color.x >= color.y * 1.15f && color.y >= color.z * 1.1f)) {
+            continue;
+        }
+
+        float size = 0.5f;
+
+        if (particle.m_scaleTrack.m_values.m_count) {
+            size = particle.m_scaleTrack.m_values[particle.m_scaleTrack.m_values.m_count / 2].x * modelScale;
+        }
+
+        FireCandidate fire;
+        fire.m_scene = scene;
+        fire.m_stamp = scene->m_frameStamp;
+        // as the model's lights: the emitter through its bone, from the scene's view space to the world
+        fire.m_position = Transform(Transform(particle.m_position, model->m_boneMatrices[particle.m_boneIndex]), scene->m_viewInv);
+        fire.m_color = color;
+        fire.m_size = size;
+        s_fires.push_back(fire);
+    }
+}
+
+// the emitters of one fire (a bonfire has several) merged into one light
+static void GatherFireLights(CM2Scene* scene, const C3Vector& camera, float reach) {
+    s_statsFires = 0;
+    s_statsFireEmitters = 0;
+
+    if (s_cvFire.m_floatValue <= 0.0f || !scene) {
+        s_fires.clear();
+        return;
+    }
+
+    struct Fire {
+        C3Vector m_sum;
+        C3Vector m_color;
+        float m_size;
+        uint32_t m_count;
+    };
+
+    std::vector<Fire> fires;
+
+    for (const FireCandidate& candidate : s_fires) {
+        if (candidate.m_scene != scene || candidate.m_stamp != scene->m_frameStamp) {
+            continue;
+        }
+
+        s_statsFireEmitters++;
+        Fire* into = nullptr;
+
+        for (Fire& fire : fires) {
+            C3Vector center = fire.m_sum * (1.0f / fire.m_count);
+
+            if (DistanceSquared(center, candidate.m_position) < 2.5f * 2.5f) {
+                into = &fire;
+                break;
+            }
+        }
+
+        if (!into) {
+            fires.push_back(Fire { C3Vector(0.0f, 0.0f, 0.0f), C3Vector(0.0f, 0.0f, 0.0f), 0.0f, 0 });
+            into = &fires.back();
+        }
+
+        into->m_sum = into->m_sum + candidate.m_position;
+        into->m_color.x = fmaxf(into->m_color.x, candidate.m_color.x);
+        into->m_color.y = fmaxf(into->m_color.y, candidate.m_color.y);
+        into->m_color.z = fmaxf(into->m_color.z, candidate.m_color.z);
+        into->m_size = fmaxf(into->m_size, candidate.m_size);
+        into->m_count++;
+    }
+
+    s_fires.clear();
+
+    for (const Fire& fire : fires) {
+        // a torch lights a few yards, a bonfire with many emitters much more
+        float radius = 5.0f + fire.m_size * 3.0f + 1.5f * static_cast<float>(fire.m_count < 6 ? fire.m_count : 6);
+        radius = radius > 18.0f ? 18.0f : radius;
+        float strength = s_cvFire.m_floatValue * (0.6f + 0.15f * static_cast<float>(fire.m_count < 4 ? fire.m_count : 4));
+        size_t before = s_lights.size();
+        // the light sits a little above the base of the flames
+        C3Vector position = fire.m_sum * (1.0f / fire.m_count);
+        position.z += 0.5f;
+        AddLight(position, fire.m_color, strength, radius * 0.15f, radius, camera, reach);
+
+        if (s_lights.size() > before) {
+            s_statsFires++;
+        }
+    }
+}
+
 // the WMOs' MOLT lights: in each placed WMO's own space, through its placement matrix
 static void GatherWmoLights(const C3Vector& camera, float reach) {
     if (s_cvDynamicWmo.m_floatValue <= 0.0f) {
@@ -396,6 +539,14 @@ void AwesomeLightingBeginWorld() {
     BuildParams(s_params, info ? info->m_cameraPos : C3Vector(0.0f, 0.0f, 0.0f));
     g_gxLighting->BeginWorld(s_params);
     s_inWorld = true;
+
+    // fires as lights: the models hand over their emitters while the scene animates, before SetupView
+    bool fires = s_cvFire.m_floatValue > 0.0f && (s_params.m_features & GxLighting_Dynamic);
+    CM2Model::s_particlesAnimatedCallback = fires ? OnParticlesAnimated : nullptr;
+
+    if (!fires) {
+        s_fires.clear();
+    }
 }
 
 // origin: the world draws relative to it (CWorldScene::s_activeWorldView: every object's world matrix subtracts it, so
@@ -413,6 +564,7 @@ static void SetupView(CM2Scene* scene, const C3Vector& camera, const C3Vector& o
     if (s_params.m_features & GxLighting_Dynamic) {
         float reach = s_cvDynamicDistance.m_floatValue;
         GatherM2Lights(scene, camera, reach);
+        GatherFireLights(scene, camera, reach);
 
         if (wmo) {
             GatherWmoLights(camera, reach);
@@ -456,6 +608,11 @@ static void SetupView(CM2Scene* scene, const C3Vector& camera, const C3Vector& o
 
     s_statsKept = static_cast<uint32_t>(s_lights.size());
     s_statsViews++;
+
+    // now and then, for Logs\gx.log
+    if (s_statsViews % 600 == 1 && s_statsViews < 6000) {
+        CGxDevice::Log("AwesomeLighting: view %u: %u lights from models, %u from WMOs, %u fires from %u emitters, %u kept", s_statsViews, s_statsM2, s_statsWmo, s_statsFires, s_statsFireEmitters, s_statsKept);
+    }
     s_statsOrigin = origin;
 
     if (s_statsKept) {
@@ -588,6 +745,7 @@ static int32_t Script_LightingCommand(lua_State* L) {
     static const Preset s_preset[] = {
         { &s_cvHdr, "1" }, { &s_cvBloom, "0.3" }, { &s_cvSsao, "0.8" }, { &s_cvPerPixel, "1" }, { &s_cvDynamic, "1" },
         { &s_cvSpecular, "1" }, { &s_cvSkyAmbient, "0.5" }, { &s_cvHeightFog, "0.003" }, { &s_cvScattering, "0.4" },
+        { &s_cvFire, "1" },
     };
 
     if (!strcmp(word, "on") || !strcmp(word, "off")) {
@@ -609,7 +767,7 @@ static int32_t Script_LightingCommand(lua_State* L) {
     GxLightingStats stats = {};
     g_gxLighting->GetStats(stats);
     char line[512];
-    snprintf(line, sizeof(line), "|cff33ff99Lighting|r features 0x%03X, %u views; lights: %u from models, %u from WMOs, %u kept, %u drawn", Features(), s_statsViews, s_statsM2, s_statsWmo, s_statsKept, stats.m_lights);
+    snprintf(line, sizeof(line), "|cff33ff99Lighting|r features 0x%03X, %u views; lights: %u from models, %u from WMOs, %u fires (%u emitters), %u kept, %u drawn", Features(), s_statsViews, s_statsM2, s_statsWmo, s_statsFires, s_statsFireEmitters, s_statsKept, stats.m_lights);
     Print(L, line);
     snprintf(line, sizeof(line), "  viewport %.0f,%.0f %.0fx%.0f, depth %.4f-%.4f", stats.m_viewport[0], stats.m_viewport[1], stats.m_viewport[2], stats.m_viewport[3], stats.m_viewport[4], stats.m_viewport[5]);
     Print(L, line);

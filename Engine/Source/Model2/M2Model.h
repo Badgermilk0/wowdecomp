@@ -239,6 +239,9 @@ class CM2Model {
 
     static void (*s_transformVertices[5])(CM2Model*, M2SkinSection*, uint8_t*, int32_t);
     static TSGrowableArray<M2ModelCallback> s_sequenceCallbacks;
+    // MODIFIED: modern lighting (AwesomeLighting.cpp, lightFire): AnimateST hands every model with particle
+    // emitters to it once its emitters have animated, so their fires can become lights; null = the stock path
+    static void (*s_particlesAnimatedCallback)(CM2Model* model);
     static TSGrowableArray<C3Vector> s_collisionPositions;
     static TSGrowableArray<uint32_t> s_collisionCodes;
 

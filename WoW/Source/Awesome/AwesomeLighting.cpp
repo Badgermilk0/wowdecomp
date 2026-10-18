@@ -62,7 +62,7 @@ static AwesomeCVar s_cvDynamicIntensity = AwesomeCVar::Float("lightDynamicIntens
 static AwesomeCVar s_cvDynamicM2 = AwesomeCVar::Float("lightDynamicM2", 0.6f, 0.0f, 8.0f);
 static AwesomeCVar s_cvDynamicWmo = AwesomeCVar::Float("lightDynamicWmo", 0.5f, 0.0f, 8.0f);
 static AwesomeCVar s_cvDynamicDistance = AwesomeCVar::Float("lightDynamicDistance", 100.0f, 20.0f, 500.0f, nullptr, "%.0f");
-static AwesomeCVar s_cvFlicker = AwesomeCVar::Float("lightFlicker", 0.3f, 0.0f, 1.0f);
+static AwesomeCVar s_cvFlicker = AwesomeCVar::Float("lightFlicker", 0.15f, 0.0f, 1.0f);
 static AwesomeCVar s_cvWrap = AwesomeCVar::Float("lightWrap", 0.25f, 0.0f, 1.0f);
 static AwesomeCVar s_cvSpecular = AwesomeCVar::Int("lightSpecular", 0, 0, 1);
 static AwesomeCVar s_cvSpecularM2 = AwesomeCVar::Float("lightSpecularM2", 0.3f, 0.0f, 4.0f);
@@ -201,7 +201,8 @@ static float FlickerFor(const C3Vector& linear) {
     return linear.x > linear.y * 1.1f && linear.y > linear.z ? s_cvFlicker.m_floatValue : 0.0f;
 }
 
-static void AddLight(const C3Vector& position, const C3Vector& gamma, float scale, float start, float radius, const C3Vector& camera, float reach) {
+// flame: a fire or a model's light (a torch), which may flicker; a WMO's lights are its rooms' steady light
+static void AddLight(const C3Vector& position, const C3Vector& gamma, float scale, float start, float radius, const C3Vector& camera, float reach, bool flame) {
     float distance = sqrtf(DistanceSquared(position, camera));
 
     if (s_diag.m_nearestRejected == 0.0f || distance < s_diag.m_nearestRejected) {
@@ -232,7 +233,8 @@ static void AddLight(const C3Vector& position, const C3Vector& gamma, float scal
     light.m_start = start < radius ? (start > 0.0f ? start : 0.0f) : radius * 0.25f;
     // a model's light can be animated far past 1; a few times white is as bright as a light gets here
     light.m_color = C3Vector(fminf(Decode(gamma.x), 4.0f) * scale, fminf(Decode(gamma.y), 4.0f) * scale, fminf(Decode(gamma.z), 4.0f) * scale);
-    light.m_flicker = FlickerFor(light.m_color);
+    // a large light flickers less: a room lit as a whole should not pulse
+    light.m_flicker = flame ? FlickerFor(light.m_color) * fminf(1.0f, 8.0f / radius) : 0.0f;
     light.m_specular = 1.0f;
 
     if (light.m_color.x + light.m_color.y + light.m_color.z < 0.003f) {
@@ -292,7 +294,7 @@ static void GatherM2Lights(CM2Scene* scene, const C3Vector& camera, float reach)
                     start = 1.0f;
                 }
 
-                AddLight(light->m_pos, light->m_dirColor, s_cvDynamicM2.m_floatValue, start, end, camera, reach);
+                AddLight(light->m_pos, light->m_dirColor, s_cvDynamicM2.m_floatValue, start, end, camera, reach, true);
             }
         }
     }
@@ -427,7 +429,7 @@ static void GatherFireLights(CM2Scene* scene, const C3Vector& camera, float reac
         // the light sits a little above the base of the flames
         C3Vector position = fire.m_sum * (1.0f / fire.m_count);
         position.z += 0.5f;
-        AddLight(position, fire.m_color, strength, radius * 0.15f, radius, camera, reach);
+        AddLight(position, fire.m_color, strength, radius * 0.15f, radius, camera, reach, true);
 
         if (s_lights.size() > before) {
             s_statsFires++;
@@ -477,7 +479,7 @@ static void GatherWmoLights(const C3Vector& camera, float reach) {
 
             C3Vector color = ColorOf(molt.m_color);
             float intensity = molt.m_intensity > 0.0f ? molt.m_intensity : 1.0f;
-            AddLight(Transform(molt.m_position, def->m_mat), color, s_cvDynamicWmo.m_floatValue * intensity, molt.m_attenStart, molt.m_attenEnd, camera, reach);
+            AddLight(Transform(molt.m_position, def->m_mat), color, s_cvDynamicWmo.m_floatValue * intensity, molt.m_attenStart, molt.m_attenEnd, camera, reach, false);
         }
     }
 

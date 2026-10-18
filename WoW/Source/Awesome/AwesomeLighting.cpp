@@ -20,7 +20,9 @@
 //   player's feet, fogHeightFalloff); fogScattering: the fog tinted toward the sun's colour around the sun.
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
+#include <cstdio>
 #include <cstddef>
 #include <cstring>
 #include <vector>
@@ -71,8 +73,8 @@ static AwesomeCVar s_cvScattering = AwesomeCVar::Float("fogScattering", 0.0f, 0.
 // the passes on the login screen's model, for a look without a realm: 1, 2 with three test lights, 3 as 2 but on and
 // off by turns every 4 seconds
 static AwesomeCVar s_cvGlueTest = AwesomeCVar::Int("lightingGlueTest", 0, 0, 3);
-// 1: the SSAO term alone over the world, to tune ssao / ssaoRadius
-static AwesomeCVar s_cvDebug = AwesomeCVar::Int("lightingDebug", 0, 0, 1);
+// 1: the SSAO term alone; 2: the lit surfaces by kind (green relit per pixel, red unlit, blue face normal); 3: the dynamic light alone
+static AwesomeCVar s_cvDebug = AwesomeCVar::Int("lightingDebug", 0, 0, 3);
 
 static AwesomeCVar* const s_cvars[] = {
     &s_cvGlueTest,
@@ -92,6 +94,9 @@ static std::vector<GxLightingLight> s_lights;
 static uint32_t s_statsM2 = 0;
 static uint32_t s_statsWmo = 0;
 static uint32_t s_statsKept = 0;
+static uint32_t s_statsViews = 0;
+static C3Vector s_statsOrigin;
+static GxLightingLight s_statsLight;
 
 static uint32_t Features() {
     uint32_t features = 0;
@@ -386,6 +391,22 @@ static void SetupView(CM2Scene* scene, const C3Vector& camera, const C3Vector& o
     }
 
     s_statsKept = static_cast<uint32_t>(s_lights.size());
+    s_statsViews++;
+    s_statsOrigin = origin;
+
+    if (s_statsKept) {
+        // the nearest, for /lighting
+        size_t nearest = 0;
+
+        for (size_t i = 1; i < s_lights.size(); i++) {
+            if (DistanceSquared(s_lights[i].m_position, s_params.m_cameraPosition) < DistanceSquared(s_lights[nearest].m_position, s_params.m_cameraPosition)) {
+                nearest = i;
+            }
+        }
+
+        s_statsLight = s_lights[nearest];
+    }
+
     g_gxLighting->SetupView(s_params, s_lights.data(), s_statsKept);
 }
 
@@ -462,33 +483,81 @@ static int32_t Script_GetLightingStats(lua_State* L) {
     return 5;
 }
 
-static const char* s_slashCommand = R"lua(
-SLASH_MODERNLIGHTING1 = "/lighting"
-SlashCmdList.MODERNLIGHTING = function(msg)
-    local word = (msg or ""):match("^%s*(%S*)"):lower()
-    local on = {
-        hdr = "1", hdrTonemap = "1", bloom = "0.3", ssao = "0.8", lightPerPixel = "1", lightDynamic = "1",
-        lightSpecular = "1", lightSkyAmbient = "0.5", fogHeight = "0.003", fogScattering = "0.4",
+static void Print(lua_State* L, const char* text) {
+    lua_getfield(L, LUA_GLOBALSINDEX, "DEFAULT_CHAT_FRAME");
+
+    if (lua_istable(L, -1)) {
+        lua_getfield(L, -1, "AddMessage");
+
+        if (lua_isfunction(L, -1)) {
+            lua_pushvalue(L, -2);
+            lua_pushstring(L, text);
+            lua_pcall(L, 2, 0, 0);
+        } else {
+            lua_pop(L, 1);
+        }
     }
-    if word == "on" or word == "off" then
-        for name, value in pairs(on) do
-            SetCVar(name, word == "on" and value or (name == "hdrTonemap" and "1" or "0"))
-        end
-        print(("|cff33ff99Lighting|r %s"):format(word == "on" and "on (the WMO specular shaders also need specular 1 and a restart)" or "off"))
-        return
-    end
-    local d3d11, features, m2, wmo, drawn = GetLightingStats()
-    if not d3d11 then
-        print("|cff33ff99Lighting|r needs the D3D11 device: SET gxApi \"D3D11\" (or -d3d11) and restart")
-        return
-    end
-    print(("|cff33ff99Lighting|r features 0x%03X; lights: %d from models, %d from WMOs, %d drawn"):format(features, m2, wmo, drawn))
-    print("  /lighting on | off; CVars: hdr hdrExposure hdrTonemap bloom bloomThreshold ssao ssaoRadius ssaoDistance")
-    print("  lightPerPixel lightDynamic lightDynamicIntensity lightDynamicM2 lightDynamicWmo lightDynamicDistance lightFlicker")
-    print("  lightWrap lightSpecular lightSpecularM2 lightSpecularWmo lightSkyAmbient fogHeight fogHeightFalloff")
-    print("  fogHeightOffset fogHeightMax fogScattering")
-end
-)lua";
+
+    lua_pop(L, 1);
+}
+
+// /lighting [on|off]: the preset, everything off, or what the lighting found last frame
+static int32_t Script_LightingCommand(lua_State* L) {
+    const char* option = AwesomeLuaIsNoneOrNil(L, 1) ? "" : lua_tolstring(L, 1, nullptr);
+    char word[16] = {};
+
+    if (option) {
+        while (*option == ' ') {
+            option++;
+        }
+
+        for (size_t i = 0; i + 1 < sizeof(word) && option[i] && option[i] != ' '; i++) {
+            word[i] = static_cast<char>(tolower(static_cast<unsigned char>(option[i])));
+        }
+    }
+
+    struct Preset {
+        AwesomeCVar* m_cvar;
+        const char* m_on;
+    };
+
+    static const Preset s_preset[] = {
+        { &s_cvHdr, "1" }, { &s_cvBloom, "0.3" }, { &s_cvSsao, "0.8" }, { &s_cvPerPixel, "1" }, { &s_cvDynamic, "1" },
+        { &s_cvSpecular, "1" }, { &s_cvSkyAmbient, "0.5" }, { &s_cvHeightFog, "0.003" }, { &s_cvScattering, "0.4" },
+    };
+
+    if (!strcmp(word, "on") || !strcmp(word, "off")) {
+        bool on = word[1] == 'n';
+
+        for (const Preset& preset : s_preset) {
+            preset.m_cvar->Set(on ? preset.m_on : "0");
+        }
+
+        Print(L, on ? "|cff33ff99Lighting|r on (WMO specular also needs the stock specular 1 and a restart)" : "|cff33ff99Lighting|r off");
+        return 0;
+    }
+
+    if (!g_gxLighting) {
+        Print(L, "|cff33ff99Lighting|r needs the D3D11 device: SET gxApi \"D3D11\" or -d3d11, and a restart");
+        return 0;
+    }
+
+    GxLightingStats stats = {};
+    g_gxLighting->GetStats(stats);
+    char line[512];
+    snprintf(line, sizeof(line), "|cff33ff99Lighting|r features 0x%03X, %u views; lights: %u from models, %u from WMOs, %u kept, %u drawn", Features(), s_statsViews, s_statsM2, s_statsWmo, s_statsKept, stats.m_lights);
+    Print(L, line);
+    snprintf(line, sizeof(line), "  origin (%.1f %.1f %.1f), camera (%.1f %.1f %.1f) relative", s_statsOrigin.x, s_statsOrigin.y, s_statsOrigin.z, s_params.m_cameraPosition.x, s_params.m_cameraPosition.y, s_params.m_cameraPosition.z);
+    Print(L, line);
+
+    if (s_statsKept) {
+        snprintf(line, sizeof(line), "  nearest light (%.1f %.1f %.1f) relative, radius %.1f, colour %.2f %.2f %.2f", s_statsLight.m_position.x, s_statsLight.m_position.y, s_statsLight.m_position.z, s_statsLight.m_radius, s_statsLight.m_color.x, s_statsLight.m_color.y, s_statsLight.m_color.z);
+        Print(L, line);
+    }
+
+    Print(L, "  /lighting on | off; lightingDebug 1 SSAO, 2 lit surfaces (green per pixel, red unlit, blue face normal), 3 dynamic light alone");
+    return 0;
+}
 
 void AwesomeLightingRegisterCVars() {
     for (AwesomeCVar* cvar : s_cvars) {
@@ -502,5 +571,9 @@ void AwesomeLightingRegisterScriptFunctions(lua_State* L) {
     };
 
     AwesomeLuaRegisterGlobals(L, s_functions, sizeof(s_functions) / sizeof(s_functions[0]));
-    FrameScript_Execute(s_slashCommand, "ModernLighting", nullptr);
+}
+
+void AwesomeLightingOnEnterWorld() {
+    // as /liveportraits: SlashCmdList exists once FrameXML has loaded
+    AwesomeLuaRegisterSlashCommand(FrameScript_GetContext(), "MODERNLIGHTING", "/lighting", &Script_LightingCommand);
 }

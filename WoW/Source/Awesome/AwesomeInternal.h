@@ -100,6 +100,7 @@ void AwesomeShadowsRegisterCVars();
 // AwesomeLighting.cpp
 void AwesomeLightingRegisterCVars();
 void AwesomeLightingRegisterScriptFunctions(lua_State* L);
+void AwesomeLightingOnEnterWorld();
 
 // AwesomeAudio.cpp
 void AwesomeAudioRegisterCVars();

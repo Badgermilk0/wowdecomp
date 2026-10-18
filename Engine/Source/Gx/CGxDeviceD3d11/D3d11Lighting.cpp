@@ -571,6 +571,7 @@ bool D3d11Lighting::ICreateShaders() {
     device->CreateBlendState(&blend, &this->m_blendAdd);
 
     rt.BlendEnable = FALSE;
+    device->CreateBlendState(&blend, &this->m_blendOpaqueRgb);
     rt.RenderTargetWriteMask = D3D11_COLOR_WRITE_ENABLE_ALL;
     device->CreateBlendState(&blend, &this->m_blendOpaque);
 
@@ -774,6 +775,7 @@ void D3d11Lighting::ReleaseAll() {
     SafeRelease(this->m_blendAlpha);
     SafeRelease(this->m_blendAdd);
     SafeRelease(this->m_blendOpaque);
+    SafeRelease(this->m_blendOpaqueRgb);
     SafeRelease(this->m_clusterUav);
     SafeRelease(this->m_clusterSrv);
     SafeRelease(this->m_clusterBuffer);
@@ -816,6 +818,7 @@ void D3d11Lighting::IWriteConstants(bool on) {
         c.m_flags[0] = features;
         c.m_flags[1] = this->m_lightCount;
         c.m_flags[2] = s_clustersX | (s_clustersY << 8) | (s_clustersZ << 16);
+        c.m_flags[3] = p.m_debug;
         memcpy(c.m_view, this->m_view, sizeof(c.m_view));
         memcpy(c.m_viewInv, this->m_viewInv, sizeof(c.m_viewInv));
 
@@ -1180,7 +1183,8 @@ void D3d11Lighting::OpaqueDone() {
             source[3] = 0.0f;
             this->IWritePostConstants(vp, dev->m_frameWidth, dev->m_frameHeight, source);
             // lightingDebug 1: the occlusion itself instead of the scene
-            ID3D11BlendState* blend = this->m_params.m_debug == 1 ? this->m_blendOpaque : this->m_blendMultiply;
+            // (colour only: the frame's alpha is FFX glow's mask)
+            ID3D11BlendState* blend = this->m_params.m_debug == 1 ? this->m_blendOpaqueRgb : this->m_blendMultiply;
             this->IDrawFullscreen(msaa ? Shader_AoCompositePsMs : Shader_AoCompositePs, frame, vp, blend, composite, 2);
         }
     }

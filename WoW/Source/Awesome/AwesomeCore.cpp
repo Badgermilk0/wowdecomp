@@ -289,6 +289,7 @@ void AwesomeOnEnterWorld() {
     AwesomeFrameCaptureOnEnterWorld();
     AwesomePerfOnEnterWorld();
     AwesomeAudioOnEnterWorld();
+    AwesomeLightingOnEnterWorld();
 }
 
 void AwesomeOnLeaveWorld() {

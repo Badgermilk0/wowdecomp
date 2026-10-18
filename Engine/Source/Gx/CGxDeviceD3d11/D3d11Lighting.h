@@ -132,6 +132,7 @@ class D3d11Lighting : public IGxLighting {
     ID3D11BlendState* m_blendAlpha = nullptr;
     ID3D11BlendState* m_blendAdd = nullptr;
     ID3D11BlendState* m_blendOpaque = nullptr;
+    ID3D11BlendState* m_blendOpaqueRgb = nullptr;
 
     // the world viewport and the matrices of the view, from SetupView
     D3D11_VIEWPORT m_viewport = {};

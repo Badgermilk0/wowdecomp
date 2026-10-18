@@ -76,7 +76,7 @@ struct GxLightingParams {
     float m_heightFogMax = 0.9f;
     C3Vector m_cameraPosition;       // world
     float m_time = 0.0f;             // seconds
-    uint32_t m_debug = 0;            // 1: the SSAO term alone, over the world
+    uint32_t m_debug = 0;            // 1 the SSAO term alone, 2 the lit surfaces by kind, 3 the dynamic light alone
 };
 
 struct GxLightingStats {

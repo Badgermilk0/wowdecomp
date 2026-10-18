@@ -36,6 +36,7 @@ struct GxLightingLight {
     C3Vector m_color;     // linear, intensity included
     float m_flicker;      // 0 to 1
     float m_specular;     // 0 to 1
+    uint32_t m_kind = 0;  // the game's own tag (1: a fire made from particles); the device ignores it
 };
 
 struct GxLightingParams {

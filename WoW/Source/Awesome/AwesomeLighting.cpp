@@ -434,6 +434,7 @@ static void GatherFireLights(CM2Scene* scene, const C3Vector& camera, float reac
         AddLight(position, fire.m_color, strength, radius * 0.15f, radius, camera, reach, true);
 
         if (s_lights.size() > before) {
+            s_lights.back().m_kind = 1;
             s_statsFires++;
         }
     }
@@ -592,6 +593,8 @@ static void SmoothLights(const C3Vector& origin) {
     // a found light's colour, radius and place eased toward over about a quarter second: a fire's emitters come and go,
     // and its light would jump with them
     float ease = 1.0f - expf(-dt / 0.25f);
+    // a fire's emitters show and hide on their own; once found it settles over two seconds, so it does not pulse
+    float easeFire = 1.0f - expf(-dt / 2.0f);
 
     for (const GxLightingLight& light : s_lights) {
         TrackedLight* match = nullptr;
@@ -608,10 +611,11 @@ static void SmoothLights(const C3Vector& origin) {
 
         if (match) {
             GxLightingLight& kept = match->m_light;
-            kept.m_position = kept.m_position + (light.m_position - kept.m_position) * ease;
-            kept.m_color = kept.m_color + (light.m_color - kept.m_color) * ease;
-            kept.m_radius += (light.m_radius - kept.m_radius) * ease;
-            kept.m_start += (light.m_start - kept.m_start) * ease;
+            float rate = kept.m_kind == 1 && light.m_kind == 1 ? easeFire : ease;
+            kept.m_position = kept.m_position + (light.m_position - kept.m_position) * rate;
+            kept.m_color = kept.m_color + (light.m_color - kept.m_color) * rate;
+            kept.m_radius += (light.m_radius - kept.m_radius) * rate;
+            kept.m_start += (light.m_start - kept.m_start) * rate;
             kept.m_flicker = light.m_flicker;
             kept.m_specular = light.m_specular;
             match->m_seen = true;

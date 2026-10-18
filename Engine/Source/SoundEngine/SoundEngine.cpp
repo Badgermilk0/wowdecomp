@@ -4175,6 +4175,34 @@ void SESoundUserData::Release() {
 SECaptureCallbacks::~SECaptureCallbacks() {
 }
 
+// MODIFIED: audio engine upgrade. Music and cinematics are never occluded, whatever their mode: a 3D music source is
+// placed for direction, not to be heard through walls
+static bool IsOcclusionExempt(const SESoundInternal* sound) {
+    // STATIC
+    static const uint32_t s_exempt[] = {
+        SStrHashHT("MUSIC"),
+        SStrHashHT("SCRIPTMUSIC"),
+        SStrHashHT("CINEMATIC"),
+        SStrHashHT("RACIALCINEMATIC"),
+    };
+
+    int32_t group = sound->m_channelGroup;
+
+    if (group <= 0 || static_cast<uint32_t>(group) >= s_channelGroups.Count()) {
+        return false;
+    }
+
+    uint32_t hash = s_channelGroups[group].m_hash;
+
+    for (uint32_t exempt : s_exempt) {
+        if (hash == exempt) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
 // MODIFIED: audio engine upgrade. Per-source occlusion, run once a frame by the game layer after it places the
 // listener. Every playing 3D sound keeps an occlusion state; the oldest results are re-tested through callback (a
 // world ray test in the game layer), up to m_occlusionTestsPerFrame a frame, and each source's occlusion eases toward
@@ -4223,7 +4251,7 @@ void SE2::UpdateOcclusion(SEOcclusionCallback callback, float elapsed) {
         state.m_frame = frame;
         tracked++;
 
-        bool test = testing;
+        bool test = testing && !IsOcclusionExempt(sound);
 
         if (test) {
             C3Vector delta = sound->m_position - listener;
@@ -4294,12 +4322,22 @@ void SE2::UpdateOcclusion(SEOcclusionCallback callback, float elapsed) {
             state.m_current = (std::max)(state.m_target, state.m_current - step);
         }
 
-        if (fabsf(state.m_current - state.m_applied) > 0.004f || (state.m_current == state.m_target && state.m_current != state.m_applied)) {
-            sound->m_channel->set3DOcclusion(state.m_current, state.m_current * settings.m_occlusionReverb);
-            state.m_applied = state.m_current;
+        // a sound the client blends toward 2D (an advanced emitter's inner 2D radius: pan level 0 inside it) is an
+        // enveloping bed there, not a point behind a wall; FMOD's occlusion ignores the pan level, so scale it here
+        float pan = 1.0f;
+
+        if (sound->m_channel->get3DPanLevel(&pan) != FMOD_OK) {
+            pan = 1.0f;
         }
 
-        if (state.m_current > 0.05f) {
+        float effective = state.m_current * (pan < 0.0f ? 0.0f : (pan > 1.0f ? 1.0f : pan));
+
+        if (fabsf(effective - state.m_applied) > 0.004f || (effective != state.m_applied && (effective == 0.0f || state.m_current == state.m_target))) {
+            sound->m_channel->set3DOcclusion(effective, effective * settings.m_occlusionReverb);
+            state.m_applied = effective;
+        }
+
+        if (effective > 0.05f) {
             occluded++;
         }
     }

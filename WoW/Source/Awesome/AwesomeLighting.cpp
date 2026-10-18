@@ -74,7 +74,7 @@ static AwesomeCVar s_cvScattering = AwesomeCVar::Float("fogScattering", 0.0f, 0.
 // off by turns every 4 seconds
 static AwesomeCVar s_cvGlueTest = AwesomeCVar::Int("lightingGlueTest", 0, 0, 3);
 // 1: the SSAO term alone; 2: the lit surfaces by kind (green relit per pixel, red unlit, blue face normal); 3: the dynamic light alone
-static AwesomeCVar s_cvDebug = AwesomeCVar::Int("lightingDebug", 0, 0, 3);
+static AwesomeCVar s_cvDebug = AwesomeCVar::Int("lightingDebug", 0, 0, 4);
 
 static AwesomeCVar* const s_cvars[] = {
     &s_cvGlueTest,
@@ -111,6 +111,14 @@ struct GatherDiag {
     uint32_t m_moltSeen;
     uint32_t m_moltSkipped;   // directional / ambient, or no attenuation
     uint32_t m_rejected;      // too dark, too small or out of reach
+    uint32_t m_rejectRadius;
+    uint32_t m_rejectFar;
+    uint32_t m_rejectDark;
+    float m_nearestRejected;  // distance of the nearest light dropped as too far (0: none)
+    C3Vector m_nearestPos;
+    float m_nearestRadius;
+    C3Vector m_nearestColor;  // the gamma colour handed in
+    float m_nearestScale;
 };
 
 static GatherDiag s_diag;
@@ -186,15 +194,27 @@ static float FlickerFor(const C3Vector& linear) {
 }
 
 static void AddLight(const C3Vector& position, const C3Vector& gamma, float scale, float start, float radius, const C3Vector& camera, float reach) {
+    float distance = sqrtf(DistanceSquared(position, camera));
+
+    if (s_diag.m_nearestRejected == 0.0f || distance < s_diag.m_nearestRejected) {
+        s_diag.m_nearestRejected = distance;
+        s_diag.m_nearestPos = position;
+        s_diag.m_nearestRadius = radius;
+        s_diag.m_nearestColor = gamma;
+        s_diag.m_nearestScale = scale;
+    }
+
     if (radius <= 0.1f || scale <= 0.0f) {
         s_diag.m_rejected++;
+        s_diag.m_rejectRadius++;
         return;
     }
 
     float limit = reach + radius;
 
-    if (DistanceSquared(position, camera) > limit * limit) {
+    if (distance > limit) {
         s_diag.m_rejected++;
+        s_diag.m_rejectFar++;
         return;
     }
 
@@ -209,6 +229,7 @@ static void AddLight(const C3Vector& position, const C3Vector& gamma, float scal
 
     if (light.m_color.x + light.m_color.y + light.m_color.z < 0.003f) {
         s_diag.m_rejected++;
+        s_diag.m_rejectDark++;
         return;
     }
 
@@ -598,12 +619,15 @@ static int32_t Script_LightingCommand(lua_State* L) {
     snprintf(line, sizeof(line), "  M2: grid %u, %u seen, %u invisible, %u not point, %u stale; WMO: %u placed, %u with lights, %u in reach, %u MOLT, %u skipped; %u rejected", s_diag.m_m2Grid, s_diag.m_m2Seen, s_diag.m_m2Invisible, s_diag.m_m2NotPoint, s_diag.m_m2Stale, s_diag.m_wmoDefs, s_diag.m_wmoWithLights, s_diag.m_wmoInReach, s_diag.m_moltSeen, s_diag.m_moltSkipped, s_diag.m_rejected);
     Print(L, line);
 
+    snprintf(line, sizeof(line), "  rejected: %u no radius, %u too far, %u too dark; nearest candidate %.1f yd at (%.1f %.1f %.1f), radius %.1f, colour %.2f %.2f %.2f x %.2f", s_diag.m_rejectRadius, s_diag.m_rejectFar, s_diag.m_rejectDark, s_diag.m_nearestRejected, s_diag.m_nearestPos.x, s_diag.m_nearestPos.y, s_diag.m_nearestPos.z, s_diag.m_nearestRadius, s_diag.m_nearestColor.x, s_diag.m_nearestColor.y, s_diag.m_nearestColor.z, s_diag.m_nearestScale);
+    Print(L, line);
+
     if (s_statsKept) {
         snprintf(line, sizeof(line), "  nearest light (%.1f %.1f %.1f) relative, radius %.1f, colour %.2f %.2f %.2f", s_statsLight.m_position.x, s_statsLight.m_position.y, s_statsLight.m_position.z, s_statsLight.m_radius, s_statsLight.m_color.x, s_statsLight.m_color.y, s_statsLight.m_color.z);
         Print(L, line);
     }
 
-    Print(L, "  /lighting on | off; lightingDebug 1 SSAO, 2 lit surfaces (green per pixel, red unlit, blue face normal), 3 dynamic light alone");
+    Print(L, "  /lighting on | off; lightingDebug 1 SSAO, 2 lit surfaces (green per pixel, red unlit, blue face normal), 3 dynamic light alone, 4 SSAO inputs (red geometry, green distance / 200, blue occlusion)");
     return 0;
 }
 

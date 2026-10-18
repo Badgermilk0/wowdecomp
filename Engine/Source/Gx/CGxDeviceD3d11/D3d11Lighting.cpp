@@ -222,12 +222,18 @@ const char* const s_postHlsl =
     "// the occlusion into the scene, a multiply: upsampled from half resolution by depth\n"
     "float4 AoCompositePs(GxPostVaryings i) : SV_Target0 {\n"
     "    float d = GxDepthAt(int2(i.pos.xy));\n"
+    "    float w = GxClipW(GxViewPos(i.pos.xy, d));\n"
+    "\n"
+    "    // lightingDebug 4: red geometry, green clip w / 200, blue the half-resolution occlusion under the pixel\n"
+    "    if (gxTone.z > 3.5) {\n"
+    "        float2 h4 = gxColor.Load(int3(int2((i.pos.xy - gxViewportPx.xy) * 0.5), 0)).xy;\n"
+    "        return float4(GxIsGeometry(d) ? 1.0 : 0.0, saturate(w / 200.0), h4.x, 1.0);\n"
+    "    }\n"
     "\n"
     "    if (!GxIsGeometry(d)) {\n"
     "        return 1.0;\n"
     "    }\n"
-    "\n"
-    "    float w = GxClipW(GxViewPos(i.pos.xy, d));\n"
+    ""
     "    float2 h = (i.pos.xy - gxViewportPx.xy - 0.5) * 0.5;\n"
     "    int2 base = int2(floor(h));\n"
     "    float2 f = h - base;\n"
@@ -928,6 +934,7 @@ void D3d11Lighting::IWritePostConstants(const D3D11_VIEWPORT& viewport, uint32_t
     c.m_bloom[3] = (p.m_features & GxLighting_Bloom) && p.m_bloomIntensity > 0.0f ? 1.0f : 0.0f;
     c.m_tone[0] = p.m_exposure;
     c.m_tone[1] = static_cast<float>(p.m_tonemap);
+    c.m_tone[2] = static_cast<float>(p.m_debug);
 
     if (source) {
         memcpy(c.m_source, source, sizeof(c.m_source));
@@ -1185,7 +1192,7 @@ void D3d11Lighting::OpaqueDone() {
             this->IWritePostConstants(vp, dev->m_frameWidth, dev->m_frameHeight, source);
             // lightingDebug 1: the occlusion itself instead of the scene
             // (colour only: the frame's alpha is FFX glow's mask)
-            ID3D11BlendState* blend = this->m_params.m_debug == 1 ? this->m_blendOpaqueRgb : this->m_blendMultiply;
+            ID3D11BlendState* blend = this->m_params.m_debug == 1 || this->m_params.m_debug == 4 ? this->m_blendOpaqueRgb : this->m_blendMultiply;
             this->IDrawFullscreen(msaa ? Shader_AoCompositePsMs : Shader_AoCompositePs, frame, vp, blend, composite, 2);
         }
     }

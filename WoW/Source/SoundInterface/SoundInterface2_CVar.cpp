@@ -155,7 +155,8 @@ void SI2::RegisterSoundEngineCVars() {
     CVar::Register("VoiceChatSelfMute", "Turn off your ability to talk.", 0, "0", SelfMuteHandler, 5, false, nullptr, false);
     CVar::Register("PushToTalkButton", "String representation of the Push-To-Talk button.", 0, "`", PushToTalkButtonHandler, 5, false, nullptr, false);
     CVar::Register("Sound_OutputQuality", "sound quality, default 1 (medium)", 0, "1", nullptr, 7, false, nullptr, false);
-    CVar::Register("Sound_NumChannels", "number of sound channels", 0, "32", nullptr, 7, false, nullptr, false);
+    // MODIFIED: audio engine upgrade, 64 voices by default (stock 32), up to 256
+    CVar::Register("Sound_NumChannels", "number of sound channels", 0, "64", nullptr, 7, false, nullptr, false);
     CVar::Register("Sound_EnableReverb", "", 0, "0", EnableReverbHandler, 7, false, nullptr, false);
     CVar::Register("Sound_EnableSoftwareHRTF", "", 0, "0", nullptr, 7, false, nullptr, false);
     CVar::Register("Sound_VoiceChatInputDriverIndex", "", 0, "0", VoiceChatInputDriverIndexHandler, 7, false, nullptr, false);

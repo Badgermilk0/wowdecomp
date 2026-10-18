@@ -64,6 +64,45 @@ struct SEChannelInfo {
     /* 0040 */ float m_panLevel;
 };
 
+// MODIFIED: audio engine upgrade (not in the stock client). The engine half lives in SoundEngine.cpp; the game layer
+// (WoW/Source/Awesome/AwesomeAudio.cpp) fills these from its CVars and supplies the world ray test.
+struct SEAudioSettings {
+    // per-source occlusion: a 3D sound with world geometry between it and the listener is muffled and quieter
+    bool m_occlusion = true;
+    // seconds a source takes to go from open to fully blocked (and back)
+    float m_occlusionFade = 0.25f;
+    // the reverb send's occlusion as a fraction of the direct path's: a sound behind a wall still fills the room
+    float m_occlusionReverb = 0.35f;
+    // sources nearer than the minimum (the player's own sounds) or farther than the maximum are never tested
+    float m_occlusionMinDistance = 3.0f;
+    float m_occlusionMaxDistance = 100.0f;
+    // sources tested per frame (the oldest result first), and how old a result may get before it is tested again
+    int32_t m_occlusionTestsPerFrame = 8;
+    uint32_t m_occlusionInterval = 200;
+    // seconds a reverb change (zone, indoors, underwater) crossfades over; 0 = switch at once, as stock
+    float m_reverbFade = 1.5f;
+    // keep a looping sound that lost its voice (virtual) instead of stopping it, so it resumes when a voice frees
+    bool m_keepVirtualLoops = true;
+};
+
+struct SEAudioStats {
+    int32_t m_softwareChannels;
+    int32_t m_sounds;
+    int32_t m_real;
+    int32_t m_virtual;
+    int32_t m_tracked3D;
+    int32_t m_occluded;
+    int32_t m_testsLastFrame;
+    float m_reverbRoom;
+    float m_reverbDecay;
+    float m_reverbBlend;
+    float m_cpuDsp;
+    float m_cpuTotal;
+};
+
+// the direct-path occlusion (0 open .. 1 blocked) of a 3D source at position, as heard by the current listener
+typedef float (*SEOcclusionCallback)(const C3Vector& position);
+
 class SESoundUserData {
     public:
     virtual ~SESoundUserData();
@@ -242,6 +281,11 @@ class SESound {
 class SE2 {
     public:
     static int32_t sm_bCaptureInitialized;
+    // MODIFIED: audio engine upgrade
+    static SEAudioSettings s_audioSettings;
+
+    static void UpdateOcclusion(SEOcclusionCallback callback, float elapsed);
+    static void GetAudioStats(SEAudioStats* stats);
 
     static void ActivateAlternateCaptureCallback();
     static void ActivatePrimaryCaptureCallback();

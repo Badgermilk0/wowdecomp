@@ -14,6 +14,7 @@
 #include "Engine/Source/Tempest/CMath.h"
 #include "Engine/Source/Tempest/CRandom.h"
 #include "Engine/Source/Tempest/CRange.h"
+#include "WoW/Source/Awesome/Awesome.h"
 #include "WoW/Source/DB/DBClient/DBClient.h"
 #include "WoW/Source/DB/Rec/ResistancesRec.h"
 #include "WoW/Source/DB/Rec/SpellRec.h"
@@ -232,6 +233,12 @@ bool SI2::GetOutputDriverName_Cached(int32_t index, char* name, int32_t nameLeng
 // OFFSET: 0x004C5B20
 int32_t SI2::SetListenerAttributes(const C3Vector* position, const C3Vector* forward, const C3Vector* up, const C3Vector* velocity) {
     SE2::SetListenerAttributes(position, forward, up, velocity);
+
+    // MODIFIED: audio engine upgrade, occlusion and the room estimate from the listener just placed
+    if (position) {
+        AwesomeAudioUpdate(*position);
+    }
+
     return 0;
 }
 
@@ -1351,7 +1358,8 @@ int32_t SI2::Init(int32_t restart) {
         outputDriverName = s_outputDriverName->m_stringValue.m_str;
     }
 
-    SE2::Init(512, SI2::GetObjectPosition, enableReverb, enableSoftwareHRTF, &numChannels, &outputDriverIndex, outputDriverName, SI2::GetSoundVolume, restart);
+    // MODIFIED: 1024 channels in all (stock 512): virtual voices are cheap, and quiet loops now stay virtual
+    SE2::Init(1024, SI2::GetObjectPosition, enableReverb, enableSoftwareHRTF, &numChannels, &outputDriverIndex, outputDriverName, SI2::GetSoundVolume, restart);
     SI2::ClearSuppressors();
 
     if (s_outputDriverIndex) {

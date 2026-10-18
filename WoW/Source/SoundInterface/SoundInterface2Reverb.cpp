@@ -4,6 +4,7 @@
 #include "Engine/Source/SoundEngine/SoundEngine.h"
 #include "WoW/Source/DB/DBClient/DBClient.h"
 #include "WoW/Source/SoundInterface/SoundInterface2.h"
+#include "WoW/Source/Awesome/Awesome.h"
 
 // STATIC: 0x00B4AF2C
 static const char* s_reverbDescription;
@@ -66,7 +67,16 @@ void SI2::ApplyReverbSettings() {
     }
 
     FMOD_REVERB_PROPERTIES properties;
-    GetReverbProperties(g_soundProviderPreferencesDB.GetRecord(SI2::GetZoneReverb()), &properties);
+    SoundProviderPreferencesRec* rec = g_soundProviderPreferencesDB.GetRecord(SI2::GetZoneReverb());
+
+    // MODIFIED: audio engine upgrade, a fallback reverb where the DBC gives none (underwater, indoor rooms)
+    if (!rec && AwesomeAudioFallbackReverb(&properties)) {
+        s_reverbDescription = nullptr;
+        SE2::SetReverb(&properties);
+        return;
+    }
+
+    GetReverbProperties(rec, &properties);
     SE2::SetReverb(&properties);
 }
 

@@ -254,6 +254,7 @@ void AwesomeRegisterCVars() {
     AwesomeHdClientRegisterCVars();
     AwesomeShadowsRegisterCVars();
     AwesomePerfRegisterCVars();
+    AwesomeAudioRegisterCVars();
 }
 
 void AwesomeRegisterScriptFunctions() {
@@ -273,6 +274,7 @@ void AwesomeRegisterScriptFunctions() {
     AwesomeVoiceChatRegisterScriptFunctions(L);
     AwesomeFrameCaptureRegisterScriptFunctions(L);
     AwesomePerfRegisterScriptFunctions(L);
+    AwesomeAudioRegisterScriptFunctions(L);
 }
 
 void AwesomeOnEnterWorld() {
@@ -282,6 +284,7 @@ void AwesomeOnEnterWorld() {
     AwesomeMsdfOnEnterWorld();
     AwesomeFrameCaptureOnEnterWorld();
     AwesomePerfOnEnterWorld();
+    AwesomeAudioOnEnterWorld();
 }
 
 void AwesomeOnLeaveWorld() {

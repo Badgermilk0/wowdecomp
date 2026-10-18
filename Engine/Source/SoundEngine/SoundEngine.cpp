@@ -1,9 +1,13 @@
+#include <algorithm>
+#include <cmath>
 #include <cstdarg>
 #include <cstdio>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
 #include <limits>
+#include <unordered_map>
+#include <vector>
 #include "Engine/Source/SoundEngine/SoundEngine.h"
 #include "Engine/Source/BlizzardCore/SFile2-Core.h"
 #include "Engine/Source/ConsoleBase/ConsoleVar.h"
@@ -187,6 +191,36 @@ static float s_speakerMixBack = 0.2f;
 
 // STATIC: 0x00B1D7A4
 static float s_speakerMixSide = 0.001f;
+
+// MODIFIED: audio engine upgrade (see SEAudioSettings)
+SEAudioSettings SE2::s_audioSettings;
+
+// a sound quieter than this (about -60 dB, after rolloff, cones and occlusion) gives its voice to an audible one
+static const float SE_VIRTUAL_VOLUME = 0.001f;
+
+// the reverb crossfade: s_reverbFrom blends into s_reverbTarget as s_reverbBlend runs 0 -> 1
+static FMOD_REVERB_PROPERTIES s_reverbFrom;
+static FMOD_REVERB_PROPERTIES s_reverbTarget;
+static FMOD_REVERB_PROPERTIES s_reverbCurrent;
+static bool s_reverbValid;
+static float s_reverbBlend = 1.0f;
+static uint32_t s_reverbLastStep;
+
+struct SEOcclusionState {
+    float m_current;
+    float m_target;
+    float m_applied;
+    uint32_t m_lastTest;
+    uint32_t m_frame;
+    bool m_tested;
+};
+
+// by SESoundInternal::m_id; an entry lives while its sound is a playing 3D sound
+static std::unordered_map<uint32_t, SEOcclusionState> s_occlusionStates;
+static uint32_t s_occlusionFrame;
+static int32_t s_occlusionTracked;
+static int32_t s_occlusionOccluded;
+static int32_t s_occlusionTests;
 
 // VERIFY: c1b1c1a2 auto
 // OFFSET: 0x00877E10
@@ -1085,7 +1119,109 @@ void SE2::SetReverb(const FMOD_REVERB_PROPERTIES* properties) {
         return;
     }
 
-    s_system->setReverbProperties(properties);
+    // MODIFIED: crossfade to the new reverb over s_audioSettings.m_reverbFade (ProcessReverbFade) instead of
+    // switching at once; null is passed through as stock (FMOD refuses it)
+    if (!properties) {
+        s_system->setReverbProperties(properties);
+        return;
+    }
+
+    if (!s_reverbValid || SE2::s_audioSettings.m_reverbFade <= 0.0f) {
+        s_reverbFrom = *properties;
+        s_reverbTarget = *properties;
+        s_reverbCurrent = *properties;
+        s_reverbBlend = 1.0f;
+        s_reverbValid = true;
+        s_system->setReverbProperties(properties);
+        return;
+    }
+
+    if (!memcmp(properties, &s_reverbTarget, sizeof(FMOD_REVERB_PROPERTIES))) {
+        return;
+    }
+
+    s_reverbFrom = s_reverbCurrent;
+    s_reverbTarget = *properties;
+    s_reverbBlend = 0.0f;
+    s_reverbLastStep = OsGetAsyncTimeMs();
+}
+
+// MODIFIED: one point of a reverb crossfade. Levels (millibels) and times blend linearly; the discrete fields come
+// from the nearer end. An end that is off (Environment -1) is the other end's room at -10000 mB, so a fade from or to
+// no reverb is a level fade of the room that exists.
+static void BlendReverb(const FMOD_REVERB_PROPERTIES& from, const FMOD_REVERB_PROPERTIES& to, float t, FMOD_REVERB_PROPERTIES* out) {
+    FMOD_REVERB_PROPERTIES a = from;
+    FMOD_REVERB_PROPERTIES b = to;
+
+    if (a.Environment == -1 && b.Environment != -1) {
+        a = b;
+        a.Room = -10000;
+    } else if (b.Environment == -1 && a.Environment != -1) {
+        b = a;
+        b.Room = -10000;
+    }
+
+    *out = t < 0.5f ? a : b;
+
+    auto blendInt = [t](int x, int y) {
+        return static_cast<int>(lroundf(static_cast<float>(x) + static_cast<float>(y - x) * t));
+    };
+
+    auto blendFloat = [t](float x, float y) {
+        return x + (y - x) * t;
+    };
+
+    out->Room = blendInt(a.Room, b.Room);
+    out->RoomHF = blendInt(a.RoomHF, b.RoomHF);
+    out->RoomLF = blendInt(a.RoomLF, b.RoomLF);
+    out->Reflections = blendInt(a.Reflections, b.Reflections);
+    out->Reverb = blendInt(a.Reverb, b.Reverb);
+    out->EnvSize = blendFloat(a.EnvSize, b.EnvSize);
+    out->EnvDiffusion = blendFloat(a.EnvDiffusion, b.EnvDiffusion);
+    out->DecayTime = blendFloat(a.DecayTime, b.DecayTime);
+    out->DecayHFRatio = blendFloat(a.DecayHFRatio, b.DecayHFRatio);
+    out->DecayLFRatio = blendFloat(a.DecayLFRatio, b.DecayLFRatio);
+    out->ReflectionsDelay = blendFloat(a.ReflectionsDelay, b.ReflectionsDelay);
+    out->ReverbDelay = blendFloat(a.ReverbDelay, b.ReverbDelay);
+    out->EchoTime = blendFloat(a.EchoTime, b.EchoTime);
+    out->EchoDepth = blendFloat(a.EchoDepth, b.EchoDepth);
+    out->ModulationTime = blendFloat(a.ModulationTime, b.ModulationTime);
+    out->ModulationDepth = blendFloat(a.ModulationDepth, b.ModulationDepth);
+    out->AirAbsorptionHF = blendFloat(a.AirAbsorptionHF, b.AirAbsorptionHF);
+    out->HFReference = blendFloat(a.HFReference, b.HFReference);
+    out->LFReference = blendFloat(a.LFReference, b.LFReference);
+    out->RoomRolloffFactor = blendFloat(a.RoomRolloffFactor, b.RoomRolloffFactor);
+    out->Diffusion = blendFloat(a.Diffusion, b.Diffusion);
+    out->Density = blendFloat(a.Density, b.Density);
+}
+
+// MODIFIED: advances the reverb crossfade, at most 20 steps a second (each step re-derives the reverb's filters)
+static void ProcessReverbFade() {
+    if (!s_reverbValid || s_reverbBlend >= 1.0f) {
+        return;
+    }
+
+    uint32_t now = OsGetAsyncTimeMs();
+    uint32_t elapsed = now - s_reverbLastStep;
+
+    if (elapsed < 50) {
+        return;
+    }
+
+    s_reverbLastStep = now;
+
+    float fade = SE2::s_audioSettings.m_reverbFade;
+    s_reverbBlend = fade > 0.0f ? (std::min)(1.0f, s_reverbBlend + static_cast<float>(elapsed) * 0.001f / fade) : 1.0f;
+
+    if (s_reverbBlend >= 1.0f) {
+        s_reverbCurrent = s_reverbTarget;
+    } else {
+        // smoothstep: no level jump at either end of the fade
+        float t = s_reverbBlend * s_reverbBlend * (3.0f - 2.0f * s_reverbBlend);
+        BlendReverb(s_reverbFrom, s_reverbTarget, t, &s_reverbCurrent);
+    }
+
+    s_system->setReverbProperties(&s_reverbCurrent);
 }
 
 // VERIFY: d9256c5e manual
@@ -2657,7 +2793,17 @@ static void KillVirtualSounds() {
                             fileSound->m_loadSoundGroup = nullptr;
                         }
 
-                        if (isVirtual) {
+                        // MODIFIED: a loop that lost its voice stays (FMOD keeps its position virtually) and is heard
+                        // again when it becomes audible or a voice frees; stock stopped it for good
+                        bool keepLoop = false;
+
+                        if (isVirtual && SE2::s_audioSettings.m_keepVirtualLoops) {
+                            FMOD_MODE mode = 0;
+                            fileSound->m_channel->getMode(&mode);
+                            keepLoop = (mode & FMOD_LOOP_NORMAL) != 0;
+                        }
+
+                        if (isVirtual && !keepLoop) {
                             SOUND_TRACE("virtual #%u: stopped", fileSound->m_id);
                             fileSound->m_channel->stop();
                             fileSound->m_channel = nullptr;
@@ -2772,6 +2918,8 @@ int32_t SE2::HeartBeat(const void* data, void* param) {
     ProcessWaveDataDeleteList(0);
     ProcessFadeList();
     UpdateObjectPositions();
+    // MODIFIED: audio engine upgrade
+    ProcessReverbFade();
     ProcessGoGoGoList();
     g_soundCache.Update();
 
@@ -3315,8 +3463,9 @@ int32_t SE2::Init(int32_t maxChannels, bool (*positionCallback)(uint64_t, C3Vect
 
         LogUsingDriver(*outputDriverIndex, "Game Output", 1, 0);
 
-        if (*numChannels > 128) {
-            *numChannels = 128;
+        // MODIFIED: up to 256 voices (stock 128); a modern CPU mixes 256 software voices in well under a millisecond
+        if (*numChannels > 256) {
+            *numChannels = 256;
         } else if (*numChannels < 12) {
             *numChannels = 12;
         }
@@ -3438,6 +3587,27 @@ int32_t SE2::Init(int32_t maxChannels, bool (*positionCallback)(uint64_t, C3Vect
         if (enableSoftwareHRTF) {
             flags = FMOD_INIT_SOFTWARE_HRTF;
         }
+
+        // MODIFIED: audio engine upgrade. SOFTWARE_OCCLUSION gives every 3D voice the low-pass that set3DOcclusion
+        // drives (bypassed while a source is open); VOL0_BECOMES_VIRTUAL frees the voice of a sound too quiet to hear
+        // (past its max distance, or behind enough walls) for one that can be heard
+        flags |= FMOD_INIT_SOFTWARE_OCCLUSION | FMOD_INIT_VOL0_BECOMES_VIRTUAL;
+        s_reverbValid = false;
+        s_reverbBlend = 1.0f;
+        s_occlusionStates.clear();
+
+        {
+            FMOD_ADVANCEDSETTINGS advanced;
+            memset(&advanced, 0, sizeof(advanced));
+            advanced.cbsize = sizeof(advanced);
+
+            if (s_system->getAdvancedSettings(&advanced) == FMOD_OK) {
+                advanced.vol0virtualvol = SE_VIRTUAL_VOLUME;
+                SE_ERRCHECK(s_system->setAdvancedSettings(&advanced));
+            }
+        }
+
+        SE2::Log_Write(__LINE__, __FILE__, FMOD_OK, " - Occlusion filter and virtual voices ENABLED (below %.0f dB)", 20.0f * log10f(SE_VIRTUAL_VOLUME));
 
         const char* speakerModes[] = { "RAW", "MONO", "STEREO", "QUAD", "SURROUND", "5.1", "7.1", "PROLOGIC" };
 
@@ -4003,4 +4173,208 @@ void SESoundUserData::Release() {
 
 // INLINED
 SECaptureCallbacks::~SECaptureCallbacks() {
+}
+
+// MODIFIED: audio engine upgrade. Per-source occlusion, run once a frame by the game layer after it places the
+// listener. Every playing 3D sound keeps an occlusion state; the oldest results are re-tested through callback (a
+// world ray test in the game layer), up to m_occlusionTestsPerFrame a frame, and each source's occlusion eases toward
+// its last result over m_occlusionFade. FMOD turns the direct occlusion into a volume cut and a low-pass
+// (FMOD_INIT_SOFTWARE_OCCLUSION) and the reverb occlusion into a cut of the reverb send.
+void SE2::UpdateOcclusion(SEOcclusionCallback callback, float elapsed) {
+    if (!s_initialized) {
+        return;
+    }
+
+    struct Candidate {
+        C3Vector m_position;
+        SEOcclusionState* m_state;
+    };
+
+    // STATIC
+    static std::vector<Candidate> s_candidates;
+    s_candidates.clear();
+
+    const SEAudioSettings& settings = SE2::s_audioSettings;
+    uint32_t now = OsGetAsyncTimeMs();
+    uint32_t frame = ++s_occlusionFrame;
+
+    C3Vector listener;
+    bool testing = settings.m_occlusion && callback && SE2::GetListenerPosition(&listener);
+    float minDistanceSq = settings.m_occlusionMinDistance * settings.m_occlusionMinDistance;
+    float maxDistanceSq = settings.m_occlusionMaxDistance * settings.m_occlusionMaxDistance;
+
+    s_heartBeatCritSect.Enter();
+    s_soundListCritSect.Enter();
+
+    int32_t tracked = 0;
+
+    for (SESoundInternal* sound = s_soundList.Head(); sound; sound = s_soundList.Next(sound)) {
+        if (!sound->m_channel || IsNaN(sound->m_position.x)) {
+            continue;
+        }
+
+        FMOD_MODE mode = 0;
+
+        if (sound->m_channel->getMode(&mode) != FMOD_OK || !(mode & FMOD_3D)) {
+            continue;
+        }
+
+        SEOcclusionState& state = s_occlusionStates[sound->m_id];
+        state.m_frame = frame;
+        tracked++;
+
+        bool test = testing;
+
+        if (test) {
+            C3Vector delta = sound->m_position - listener;
+            float distanceSq = delta.x * delta.x + delta.y * delta.y + delta.z * delta.z;
+            test = distanceSq >= minDistanceSq && distanceSq <= maxDistanceSq;
+        }
+
+        if (!test) {
+            state.m_target = 0.0f;
+            state.m_tested = false;
+        } else if (!state.m_tested || now - state.m_lastTest >= settings.m_occlusionInterval) {
+            s_candidates.push_back({ sound->m_position, &state });
+        }
+    }
+
+    // never-tested sources first, then the stalest
+    std::sort(s_candidates.begin(), s_candidates.end(), [](const Candidate& a, const Candidate& b) {
+        if (a.m_state->m_tested != b.m_state->m_tested) {
+            return !a.m_state->m_tested;
+        }
+
+        return a.m_state->m_lastTest < b.m_state->m_lastTest;
+    });
+
+    int32_t budget = (std::max)(1, settings.m_occlusionTestsPerFrame);
+    int32_t tests = 0;
+
+    for (Candidate& candidate : s_candidates) {
+        if (tests >= budget) {
+            break;
+        }
+
+        float occlusion = callback(candidate.m_position);
+        occlusion = occlusion < 0.0f ? 0.0f : (occlusion > 1.0f ? 1.0f : occlusion);
+
+        SEOcclusionState* state = candidate.m_state;
+        state->m_target = occlusion;
+
+        // a sound that starts behind a wall is muffled from its first test, not faded in from open
+        if (!state->m_tested) {
+            state->m_current = occlusion;
+        }
+
+        state->m_tested = true;
+        state->m_lastTest = now;
+        tests++;
+    }
+
+    float step = settings.m_occlusionFade > 0.0f ? elapsed / settings.m_occlusionFade : 1.0f;
+    int32_t occluded = 0;
+
+    for (SESoundInternal* sound = s_soundList.Head(); sound; sound = s_soundList.Next(sound)) {
+        if (!sound->m_channel) {
+            continue;
+        }
+
+        auto it = s_occlusionStates.find(sound->m_id);
+
+        if (it == s_occlusionStates.end() || it->second.m_frame != frame) {
+            continue;
+        }
+
+        SEOcclusionState& state = it->second;
+
+        if (state.m_current < state.m_target) {
+            state.m_current = (std::min)(state.m_target, state.m_current + step);
+        } else if (state.m_current > state.m_target) {
+            state.m_current = (std::max)(state.m_target, state.m_current - step);
+        }
+
+        if (fabsf(state.m_current - state.m_applied) > 0.004f || (state.m_current == state.m_target && state.m_current != state.m_applied)) {
+            sound->m_channel->set3DOcclusion(state.m_current, state.m_current * settings.m_occlusionReverb);
+            state.m_applied = state.m_current;
+        }
+
+        if (state.m_current > 0.05f) {
+            occluded++;
+        }
+    }
+
+    for (auto it = s_occlusionStates.begin(); it != s_occlusionStates.end();) {
+        if (it->second.m_frame != frame) {
+            it = s_occlusionStates.erase(it);
+        } else {
+            ++it;
+        }
+    }
+
+    s_soundListCritSect.Leave();
+    s_heartBeatCritSect.Leave();
+
+    s_occlusionTracked = tracked;
+    s_occlusionOccluded = occluded;
+    s_occlusionTests = tests;
+}
+
+// MODIFIED: audio engine upgrade, for /soundstats
+void SE2::GetAudioStats(SEAudioStats* stats) {
+    memset(stats, 0, sizeof(SEAudioStats));
+
+    if (!s_initialized) {
+        return;
+    }
+
+    s_system->getSoftwareChannels(&stats->m_softwareChannels);
+
+    float dsp = 0.0f;
+    float stream = 0.0f;
+    float update = 0.0f;
+    float total = 0.0f;
+    s_system->getCPUUsage(&dsp, &stream, &update, &total);
+    stats->m_cpuDsp = dsp;
+    stats->m_cpuTotal = total;
+
+    s_soundListCritSect.Enter();
+
+    for (SESoundInternal* sound = s_soundList.Head(); sound; sound = s_soundList.Next(sound)) {
+        stats->m_sounds++;
+
+        if (!sound->m_channel) {
+            continue;
+        }
+
+        bool playing = false;
+
+        if (sound->m_channel->isPlaying(&playing) != FMOD_OK || !playing) {
+            continue;
+        }
+
+        bool isVirtual = false;
+        sound->m_channel->isVirtual(&isVirtual);
+
+        if (isVirtual) {
+            stats->m_virtual++;
+        } else {
+            stats->m_real++;
+        }
+    }
+
+    s_soundListCritSect.Leave();
+
+    stats->m_tracked3D = s_occlusionTracked;
+    stats->m_occluded = s_occlusionOccluded;
+    stats->m_testsLastFrame = s_occlusionTests;
+
+    if (s_reverbValid && s_reverbCurrent.Environment != -1) {
+        stats->m_reverbRoom = static_cast<float>(s_reverbCurrent.Room);
+        stats->m_reverbDecay = s_reverbCurrent.DecayTime;
+    } else {
+        stats->m_reverbRoom = -10000.0f;
+    }
+
+    stats->m_reverbBlend = s_reverbBlend;
 }

@@ -10,6 +10,7 @@
 #include "WoW/Source/Object/WGUID.h"
 
 class C2Vector;
+struct FMOD_REVERB_PROPERTIES;
 class C3Vector;
 class CGGameObject_C;
 class CGNamePlateFrame;
@@ -84,6 +85,12 @@ bool AwesomeNamePlateAllCastBars();
 bool AwesomeCameraPlayerFade();
 // Script_SendChatMessage: say, yell and emote allowed while dead (chatWhileDead)
 bool AwesomeChatWhileDead();
+
+// Audio engine upgrade (AwesomeAudio.cpp, not from awesome_wotlk). SI2::SetListenerAttributes, after the engine placed
+// the listener each world frame: per-source occlusion and the indoor room estimate
+void AwesomeAudioUpdate(const C3Vector& listener);
+// SI2::ApplyReverbSettings when the DBC gives the place no reverb: a fallback (underwater, or the estimated room)
+bool AwesomeAudioFallbackReverb(FMOD_REVERB_PROPERTIES* properties);
 
 // CGGameObject_C::CheckForPassiveHighlight, after the engine (objectHighlightMode CVar)
 void AwesomeOnPassiveHighlight(CGGameObject_C* object);

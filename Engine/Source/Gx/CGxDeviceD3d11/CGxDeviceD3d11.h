@@ -28,6 +28,7 @@
 #include "Engine/Source/Gx/CGxDeviceD3d11/D3d11Compiler.h"
 #include "Engine/Source/Gx/CGxDeviceD3d11/D3d11Dx9Shader.h"
 #include "Engine/Source/Gx/CGxDeviceD3d11/D3d11FixedFunction.h"
+#include "Engine/Source/Gx/CGxDeviceD3d11/D3d11GpuTimer.h"
 #include "Engine/Source/Gx/CGxTex.h"
 
 class CGxDeviceD3d11 : public CGxDevice {
@@ -212,6 +213,8 @@ class CGxDeviceD3d11 : public CGxDevice {
     ID3D11Query* m_frameQueries[4] = {};
     uint32_t m_frameQueryNext = 0;
     uint32_t m_frameQueryIssued = 0;
+    // MODIFIED: performance diagnostics, GPU time per FrameProfile section (D3d11GpuTimer.h)
+    D3d11GpuTimer m_gpuTimer;
 
     // shaders and the state objects, by key
     std::unordered_map<GxD3d11::Hash128, Program*, Hash128Hash> m_programs;

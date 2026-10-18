@@ -219,6 +219,17 @@ void CShadowQuery::FrustumCallback(CFrustum& frustum, C44Matrix& matrix, const C
     CFrustum clip = CWorldScene::s_clipFrustum;
     clip.Transform(view * matrix);
     CAaBox box = CAaBox::Bounding(clip.corners, 8);
+
+    // MODIFIED: performance, CShadowCache::s_cascadeReuse. A cascade that may be kept for a few frames covers a little
+    // more than the view: 5% of its width each side, what about 2 degrees of turn uncovers at its far edge
+    if (CShadowCache::s_cascadeReuse && band > 0) {
+        const float margin = 0.1f;
+        box.b.x -= margin;
+        box.b.y -= margin;
+        box.t.x += margin;
+        box.t.y += margin;
+    }
+
     box.b = C3Vector::Max(box.b, C3Vector(-1.0f, -1.0f, -1.0f));
     box.b = C3Vector::Min(box.b, C3Vector(1.0f, 1.0f, 1.0f));
     box.t = C3Vector::Max(box.t, C3Vector(-1.0f, -1.0f, -1.0f));
@@ -757,6 +768,12 @@ void CShadowQuery::QueryMapObjDefs(CShadowCacheQueryData& data, int32_t firstBan
             }
 
             for (int32_t band = firstBand; band <= lastBand; band++) {
+                // MODIFIED: performance, a band with nothing to query (a cascade kept from an earlier frame,
+                // CShadowCache::s_cascadeReuse) gathers no groups; the other queries already test the flags
+                if (!data.m_queryFlags[band]) {
+                    continue;
+                }
+
                 if (data.m_extents[band].Intersects(defGroup->m_bbox) && data.m_bandFrustums[band].Cull(defGroup->m_bbox) && (!data.m_useCullFrustum[band] || data.m_cullFrustums[band].CullInv(defGroup->m_bbox) != 3)) {
                     ShadowQueryBuffers& buffers = CShadowQuery::s_bandBuffers[band];
 
@@ -777,7 +794,8 @@ void CShadowQuery::QueryMapObjDefs(CShadowCacheQueryData& data, int32_t firstBan
                 }
 
                 for (int32_t band = firstBand; band <= lastBand; band++) {
-                    if (doodad->m_shadowStamps[band] == CShadowQuery::s_stamp) {
+                    // MODIFIED: performance, as for the groups above
+                    if (!data.m_queryFlags[band] || doodad->m_shadowStamps[band] == CShadowQuery::s_stamp) {
                         continue;
                     }
 

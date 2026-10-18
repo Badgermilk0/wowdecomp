@@ -7,6 +7,7 @@
 #include "Engine/Source/Gx/CGxPool.h"
 #include "Engine/Source/Gx/Gx.h"
 #include "Engine/Source/Gx/GxFrameLatency.h"
+#include "Engine/Source/Base/FrameProfile.h"
 #include "Engine/Source/Os/Error.h"
 #include "Engine/Source/Storm/H/storm.h"
 
@@ -266,6 +267,17 @@ int32_t CGxDeviceD3d11::ICreateWindow(CGxFormat& format) {
     return this->m_hwnd != nullptr;
 }
 
+// MODIFIED: performance diagnostics. The device whose GPU FrameProfile's section switches time (D3d11GpuTimer.h)
+static CGxDeviceD3d11* s_gpuTimedDevice;
+
+static void GpuTimerMark(FrameProfileSection section) {
+    CGxDeviceD3d11* device = s_gpuTimedDevice;
+
+    if (device && device->m_context && device->m_d3dDevice && device->m_ctx) {
+        device->m_gpuTimer.Mark(device->m_d3dDevice, device->m_ctx, section);
+    }
+}
+
 int32_t CGxDeviceD3d11::ICreateD3d11Device(const CGxFormat& format) {
     if (!this->m_d3dDevice || !this->m_hwnd) {
         return 0;
@@ -363,6 +375,10 @@ int32_t CGxDeviceD3d11::ICreateD3d11Device(const CGxFormat& format) {
     if (!CGxDevice::s_uiPixelShader) {
         g_theGxDevicePtr->ShaderCreate(&CGxDevice::s_uiPixelShader, GxSh_Pixel, "Shaders\\Pixel", "UI", 1);
     }
+
+    // MODIFIED: performance diagnostics (D3d11GpuTimer.h)
+    s_gpuTimedDevice = this;
+    g_frameProfileGpuMark = GpuTimerMark;
 
     return 1;
 }
@@ -683,6 +699,8 @@ void CGxDeviceD3d11::IReleaseD3d11Resources(int32_t freeAll) {
     }
 
     this->m_frameQueryIssued = 0;
+    // MODIFIED: performance diagnostics (D3d11GpuTimer.h)
+    this->m_gpuTimer.Release();
 }
 
 void CGxDeviceD3d11::IDestroyD3d11() {
@@ -694,6 +712,12 @@ void CGxDeviceD3d11::IDestroyD3d11() {
 
     if (CGxDevice::s_uiPixelShader) {
         g_theGxDevicePtr->ShaderDestroy(CGxDevice::s_uiPixelShader);
+    }
+
+    // MODIFIED: performance diagnostics (D3d11GpuTimer.h)
+    if (s_gpuTimedDevice == this) {
+        s_gpuTimedDevice = nullptr;
+        g_frameProfileGpuMark = nullptr;
     }
 
     this->ICursorDestroy();
@@ -1018,6 +1042,8 @@ void CGxDeviceD3d11::ScenePresent() {
 
         CGxDevice::ScenePresent();
         this->ICursorDraw();
+        // MODIFIED: performance diagnostics (D3d11GpuTimer.h)
+        this->m_gpuTimer.EndFrame(this->m_d3dDevice, this->m_ctx);
 
         uint64_t gpuWaitStart = GxFrameStatsNow();
 

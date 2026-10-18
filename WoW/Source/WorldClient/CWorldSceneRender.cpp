@@ -199,7 +199,10 @@ void CWorldScene::Render(const C3Vector& cameraPos, float time) {
     FrameProfileSwitch(FRAMEPROFILE_WORLD_OTHER);
 
     CGUnit_C::UpdateMissileTrajectoryTargeting();
+    // MODIFIED: performance diagnostics (FrameProfile.h)
+    FrameProfileSwitch(FRAMEPROFILE_SHADOWS);
     CShadowQuery::Update();
+    FrameProfileSwitch(FRAMEPROFILE_WORLD_OTHER);
     CShaderEffect::UpdateProjMatrix();
     CWorldScene::ApplyFogState();
     FrameProfileSwitch(FRAMEPROFILE_TERRAIN);

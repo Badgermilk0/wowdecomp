@@ -27,6 +27,7 @@ enum FrameProfileSection {
     FRAMEPROFILE_DETAIL,        // CWorldScene::RenderDetailDoodads: grass and ground clutter
     FRAMEPROFILE_LIQUID,        // liquid pass, weather, barriers
     FRAMEPROFILE_EFFECTS,       // spell visuals, particulate, transparent Gxu draw list, glares, chat bubbles
+    FRAMEPROFILE_SHADOWS,       // CShadowQuery::Update: gathering casters and rendering the shadow maps
     // parts of a section above, timed with FrameProfileAdd; never switched to
     FRAMEPROFILE_GRASS_FILL,    // of DETAIL: grass batches rebuilt on the CPU (FillVertices/FillIndices)
     FRAMEPROFILE_GRASS_LIGHTS,  // of DETAIL: the lights picked for each grass chunk
@@ -47,9 +48,20 @@ enum FrameProfileCounter {
 struct FrameProfileStats {
     double m_ms[FRAMEPROFILE_COUNT];
     double m_counters[FRAMEPROFILE_COUNTERS];
+    // GPU time per switched section and for the whole frame (first mark to Present), from a device that can time
+    // its own work (D3D11 timestamp queries); m_gpuValid is false on the others
+    double m_gpuMs[FRAMEPROFILE_COUNT];
+    double m_gpuFrame;
+    bool m_gpuValid;
 };
 
 extern FrameProfileStats g_frameProfile;
+
+// set by a device that times the GPU: called at every FrameProfileSwitch with the section starting there
+extern void (*g_frameProfileGpuMark)(FrameProfileSection section);
+
+// the device's results for a finished frame, some frames late: ms per section and for the frame
+void FrameProfileGpuRecord(const double* ms, double frame);
 
 uint64_t FrameProfileNow();
 void FrameProfileAdd(FrameProfileSection section, uint64_t start, uint64_t end);

@@ -83,6 +83,13 @@ class CShadowCache {
     static uint32_t s_sizeOverride;
     static float s_pcfScale;
     static int32_t s_stableBands;
+    // MODIFIED: performance. s_cascadeReuse: in VERY_HIGH the stock client re-renders all three cascades every frame.
+    // With this on, the 320-yard one is re-rendered every 2nd frame and the 1280-yard one every 4th (on different
+    // frames), and sooner when the camera turns or moves or the sun moves enough that the kept map would no longer
+    // cover the view; the near map and the 80-yard cascade, where units move, stay per frame. Reused cascades render
+    // a little beyond the view (CShadowQuery::FrustumCallback) and without the inner cascade's casters cut out, so a
+    // kept map never leaves a gap. 0 = stock
+    static int32_t s_cascadeReuse;
     static float s_shadowScale;
     static uint32_t s_shadowSize;
     static const char* s_shadowModeDescs[NUM_SHADOW_MODES + 1];

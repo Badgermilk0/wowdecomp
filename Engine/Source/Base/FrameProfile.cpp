@@ -4,6 +4,7 @@
 // MODIFIED: performance diagnostics; see FrameProfile.h
 
 FrameProfileStats g_frameProfile;
+void (*g_frameProfileGpuMark)(FrameProfileSection section);
 
 static uint64_t s_ticks[FRAMEPROFILE_COUNT];
 static uint32_t s_counters[FRAMEPROFILE_COUNTERS];
@@ -29,6 +30,22 @@ void FrameProfileSwitch(FrameProfileSection section) {
 
     s_current = section;
     s_mark = now;
+
+    if (g_frameProfileGpuMark) {
+        g_frameProfileGpuMark(section);
+    }
+}
+
+void FrameProfileGpuRecord(const double* ms, double frame) {
+    // the CPU sections' smoothing (FrameProfileEndFrame)
+    const double k = 0.02;
+
+    for (uint32_t i = 0; i < FRAMEPROFILE_COUNT; i++) {
+        g_frameProfile.m_gpuMs[i] += (ms[i] - g_frameProfile.m_gpuMs[i]) * k;
+    }
+
+    g_frameProfile.m_gpuFrame += (frame - g_frameProfile.m_gpuFrame) * k;
+    g_frameProfile.m_gpuValid = true;
 }
 
 void FrameProfileCount(FrameProfileCounter counter, uint32_t value) {

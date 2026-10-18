@@ -104,6 +104,60 @@ C4Vector CShadowCache::s_shadowMatrices[12];
 uint32_t CShadowCache::s_sizeOverride = 0;
 float CShadowCache::s_pcfScale = 1.0f;
 int32_t CShadowCache::s_stableBands = 0;
+int32_t CShadowCache::s_cascadeReuse = 0;
+
+// MODIFIED: performance, s_cascadeReuse. What each cascade's map was rendered for
+struct CascadeRender {
+    bool m_valid;
+    C3Vector m_pos;
+    C3Vector m_forward;
+    C3Vector m_right;
+    C3Vector m_sunDir;
+};
+
+static CascadeRender s_cascadeRenders[3];
+static uint32_t s_cascadeTick;
+
+// MODIFIED: performance, s_cascadeReuse. Whether cascade i must be rendered this frame
+static bool CascadeDue(uint32_t i, float radius, const C3Vector& pos, const C3Vector& forward, const C3Vector& right) {
+    const CascadeRender& last = s_cascadeRenders[i];
+
+    if (!CShadowCache::s_cascadeReuse || i == 0 || !last.m_valid) {
+        return true;
+    }
+
+    // its turn: the 320-yard cascade on even frames, the 1280-yard one on every 4th, one frame later
+    uint32_t interval = i == 1 ? 2 : 4;
+    uint32_t phase = i == 1 ? 0 : 1;
+
+    if (s_cascadeTick % interval == phase) {
+        return true;
+    }
+
+    // the view moved further than the kept map's margin covers: about 2 degrees of turn (CShadowQuery::FrustumCallback
+    // widens a reused cascade by 5% of its width each side) or 2% of the cascade's radius of movement
+    const float minDot = 0.99939f;
+
+    if (forward.x * last.m_forward.x + forward.y * last.m_forward.y + forward.z * last.m_forward.z < minDot) {
+        return true;
+    }
+
+    if (right.x * last.m_right.x + right.y * last.m_right.y + right.z * last.m_right.z < minDot) {
+        return true;
+    }
+
+    float dx = pos.x - last.m_pos.x;
+    float dy = pos.y - last.m_pos.y;
+    float dz = pos.z - last.m_pos.z;
+    float limit = radius * 0.02f;
+
+    if (dx * dx + dy * dy + dz * dz > limit * limit) {
+        return true;
+    }
+
+    const C3Vector& sun = CShadowCache::s_sunDir;
+    return sun.x * last.m_sunDir.x + sun.y * last.m_sunDir.y + sun.z * last.m_sunDir.z < 0.999999f;
+}
 
 // MODIFIED: moves pos across the sun's view plane so the shadow map it centres starts on a whole texel. Uses the basis
 // GxuXformCreateLookAtXXX builds for eye = pos - sunDir * 2000 looking at pos with this up vector: the map's texel
@@ -609,12 +663,29 @@ void CShadowCache::GatherBands(CShadowCacheQueryData& data, const C3Vector& pos,
     } else {
         frame = CShadowCache::s_frameCounter;
 
+        // MODIFIED: performance, s_cascadeReuse (ShadowCache.h): the camera's axes, to tell when a kept map stops
+        // covering the view
+        C44Matrix view;
+        GxXformView(view);
+        C3Vector forward(view.a2, view.b2, view.c2);
+        C3Vector right(view.a0, view.b0, view.c0);
+        s_cascadeTick++;
+
         for (uint32_t i = 0; i < 3; i++) {
             CShadowBand& band = CShadowCache::s_extShadowBands[i];
 
             data.m_textureIndex[i] = 0;
             data.m_active[i] = 0;
             data.m_radius[i] = band.m_radius;
+
+            // MODIFIED: performance, s_cascadeReuse. A cascade kept from an earlier frame still gets this frame's
+            // query data (the caster queries bound everything by the last cascade), but no casters (query flags 0),
+            // no render, and its map keeps the position it was rendered at (m_pos, m_lastPos)
+            bool render = CascadeDue(i, band.m_radius, pos, forward, right);
+            C3Vector keptPos = band.m_pos;
+            C3Vector keptLastPos = band.m_lastPos;
+            data.m_queryFlags[i] = render ? 13 : 0;
+
             band.m_pos = pos;
 
             float cell;
@@ -652,20 +723,35 @@ void CShadowCache::GatherBands(CShadowCacheQueryData& data, const C3Vector& pos,
             CShadowCache::s_frustumCallback(data.m_frustums[i], data.m_matrices[i], band.m_dir, data, i);
             data.m_frustums[i].Extents(data.m_extents[i]);
 
-            data.m_useCullFrustum[i] = useCullFrustum;
+            // MODIFIED: performance, s_cascadeReuse: a cascade that may be kept renders the inner cascade's casters
+            // too. Cut out against the inner map of this frame, they would be missing where that map has since moved on
+            data.m_useCullFrustum[i] = CShadowCache::s_cascadeReuse && i > 0 ? 0 : useCullFrustum;
 
-            if (useCullFrustum) {
+            if (data.m_useCullFrustum[i]) {
                 data.m_cullFrustums[i] = frustum;
             }
 
-            data.m_queryFlags[i] = 13;
             frustum = data.m_frustums[i];
             frustum.InvertPlanes();
 
-            band.m_lastPos = band.m_pos;
-            data.m_active[i] = 1;
             data.m_lastBand = i;
             useCullFrustum = 1;
+
+            if (!render) {
+                band.m_pos = keptPos;
+                band.m_lastPos = keptLastPos;
+                continue;
+            }
+
+            band.m_lastPos = band.m_pos;
+            data.m_active[i] = 1;
+
+            CascadeRender& rendered = s_cascadeRenders[i];
+            rendered.m_valid = true;
+            rendered.m_pos = pos;
+            rendered.m_forward = forward;
+            rendered.m_right = right;
+            rendered.m_sunDir = CShadowCache::s_sunDir;
         }
     }
 
@@ -793,6 +879,11 @@ CShadowCacheQueryData::CShadowCacheQueryData() {
 // VERIFY: e0449636 manual
 // OFFSET: 0x00875760
 void CShadowCache::ClearBandTextures() {
+    // MODIFIED: performance, s_cascadeReuse: a cleared map has nothing to keep
+    for (uint32_t i = 0; i < 3; i++) {
+        s_cascadeRenders[i].m_valid = false;
+    }
+
     if (CShadowCache::s_shadowMode <= SHADOW_MEDIUM) {
         CShadowCache::s_needsRebuild = 0;
         return;

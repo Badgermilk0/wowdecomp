@@ -43,7 +43,7 @@ static const float INTERACT_SCAN_RANGE_SQ = 400.0f;
 static const DWORD INTERACT_SCAN_INTERVAL_MS = 100;
 
 // CGObject_C::m_modelFlags: one bit per highlight type (locked target, mouseover, interaction) and the loot glow
-static const uint32_t HIGHLIGHT_TYPE_INTERACT = 2;
+static const HIGHLIGHTTYPE HIGHLIGHT_TYPE_INTERACT = static_cast<HIGHLIGHTTYPE>(2);
 static const uint32_t HIGHLIGHT_MASK_NATIVE = (1u << 24) | (1u << 25);
 static const uint32_t HIGHLIGHT_MASK_PASSIVE_LOOT_GLOW = 1u << 22;
 

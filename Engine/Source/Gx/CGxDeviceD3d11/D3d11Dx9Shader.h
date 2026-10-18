@@ -40,8 +40,29 @@ enum EInputClass : uint32_t {
     Input_Missing = 3,
 };
 
+// MODIFIED: modern lighting (D3d11Lighting.h). The engine shader a program translates, from its name: the vertex
+// shaders of M2 models (Diffuse_*, CDiffuse_*, Color_*), WMOs (MapObj*) and the terrain (Terrain) also hand their
+// surface (view position, normal, material) to the pixel shader, and the pixel shaders of those three (Combiners_*,
+// MapObj*, Terrain*) light it per pixel. Any other shader is translated as before.
+enum EFamily : uint32_t {
+    Family_None = 0,
+    Family_M2 = 1,            // vertex
+    Family_M2Env = 2,         // vertex, sphere-mapped (a shiny surface)
+    Family_Wmo = 3,           // vertex
+    Family_WmoSpecular = 4,   // vertex, the per-vertex specular of MapObjSpecular_* / MapObjUSpecular_*
+    Family_Terrain = 5,       // vertex
+    Family_LitPixel = 6,      // pixel
+    Family_WmoComposite = 7,  // vertex, MapObjU*: the vertex colour added to the lit material, not multiplied
+    Family_WmoCompositeSpecular = 8,
+};
+
+// the family of an engine shader, by its name ("Diffuse_T1:13", the permutation after the colon)
+uint32_t FamilyForShader(const char* name, bool vertex);
+
 // the declarations and cbuffers every generated shader starts with
 extern const char* const s_hlslCommon;
+// MODIFIED: modern lighting: the surface outputs and the lighting functions of a lit family (after s_hlslCommon)
+extern const char* const s_hlslLighting;
 
 // D3D9 names a varying by usage and usage index; -1 when there is no slot for it
 int32_t VaryingForUsage(uint32_t usage, uint32_t index);
@@ -113,7 +134,15 @@ class Dx9Shader {
     uint32_t m_colorOutMask = 0;
     bool m_usesPos = false;
     bool m_usesFace = false;
+    // MODIFIED: modern lighting: EFamily, set by the device from the shader's name before Emit; the constant
+    // registers read without relative addressing (a bit each)
+    uint32_t m_family = Family_None;
+    uint32_t m_constRead[8] = {};
     std::string m_error;
+
+    bool ReadsConstant(uint32_t index) const {
+        return index < 256 && (this->m_constRead[index >> 5] & (1u << (index & 31))) != 0;
+    }
 
     // false (and m_error) when the stream is not one this translator writes out
     bool Decode(const void* code, uint32_t size);

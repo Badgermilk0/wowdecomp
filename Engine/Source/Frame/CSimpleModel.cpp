@@ -33,6 +33,9 @@
 // STATIC: 0x00B2CB0C
 const char* CSimpleModel::s_objectTypeName = "Model";
 
+// MODIFIED: modern lighting's login-screen test (CSimpleModel.h)
+void (*CSimpleModel::s_renderCallback)(CSimpleModel* model, uint32_t phase, const C3Vector& camera) = nullptr;
+
 // STATIC: 0x00DCE428
 int32_t CSimpleModel::s_objectType;
 
@@ -481,8 +484,23 @@ void CSimpleModel::RenderModel(void* arg) {
 
     if (simpleModel->m_pendingCameraIndex == 0xFFFFFFFF) {
         simpleModel->GetScene()->Animate(cameraPos);
+
+        // MODIFIED: modern lighting's login-screen test (CSimpleModel.h)
+        if (CSimpleModel::s_renderCallback) {
+            CSimpleModel::s_renderCallback(simpleModel, 0, cameraPos);
+        }
+
         simpleModel->GetScene()->Draw(M2PASS_0);
+
+        if (CSimpleModel::s_renderCallback) {
+            CSimpleModel::s_renderCallback(simpleModel, 1, cameraPos);
+        }
+
         simpleModel->GetScene()->Draw(M2PASS_1);
+
+        if (CSimpleModel::s_renderCallback) {
+            CSimpleModel::s_renderCallback(simpleModel, 2, cameraPos);
+        }
     }
 
     g_theGxDevicePtr->XformSetProjection(projection);

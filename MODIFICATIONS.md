@@ -312,6 +312,47 @@ Debugging: `WOW_D3D11_DEBUG=1` in the environment turns on the D3D11 debug layer
 `Logs\gx.log` names the adapter and any shader that did not translate; a shader that does not compile leaves its HLSL
 and the compiler's message in `Logs\d3d11_<hash>.hlsl`, and the draws that need it are skipped.
 
+### Modern lighting (branch `feature/modern-lighting`, D3D11 only)
+
+Lighting and post effects that need no new art: the stock textures and models, lit in a modern way. Every effect has
+its own CVar and **defaults to off**; with all of them off the frame is the stock one. On the D3D9 devices the CVars do
+nothing. `/lighting on` sets a starting preset, `/lighting off` turns every effect off, `/lighting` alone prints the
+lights found and the CVars (`GetLightingStats()`).
+
+| Effect | CVars (**default**) | How |
+|---|---|---|
+| HDR and tonemap | `hdr` (**0**), `hdrExposure` (**1**), `hdrTonemap` (**1**: 0 clamp as stock, 1 neutral, 2 ACES) | The world draws into a 16-bit float target (multisampled like the frame) instead of the frame. Its colours are what the 8-bit frame would hold, only not clamped at 1 where light builds up: a draw is still clamped per layer as before, except the lit families below (up to 16), so additive glows stack past 1. At the end of the world pass it is decoded to linear light, exposed, tonemapped and written into the frame before the UI and before FFX glow. `hdrTonemap 1` leaves every colour below a shoulder (0.8 linear) as it was and rolls the brighter ones off toward white, so nothing clips; with `hdrTonemap 0` the result is the stock frame (checked: pixel-identical on still parts of the login scene). |
+| Bloom | `bloom` (**0** = off, else the intensity; needs `hdr`), `bloomThreshold` (**1**, linear) | The scene's light above the threshold (soft knee, each pixel clamped against fireflies), down a 6-level chain (13-tap downsample) and back up (tent filter), added before the tonemap. |
+| SSAO | `ssao` (**0** = off, else the intensity), `ssaoRadius` (**1.5** yd), `ssaoDistance` (**200** yd, fades out over its last 40%) | After the opaque models and the grass, before liquids and everything transparent: 12 samples on a spiral at half resolution from the depth buffer (view positions through the inverse projection, normals from the nearer neighbour on each axis), biased by the depth buffer's own step at that distance, a depth-aware blur both ways, and a depth-aware upsample multiplied into the scene. `lightingDebug 1` shows the term alone. |
+| Per-pixel lighting | `lightPerPixel` (**0**) | The M2 (`Diffuse_*`, `CDiffuse_*`), WMO (`MapObj*`, `MapObjU*`) and terrain (`Terrain`) vertex shaders compute the sun, ambient and stock point lights per vertex. The translator now also has them hand their view-space position, normal and material to the pixel shader, and the pixel shader evaluates the same formula per pixel. Each vertex checks that the formula reproduces its own colour (within 1/255); a permutation it does not reproduce (an unlit one) is left as it was. Checked on the GPU with stream output, random vertices and plausible constants: of the HD client's 773 distinct M2 / WMO / terrain vertex shader records, all 638 lit ones reproduce their colour exactly, and every rebuilt position matches (the other 135: unlit M2s, left alone, and unlit WMOs, which take dynamic lights only). |
+| Dynamic lights | `lightDynamic` (**0**), `lightDynamicIntensity` (**1**), `lightDynamicM2` (**0.6**), `lightDynamicWmo` (**0.5**), `lightDynamicDistance` (**100** yd), `lightFlicker` (**0.3**), `lightWrap` (**0.25**) | The point lights of M2 models (braziers, torches, lanterns: `CM2Scene`'s light grid, with the colour and the attenuation start / end the model animates; the stock client never animated the attenuation tracks and lit with a fixed falloff, four lights a model) and of WMOs (the MOLT lights, which the stock client only baked into vertex colours: transformed by each placed WMO's matrix), the nearest 256 within reach. A compute shader sorts them into 16 × 9 × 24 view clusters; the lit pixel shaders add the lights of their cluster in linear light (full up to the start, a smooth fall to the end, a wrap for soft terminators). Warm lights flicker. Surfaces without a normal (the unlit `MapObjU*` interiors) use their face normal. |
+| Specular | `lightSpecular` (**0**), `lightSpecularM2` (**0.3**), `lightSpecularWmo` (**1**) | Only where the data asks for it: the WMO specular shaders (`MapObjSpecular_*`, which the stock `specular 1` turns on after a restart) get their specular per pixel plus the dynamic lights'; sphere-mapped M2 batches (`*_Env*`, the shiny ones) get the sun's highlight and the lights'. Everything else stays matte. |
+| Sky ambient | `lightSkyAmbient` (**0** = off, else the strength) | The ambient term of lit surfaces tinted by the zone's sky colour (Light.dbc's sky top and middle) from above and its ground (fog lit by the sun) from below, both scaled to the stock ambient's luminance. |
+| Height fog, scattering | `fogHeight` (**0** = off, else the density per yard), `fogHeightFalloff` (**0.05**), `fogHeightOffset` (**-5** yd from the player's feet), `fogHeightMax` (**0.85**); `fogScattering` (**0** = off, else the strength) | After the opaque pass: exponential fog integrated along each view ray, thickest below the player, in the zone's fog colour; and the stock distance fog (recomputed from the same start, end and density) tinted toward the sun's colour looking into the sun. |
+
+How it fits in (all of it is D3D11 work; `Engine/Source/Gx/GxLighting.h` is the interface the game drives):
+
+| Part | Where |
+|---|---|
+| CVars, the lights, the zone's colours (`DayNight::DNInfo`), `/lighting` | `Awesome/AwesomeLighting.cpp` |
+| The world pass bracket: `BeginWorld` before `CWorld::Render`, `SetupView` in `CWorldScene::Render` once the camera, the models' lights and the shadow maps are ready, `OpaqueDone` after the grass, `EndWorld` before `FFX::Finish` | `Ui/WorldFrame.cpp`, `WorldClient/CWorldSceneRender.cpp` |
+| The attenuation tracks animated with the light's colour | `Model2/M2Model.cpp` (`AnimateMT`) |
+| The surface outputs and per-pixel lighting of the translated shaders (`s_hlslLighting`, the families by shader name, the self-check) | `Gx/CGxDeviceD3d11/D3d11Dx9Shader.*` |
+| The HDR scene, the passes, the light clusters | `Gx/CGxDeviceD3d11/D3d11Lighting.*` |
+| The frame target and copies of it follow the HDR scene while the world draws (`IFrameRtv`, `IFrameSrv`); the depth buffer is typeless so the passes read it; the lighting constants (b3), the vertex constants again for a lit pixel shader (b4), the lights (t16) and clusters (t17) | `Gx/CGxDeviceD3d11/CGxDeviceD3d11*.cpp` |
+
+The translated shaders change text, so the first session after the update compiles them again (the HD client's whole
+corpus takes about three times as long as before; `Cache\D3D11Shaders` keeps them).
+
+**Tested offline only.** The world cannot be reached without a realm, so the login screen's model scene has a test
+mode, `lightingGlueTest` (1; 2 adds three coloured test lights in front of the camera; 3 switches between on and off
+every 4 seconds, to compare the two in one session, the scene being random), which runs every pass around it. Seen
+there, windowed and with 4× multisampling: the HDR path, the tonemap, bloom, SSAO, the fog passes, per-pixel and
+dynamic lighting on skinned and lit M2 models with the scenes' own model lights (radii from their attenuation tracks)
+and the test lights; the D3D11 debug layer reports nothing new. **Not seen in the world:** the terrain and WMO families
+(checked only by the GPU test above), the MOLT lights, liquids and transparent passes over the HDR scene, the sky, real
+fog values, and how any of it looks. The strengths are starting points to tune in game.
+
 ## Building
 
 Requirements: Visual Studio 2026 (v18) with the C++ desktop workload, and CMake 4.x. Build x64 only.

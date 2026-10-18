@@ -1727,6 +1727,8 @@ void CGWorldFrame::OnWorldRender() {
     }
 
     CShaderEffect::UpdateProjMatrix();
+    // MODIFIED: modern lighting (Awesome.h): the world pass begins (the HDR scene target)
+    AwesomeLightingBeginWorld();
     CWorld::Render(this->m_camera->m_position, this->m_elapsedSec);
     // MODIFIED: performance diagnostics (FrameProfile.h), the FrameProfileSwitch calls below
     FrameProfileSwitch(FRAMEPROFILE_NAMEPLATES);
@@ -1746,6 +1748,8 @@ void CGWorldFrame::OnWorldRender() {
     CM2Scene* scene = World::s_m2Scene;
 
     if (!scene) {
+        // MODIFIED: modern lighting: the world pass ends
+        AwesomeLightingEndWorld();
         FrameProfileSwitch(FRAMEPROFILE_NONE);
         return;
     }
@@ -1763,6 +1767,8 @@ void CGWorldFrame::OnWorldRender() {
     GxuFlushDrawList(GxuCat_0, *World::GetCamPos());
     FrameProfileSwitch(FRAMEPROFILE_DETAIL);
     CWorldScene::RenderDetailDoodads();
+    // MODIFIED: modern lighting: SSAO and fog over the opaque world, before liquids and everything transparent
+    AwesomeLightingOpaqueDone();
 
     if (World::SceneCamLiquidStatus(nullptr)) {
         FrameProfileSwitch(FRAMEPROFILE_LIQUID);
@@ -1809,6 +1815,8 @@ void CGWorldFrame::OnWorldRender() {
     SmartScreenRectClearGrid(1);
     CGChatBubbleFrame::OnWorldRender(this);
     GxXformSetViewport(minX, maxX, minY, maxY, minZ, maxZ);
+    // MODIFIED: modern lighting: bloom and the tonemap into the frame; FFX glow then sees the tonemapped world
+    AwesomeLightingEndWorld();
     FFX::Finish();
     CVehiclePassenger_C::PostRenderUpdateAll();
     FrameProfileSwitch(FRAMEPROFILE_NONE);

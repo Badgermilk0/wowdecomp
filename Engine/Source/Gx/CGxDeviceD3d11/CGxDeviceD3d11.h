@@ -30,6 +30,7 @@
 #include "Engine/Source/Gx/CGxDeviceD3d11/D3d11Dx9Shader.h"
 #include "Engine/Source/Gx/CGxDeviceD3d11/D3d11FixedFunction.h"
 #include "Engine/Source/Gx/CGxDeviceD3d11/D3d11GpuTimer.h"
+#include "Engine/Source/Gx/CGxDeviceD3d11/D3d11Lighting.h"
 #include "Engine/Source/Gx/CGxTex.h"
 
 class CGxDeviceD3d11 : public CGxDevice {
@@ -115,6 +116,8 @@ class CGxDeviceD3d11 : public CGxDevice {
         float m_pointSize[4];
         float m_pointScale[4];
         uint32_t m_clipMask[4];
+        // MODIFIED: modern lighting: x the largest colour a pixel shader writes into the HDR scene (0 = no clamp)
+        float m_output[4];
     };
 
     // the stage a constant buffer belongs to
@@ -216,6 +219,11 @@ class CGxDeviceD3d11 : public CGxDevice {
     uint32_t m_frameQueryIssued = 0;
     // MODIFIED: performance diagnostics, GPU time per FrameProfile section (D3d11GpuTimer.h)
     D3d11GpuTimer m_gpuTimer;
+    // MODIFIED: modern lighting (D3d11Lighting.h): the passes and the HDR scene; the frame's depth as a texture for
+    // them; whether the lighting constants and buffers are bound since the last invalidation
+    D3d11Lighting* m_lighting = nullptr;
+    ID3D11ShaderResourceView* m_frameDepthSrv = nullptr;
+    bool m_lightingBound = false;
 
     // shaders and the state objects, by key
     std::unordered_map<GxD3d11::Hash128, Program*, Hash128Hash> m_programs;
@@ -266,9 +274,10 @@ class CGxDeviceD3d11 : public CGxDevice {
     uint32_t m_boundVbStride[GxVAs_Last] = {};
     ID3D11Buffer* m_boundIb = nullptr;
     D3D11_PRIMITIVE_TOPOLOGY m_boundTopology = D3D11_PRIMITIVE_TOPOLOGY_UNDEFINED;
-    ID3D11Buffer* m_boundConstants[Stages_Last][3] = {};
-    uint32_t m_boundConstantsFirst[Stages_Last][3] = {};
-    uint32_t m_boundConstantsCount[Stages_Last][3] = {};
+    // MODIFIED: modern lighting: slots 0-4 (4: the vertex constants again, for a lit pixel shader)
+    ID3D11Buffer* m_boundConstants[Stages_Last][5] = {};
+    uint32_t m_boundConstantsFirst[Stages_Last][5] = {};
+    uint32_t m_boundConstantsCount[Stages_Last][5] = {};
     D3D11_VIEWPORT m_boundViewport = {};
     D3D11_RECT m_boundScissor = {};
     bool m_bindingsValid = false;
@@ -384,6 +393,10 @@ class CGxDeviceD3d11 : public CGxDevice {
     void IPresentFrame();
     void IFrameLatency();
     void IResolveFrame();
+    // MODIFIED: modern lighting: the colour target a null render target means (the HDR scene while the world draws
+    // into it), and that target single-sampled
+    ID3D11RenderTargetView* IFrameRtv() const;
+    ID3D11ShaderResourceView* IFrameSrv();
 
     // render state and drawing (CGxDeviceD3d11Draw.cpp)
     bool IStateSync(EGxPrim primType);

@@ -561,7 +561,9 @@ void CGxDeviceD3d11::IBindTargets() {
         return;
     }
 
-    ID3D11RenderTargetView* rtv = this->m_frameRtv;
+    // MODIFIED: modern lighting: the HDR scene while the world draws into it (IFrameRtv)
+    ID3D11RenderTargetView* frameRtv = this->IFrameRtv();
+    ID3D11RenderTargetView* rtv = frameRtv;
     ID3D11DepthStencilView* dsv = this->m_frameDsv;
     uint32_t width = this->m_frameWidth;
     uint32_t height = this->m_frameHeight;
@@ -588,7 +590,7 @@ void CGxDeviceD3d11::IBindTargets() {
         depthWidth = depth->m_width;
         depthHeight = depth->m_height;
         explicitDepth = true;
-    } else if (color && rtv != this->m_frameRtv) {
+    } else if (color && rtv != frameRtv) {
         // a colour texture with no depth texture draws with a depth buffer of its size (D3D9's default surface)
         dsv = this->IAutoDepth(width, height);
     }
@@ -596,7 +598,7 @@ void CGxDeviceD3d11::IBindTargets() {
     // D3D11 binds colour and depth of the same size and sample count only: with a depth texture of another size the
     // draw writes depth alone (the engine's depth passes turn colour writes off)
     if (rtv && dsv && explicitDepth) {
-        bool frame = rtv == this->m_frameRtv;
+        bool frame = rtv == frameRtv;
 
         if (depthWidth != width || depthHeight != height || (frame && this->m_samples > 1)) {
             rtv = nullptr;
@@ -838,7 +840,10 @@ int32_t CGxDeviceD3d11::TexCopy(CGxTex* dest, const C2iVector& destPos, const C2
         box.bottom = box.top + (mipHeight - destPos.y);
     }
 
-    if (to->m_format == DXGI_FORMAT_B8G8R8A8_UNORM && level < to->m_levels) {
+    // MODIFIED: modern lighting: from the HDR scene a copy converts, so it is drawn
+    bool hdr = this->m_lighting && this->m_lighting->HdrActive();
+
+    if (!hdr && to->m_format == DXGI_FORMAT_B8G8R8A8_UNORM && level < to->m_levels) {
         UINT sub = D3D11CalcSubresource(level, to->m_cube ? plane : 0, to->m_levels);
         this->m_ctx->CopySubresourceRegion(to->m_resource, sub, destPos.x, destPos.y, 0, this->m_frameResolved, 0, &box);
         return 1;
@@ -852,7 +857,7 @@ int32_t CGxDeviceD3d11::TexCopy(CGxTex* dest, const C2iVector& destPos, const C2
 
     RECT sourceRect = { static_cast<LONG>(box.left), static_cast<LONG>(box.top), static_cast<LONG>(box.right), static_cast<LONG>(box.bottom) };
     RECT destRect = { destPos.x, destPos.y, destPos.x + static_cast<LONG>(box.right - box.left), destPos.y + static_cast<LONG>(box.bottom - box.top) };
-    return this->IBlit(this->m_frameResolvedSrv, this->m_frameWidth, this->m_frameHeight, sourceRect, rtv, to->m_width, to->m_height, destRect, false) ? 1 : 0;
+    return this->IBlit(this->IFrameSrv(), this->m_frameWidth, this->m_frameHeight, sourceRect, rtv, to->m_width, to->m_height, destRect, false) ? 1 : 0;
 }
 
 int32_t CGxDeviceD3d11::TexStretch(CGxTex* dest, const CiRect* destRect, const CiRect* sourceRect, uint32_t level, uint32_t face) {
@@ -891,7 +896,8 @@ int32_t CGxDeviceD3d11::TexStretch(CGxTex* dest, const CiRect* destRect, const C
 
     // CGxDeviceD3d9Ex::TexStretch: filtered unless the two rectangles are the same size
     bool linear = !(destRect && sourceRect && into.right - into.left == from.right - from.left && into.bottom - into.top == from.bottom - from.top);
-    return this->IBlit(this->m_frameResolvedSrv, this->m_frameWidth, this->m_frameHeight, from, rtv, to->m_width, to->m_height, into, linear) ? 1 : 0;
+    // MODIFIED: modern lighting: the HDR scene while the world draws into it
+    return this->IBlit(this->IFrameSrv(), this->m_frameWidth, this->m_frameHeight, from, rtv, to->m_width, to->m_height, into, linear) ? 1 : 0;
 }
 
 void CGxDeviceD3d11::DeviceReadPixels(CiRect& rect, TSGrowableArray<CImVector>& pixels) {

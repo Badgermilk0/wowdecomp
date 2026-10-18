@@ -97,6 +97,10 @@ void AwesomeHdClientRegisterCVars();
 // AwesomeShadows.cpp
 void AwesomeShadowsRegisterCVars();
 
+// AwesomeLighting.cpp
+void AwesomeLightingRegisterCVars();
+void AwesomeLightingRegisterScriptFunctions(lua_State* L);
+
 // AwesomeAudio.cpp
 void AwesomeAudioRegisterCVars();
 void AwesomeAudioRegisterScriptFunctions(lua_State* L);

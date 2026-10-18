@@ -35,6 +35,10 @@ class CSimpleModel : public CSimpleFrame {
     static void RegisterScriptMethods(lua_State* L);
     static void RenderModel(void* arg);
     static int32_t SetLightHelper(lua_State* L, int32_t index, CM2Light* light);
+    // MODIFIED: modern lighting's offline test on the login screen (AwesomeLighting.cpp, lightingGlueTest): RenderModel
+    // calls it after the scene animated (phase 0), after the opaque pass (1) and after the transparent one (2); null
+    // = the stock path
+    static void (*s_renderCallback)(CSimpleModel* model, uint32_t phase, const C3Vector& camera);
 
     /* 029C */ CM2Scene* m_scene;
     /* 02A0 */ CM2Model* m_model;

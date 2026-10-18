@@ -28,6 +28,8 @@
 #include "WoW/Source/WorldClient/SortTable.h"
 #include "Engine/Source/Gx/CGxMatrixStack.h"
 #include "Engine/Source/ShaderEffect/ShadowCache.h"
+// MODIFIED: modern lighting (AwesomeLightingSetupView)
+#include "WoW/Source/Awesome/Awesome.h"
 #include "Engine/Source/Tempest/C44Matrix.h"
 
 // VERIFY: 78b69e1a manual
@@ -205,6 +207,9 @@ void CWorldScene::Render(const C3Vector& cameraPos, float time) {
     FrameProfileSwitch(FRAMEPROFILE_WORLD_OTHER);
     CShaderEffect::UpdateProjMatrix();
     CWorldScene::ApplyFogState();
+    // MODIFIED: modern lighting (Awesome.h): the lights in view and the lighting constants, now that the camera, the
+    // models' lights (Animate) and the shadow maps are ready
+    AwesomeLightingSetupView(cameraPos);
     FrameProfileSwitch(FRAMEPROFILE_TERRAIN);
     CWorldScene::RenderChunks();
     FrameProfileSwitch(FRAMEPROFILE_WMO);

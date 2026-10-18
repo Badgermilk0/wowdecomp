@@ -373,6 +373,8 @@ void CGxDeviceD3d11::IShaderCreate(CGxShader* shader) {
         return;
     }
 
+    // MODIFIED: modern lighting: the M2, WMO and terrain shaders are translated with their lighting (D3d11Lighting.h)
+    entry->m_dx9.m_family = FamilyForShader(shader->m_key.m_str, entry->m_dx9.m_vertex);
     shader->m_valid = 1;
 }
 

@@ -45,6 +45,18 @@ bool AwesomeGetGUIDFromToken(const char*& token, WOWGUID& guid);
 // Script_GetTokenIDsFromGUID: appends those tokens for guid while count < capacity
 void AwesomeGetTokenIDsFromGUID(const WOWGUID& guid, char** tokens, int32_t* count, int32_t capacity, uint32_t tokenSize);
 
+// AwesomeLighting.cpp, modern lighting on the D3D11 device (Engine/Source/Gx/GxLighting.h): CGWorldFrame::OnWorldRender
+// before CWorld::Render; CWorldScene::Render before the terrain, once the camera, the models' lights and the shadows are
+// ready; OnWorldRender after the opaque models and the grass, before liquids and the transparent passes; and before
+// FFX::Finish (also on its early return)
+void AwesomeLightingBeginWorld();
+void AwesomeLightingSetupView(const C3Vector& camera);
+void AwesomeLightingOpaqueDone();
+void AwesomeLightingEndWorld();
+// CSimpleModelFFX::Render around the login screen's model, for lightingGlueTest (off by default)
+void AwesomeLightingGlueBegin();
+void AwesomeLightingGlueEnd();
+
 // CGCamera's constructor: the world camera's field of view (cameraFov CVar)
 float AwesomeCameraFieldOfView();
 // CGCamera::CollideCameraWithWorld's boom ray, in place of World::Intersect. With cameraIndirectVisibility on, the

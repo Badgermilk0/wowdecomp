@@ -380,6 +380,13 @@ int32_t CGxDeviceD3d11::ICreateD3d11Device(const CGxFormat& format) {
     s_gpuTimedDevice = this;
     g_frameProfileGpuMark = GpuTimerMark;
 
+    // MODIFIED: modern lighting (D3d11Lighting.h): the game drives it through g_gxLighting
+    if (!this->m_lighting) {
+        this->m_lighting = new D3d11Lighting(this);
+    }
+
+    g_gxLighting = this->m_lighting;
+
     return 1;
 }
 
@@ -425,14 +432,32 @@ int32_t CGxDeviceD3d11::ICreateFrame() {
         return 0;
     }
 
-    desc.Format = DXGI_FORMAT_D24_UNORM_S8_UINT;
+    // MODIFIED: modern lighting: typeless, so the SSAO and fog passes read it (D3d11Lighting)
+    desc.Format = DXGI_FORMAT_R24G8_TYPELESS;
     desc.SampleDesc.Count = this->m_samples;
     desc.SampleDesc.Quality = this->m_sampleQuality;
-    desc.BindFlags = D3D11_BIND_DEPTH_STENCIL;
+    desc.BindFlags = D3D11_BIND_DEPTH_STENCIL | D3D11_BIND_SHADER_RESOURCE;
 
-    if (FAILED(this->m_d3dDevice->CreateTexture2D(&desc, nullptr, &this->m_frameDepth)) || FAILED(this->m_d3dDevice->CreateDepthStencilView(this->m_frameDepth, nullptr, &this->m_frameDsv))) {
+    D3D11_DEPTH_STENCIL_VIEW_DESC dsvDesc = {};
+    dsvDesc.Format = DXGI_FORMAT_D24_UNORM_S8_UINT;
+    dsvDesc.ViewDimension = this->m_samples > 1 ? D3D11_DSV_DIMENSION_TEXTURE2DMS : D3D11_DSV_DIMENSION_TEXTURE2D;
+
+    if (FAILED(this->m_d3dDevice->CreateTexture2D(&desc, nullptr, &this->m_frameDepth)) || FAILED(this->m_d3dDevice->CreateDepthStencilView(this->m_frameDepth, &dsvDesc, &this->m_frameDsv))) {
         CGxDevice::Log("CGxDeviceD3d11::ICreateFrame(): no depth buffer");
         return 0;
+    }
+
+    D3D11_SHADER_RESOURCE_VIEW_DESC depthSrvDesc = {};
+    depthSrvDesc.Format = DXGI_FORMAT_R24_UNORM_X8_TYPELESS;
+    depthSrvDesc.ViewDimension = this->m_samples > 1 ? D3D11_SRV_DIMENSION_TEXTURE2DMS : D3D11_SRV_DIMENSION_TEXTURE2D;
+    depthSrvDesc.Texture2D.MipLevels = 1;
+
+    if (FAILED(this->m_d3dDevice->CreateShaderResourceView(this->m_frameDepth, &depthSrvDesc, &this->m_frameDepthSrv))) {
+        this->m_frameDepthSrv = nullptr;
+    }
+
+    if (this->m_lighting) {
+        this->m_lighting->ReleaseTargets();
     }
 
     this->m_frameResolvedValid = false;
@@ -455,8 +480,14 @@ void CGxDeviceD3d11::IReleaseFrame() {
     SafeRelease(this->m_frameResolved);
     SafeRelease(this->m_frameRtv);
     SafeRelease(this->m_frameColor);
+    SafeRelease(this->m_frameDepthSrv);
     SafeRelease(this->m_frameDsv);
     SafeRelease(this->m_frameDepth);
+
+    // MODIFIED: modern lighting: the HDR scene and the passes' targets follow the frame's size
+    if (this->m_lighting) {
+        this->m_lighting->ReleaseTargets();
+    }
     SafeRelease(this->m_backBufferRtv);
     SafeRelease(this->m_backBuffer);
     SafeRelease(this->m_staging);
@@ -691,6 +722,11 @@ void CGxDeviceD3d11::IReleaseD3d11Resources(int32_t freeAll) {
         }
     }
 
+    // MODIFIED: modern lighting: its shaders, buffers and targets; recreated on first use
+    if (this->m_lighting) {
+        this->m_lighting->ReleaseAll();
+    }
+
     this->IReleasePrograms();
     this->IReleaseStateObjects();
 
@@ -718,6 +754,16 @@ void CGxDeviceD3d11::IDestroyD3d11() {
     if (s_gpuTimedDevice == this) {
         s_gpuTimedDevice = nullptr;
         g_frameProfileGpuMark = nullptr;
+    }
+
+    // MODIFIED: modern lighting
+    if (this->m_lighting) {
+        if (g_gxLighting == this->m_lighting) {
+            g_gxLighting = nullptr;
+        }
+
+        delete this->m_lighting;
+        this->m_lighting = nullptr;
     }
 
     this->ICursorDestroy();
@@ -925,11 +971,32 @@ void CGxDeviceD3d11::IResolveFrame() {
         return;
     }
 
-    if (this->m_samples > 1) {
+    // MODIFIED: modern lighting: while the world draws into the HDR scene, that is the frame
+    if (this->m_lighting && this->m_lighting->HdrActive()) {
+        this->m_lighting->SceneSrv();
+    } else if (this->m_samples > 1) {
         this->m_ctx->ResolveSubresource(this->m_frameResolved, 0, this->m_frameColor, 0, DXGI_FORMAT_B8G8R8A8_UNORM);
     }
 
     this->m_frameResolvedValid = true;
+}
+
+ID3D11RenderTargetView* CGxDeviceD3d11::IFrameRtv() const {
+    if (this->m_lighting && this->m_lighting->HdrActive() && this->m_lighting->SceneRtv()) {
+        return this->m_lighting->SceneRtv();
+    }
+
+    return this->m_frameRtv;
+}
+
+ID3D11ShaderResourceView* CGxDeviceD3d11::IFrameSrv() {
+    this->IResolveFrame();
+
+    if (this->m_lighting && this->m_lighting->HdrActive()) {
+        return this->m_lighting->SceneSrvNoResolve();
+    }
+
+    return this->m_frameResolvedSrv;
 }
 
 void CGxDeviceD3d11::IPresentFrame() {

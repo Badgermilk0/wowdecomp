@@ -51,6 +51,16 @@ render-target rules. Every effect in the later phases is then plain D3D11 work, 
 Done in phase 0 beyond parity: shaders compile on worker threads as the engine loads them, so a first session does not
 stall where a new effect appears (about 1,050 of them are ready after the login screen alone).
 
+## Status after `feature/modern-lighting`
+
+Phases 1 and 5, most of phase 2 (bloom, SSAO) and the lighting half of phase 3 are built, behind CVars that default to
+off; see "Modern lighting" in `MODIFICATIONS.md`. Phase 3 took a different road than planned: the translated shaders
+are not replaced but extended. The translator adds the surface outputs to the M2, WMO and terrain vertex shaders and the
+per-pixel lighting to their pixel shaders, and each vertex checks that the stock formula reproduces its own colour, so
+an unknown permutation falls back to the stock look on its own. Still open: FXAA / SMAA, anisotropic filtering, shadow
+maps sampled per pixel by the lit families (phase 4, which the surface outputs now make possible), spell-visual lights,
+and every in-game check.
+
 ## Phase 1: HDR scene target and a post-process hook
 
 1. Render the world into an `R16G16B16A16_FLOAT` target with a sampleable depth buffer. The device already draws the

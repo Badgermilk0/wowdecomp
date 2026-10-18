@@ -73,6 +73,7 @@ uint32_t RoundConstants(uint32_t count) {
 void CGxDeviceD3d11::IInvalidateBindings() {
     // the next draw binds everything again
     this->m_bindingsValid = false;
+    this->m_lightingBound = false;
     this->m_boundIb = nullptr;
     this->m_viewportDirty = 1;
     this->m_scissorRectDirty = 1;
@@ -805,6 +806,13 @@ void CGxDeviceD3d11::IBuildDrawConstants(DrawConstants& c) {
     c.m_pointScale[1] = attenuation[1];
     c.m_pointScale[2] = attenuation[2];
     c.m_pointScale[3] = scaled ? 1.0f : 0.0f;
+
+    // MODIFIED: modern lighting: into the HDR scene a colour may pass 1 (an 8-bit target clamps it), except where the
+    // blend multiplies the scene by it
+    if (this->m_lighting && this->m_lighting->HdrActive() && this->m_curRtv && this->m_curRtv == this->m_lighting->SceneRtv()) {
+        uint32_t blend = this->m_appRenderStates[GxRs_BlendingMode].m_value.m_data.u[0];
+        c.m_output[0] = blend == GxBlend_Mod || blend == GxBlend_Mod2x ? 1.0f : 16.0f;
+    }
 }
 
 void CGxDeviceD3d11::IBuildFixedConstants(FfConstants& c, const uint8_t* texTransform) {
@@ -1283,6 +1291,19 @@ bool CGxDeviceD3d11::IStateSync(EGxPrim primType) {
 
     if (gsProgram) {
         this->IBindConstants(Stage_Geometry, 1, this->m_drawSlice);
+    }
+
+    // MODIFIED: modern lighting (D3d11Lighting.h): the lighting constants (b3), the lights and clusters (t16-t17), and
+    // a lit pixel shader reads the vertex shader's constants again (b4)
+    if (this->m_lighting) {
+        if (rebind || !this->m_lightingBound) {
+            this->m_lighting->BindForDraw();
+            this->m_lightingBound = true;
+        }
+
+        if (vsEntry && psEntry && psEntry->m_dx9.m_family == Family_LitPixel) {
+            this->IBindConstants(Stage_Pixel, 4, this->m_vsSlice);
+        }
     }
 
     // bind what changed

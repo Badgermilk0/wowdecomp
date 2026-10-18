@@ -11,6 +11,8 @@
 #include "Engine/Source/Tempest/CImVector.h"
 #include "WoW/Source/Glue/CGlueMgr.h"
 #include "WoW/Source/SoundInterface/SoundInterface2.h"
+// MODIFIED: modern lighting (AwesomeLightingGlueBegin / End)
+#include "WoW/Source/Awesome/Awesome.h"
 
 // STATIC: 0x00B6B48C
 CDataAllocator CSimpleModelFFX::s_simpleModelFFXHeap(sizeof(CSimpleModelFFX), 5);
@@ -108,10 +110,14 @@ void CSimpleModelFFX::Render(void* arg) {
     clearColor.a = 0xFF;
     GxSceneClear(GxBufferBit_Color | GxBufferBit_Depth, clearColor);
 
+    // MODIFIED: modern lighting's login-screen test (lightingGlueTest, off by default; Awesome.h)
+    AwesomeLightingGlueBegin();
+
     if (model->m_model) {
         CSimpleModel::RenderModel(model);
     }
 
+    AwesomeLightingGlueEnd();
     FFX::Finish();
 }
 

@@ -28,6 +28,11 @@ const char* const s_hlslCommon =
     "    float4 bn0 : BINORMAL0;\n"
     "    float fog : FOG;\n"
     "    float psize : PSIZE;\n"
+    // MODIFIED: modern lighting: the surface a lit vertex shader hands over (s_hlslLighting); zero from any other
+    "    float4 gxN : TEXCOORD10;  // xyz view-space normal, w 1 = the vertex colour is the stock lighting\n"
+    "    float4 gxP : TEXCOORD11;  // xyz view-space position, w 1 = valid\n"
+    "    float4 gxM : TEXCOORD12;  // xyz material colour (M2, WMO) or world normal (terrain)\n"
+    "    float4 gxF : TEXCOORD13;  // x surface flags (GX_SURF_*), y the terrain's lighting scale\n"
     "    float4 clip0 : SV_ClipDistance0;\n"
     "    float2 clip1 : SV_ClipDistance1;\n"
     "};\n"
@@ -40,6 +45,7 @@ const char* const s_hlslCommon =
     "    float4 gxPointSize;      // x D3DRS_POINTSIZE, y min, z max, w 1 = sprite texture coordinates\n"
     "    float4 gxPointScale;     // xyz distance attenuation, w 1 = scaled\n"
     "    uint4 gxClipMask;        // x planes on\n"
+    "    float4 gxOutput;         // x the largest colour a pixel shader writes: 1, or more into the HDR scene\n"
     "};\n"
     "\n"
     "float4 Dx9Lit(float4 s) {\n"
@@ -82,6 +88,245 @@ const char* const s_hlslCommon =
     "\n"
     "float3 GxFogBlend(float3 c, float f) {\n"
     "    return gxFog.a > 0.0 ? lerp(gxFog.rgb, c, saturate(f)) : c;\n"
+    "}\n"
+    "\n";
+
+// MODIFIED: modern lighting. GXK(i) is the vertex shader's constant register i: C[i] in a vertex shader, VC[i] (the
+// same registers, bound again for it) in a pixel shader. The stock formulas below are the translated vertex shaders'
+// own (Diffuse_T1, MapObjDiffuse_T1, MapObjSpecular_T1, Terrain), so a pixel lit with the vertex's normal and position
+// gets the vertex's colour.
+const char* const s_hlslLighting =
+    "struct GxLight {\n"
+    "    float3 pos;       // view space\n"
+    "    float radius;     // no light from here on\n"
+    "    float3 color;     // linear\n"
+    "    float start;      // full light up to here\n"
+    "    float flicker;    // amplitude, 0 to 1\n"
+    "    float seed;\n"
+    "    float specular;\n"
+    "    float pad;\n"
+    "};\n"
+    "\n"
+    "cbuffer GxLighting : register(b3) {\n"
+    "    uint4 gxLightFlags;          // x GX_LIGHT_* (0 outside the world pass), y lights, z clusters x | y << 8 | z << 16\n"
+    "    row_major float4x4 gxView;   // world to view, for the terrain\n"
+    "    row_major float4x4 gxViewInv;\n"
+    "    float4 gxSkyTint;            // rgb sky colour (luminance 1), a hemisphere strength\n"
+    "    float4 gxGroundTint;         // rgb ground colour (luminance 1)\n"
+    "    float4 gxUpView;             // xyz world up in view space, w time in seconds\n"
+    "    float4 gxClusterXY;          // x viewport left, y top (pixels), z clusters per pixel across, w down\n"
+    "    float4 gxClusterZ;           // slice = log2(view depth) * x + y\n"
+    "    float4 gxProjW;              // clip w = dot(float4(view position, 1), gxProjW)\n"
+    "    float4 gxLightParams;        // x wrap, y dynamic light intensity, z M2 specular, w WMO specular\n"
+    "};\n"
+    "\n"
+    "cbuffer GxVsConstants : register(b4) {\n"
+    "    float4 VC[256];\n"
+    "};\n"
+    "\n"
+    "StructuredBuffer<GxLight> gxLights : register(t16);\n"
+    "StructuredBuffer<uint> gxClusters : register(t17);\n"
+    "\n"
+    "#define GX_LIGHT_PERPIXEL 1u\n"
+    "#define GX_LIGHT_DYNAMIC 2u\n"
+    "#define GX_LIGHT_SPECULAR 4u\n"
+    "#define GX_LIGHT_HEMISPHERE 8u\n"
+    "#define GX_CLUSTER_STRIDE 32u\n"
+    "\n"
+    "// gxF.x: the family in bits 0-2, the stock point lights in 3-5, 64 a normal, 128 WMO specular, 256 sphere-mapped\n"
+    "// M2, 512 a WMO that adds its vertex colour to the lit material (MapObjUDiffuse_Comp). gxF.yzw: the terrain's\n"
+    "// lighting scale (0.5, or the vertex colour)\n"
+    "#define GX_SURF_M2 1u\n"
+    "#define GX_SURF_WMO 2u\n"
+    "#define GX_SURF_TERRAIN 3u\n"
+    "\n"
+    "float3 GxDec(float3 c) {\n"
+    "    return pow(max(c, 0.0), 2.2);\n"
+    "}\n"
+    "\n"
+    "float3 GxEnc(float3 c) {\n"
+    "    return pow(max(c, 0.0), 1.0 / 2.2);\n"
+    "}\n"
+    "\n"
+    "// the hemisphere ambient: the zone's sky colour from above, its ground colour from below, the stock level\n"
+    "float3 GxHemi(float3 n, bool on) {\n"
+    "    if (!on) {\n"
+    "        return 1.0;\n"
+    "    }\n"
+    "\n"
+    "    float up = saturate(dot(n, gxUpView.xyz) * 0.5 + 0.5);\n"
+    "    return lerp(float3(1.0, 1.0, 1.0), lerp(gxGroundTint.rgb, gxSkyTint.rgb, up), gxSkyTint.a);\n"
+    "}\n"
+    "\n"
+    "// C17-C20 / C21-C24 the stock point lights' colours and positions, C25-C27 their constant, linear and quadratic\n"
+    "// attenuation (M2 and WMO)\n"
+    "float3 GxStockPointLights(float3 n, float3 p, uint lights) {\n"
+    "    float3 l = 0.0;\n"
+    "\n"
+    "    [unroll] for (uint k = 0; k < 4; k++) {\n"
+    "        if (k < lights) {\n"
+    "            float3 d = GXK(21 + k).xyz - p;\n"
+    "            float d2 = dot(d, d);\n"
+    "            float inv = rsqrt(abs(d2));\n"
+    "            float att = 1.0 / (GXK(25)[k] + GXK(26)[k] * (d2 * inv) + GXK(27)[k] * d2);\n"
+    "            l += GXK(17 + k).rgb * (att * max(dot(d, n) * inv, 0.0));\n"
+    "        }\n"
+    "    }\n"
+    "\n"
+    "    return l;\n"
+    "}\n"
+    "\n"
+    "// M2 (Diffuse_*): C10 sun colour, C11 ambient, C12 sun direction\n"
+    "float3 GxStockM2(float3 n, float3 p, uint lights, bool hemi) {\n"
+    "    return saturate(GXK(10).rgb * saturate(dot(-GXK(12).xyz, n)) + GXK(11).rgb * GxHemi(n, hemi) + GxStockPointLights(n, p, lights));\n"
+    "}\n"
+    "\n"
+    "// WMO (MapObjDiffuse_*): C10 ambient, C11 sun colour, C12 sun direction\n"
+    "float3 GxStockWmo(float3 n, float3 p, uint lights, bool hemi) {\n"
+    "    return saturate(GXK(11).rgb * saturate(dot(-GXK(12).xyz, n)) + GXK(10).rgb * GxHemi(n, hemi) + GxStockPointLights(n, p, lights));\n"
+    "}\n"
+    "\n"
+    "// MapObjSpecular_*: C13 colour and power\n"
+    "float3 GxStockWmoSpecular(float3 n, float3 p) {\n"
+    "    float3 h = normalize(normalize(p) + GXK(12).xyz);\n"
+    "    float s = saturate(dot(n, -h));\n"
+    "    return (s == 0.0 ? 0.0 : exp2(GXK(13).w * log2(s))) * GXK(13).rgb;\n"
+    "}\n"
+    "\n"
+    "// the terrain: world normal and position, C24 direction to the sun, C25 ambient, C26 sun colour; C28-C36 three\n"
+    "// point lights (position through the chunk's rotation, colour, constant / linear / quadratic attenuation)\n"
+    "float3 GxStockTerrain(float3 nw, float3 pw, float3 n, uint lights, bool hemi) {\n"
+    "    float3 l = GXK(26).rgb * saturate(dot(GXK(24).xyz, nw)) + GXK(25).rgb * GxHemi(n, hemi);\n"
+    "\n"
+    "    [unroll] for (uint k = 0; k < 3; k++) {\n"
+    "        if (k < lights) {\n"
+    "            float4 at = GXK(28 + k * 3);\n"
+    "            float3 d = (at.x * GXK(0).xyz + at.y * GXK(1).xyz + at.z * GXK(2).xyz) - pw;\n"
+    "            float inv = rsqrt(abs(dot(d, d)));\n"
+    "            float dist = 1.0 / inv;\n"
+    "            float4 att = GXK(30 + k * 3);\n"
+    "            l += saturate(dot(d * inv, nw)) * GXK(29 + k * 3).rgb * (1.0 / (att.y * dist + att.x + dist * dist * att.z));\n"
+    "        }\n"
+    "    }\n"
+    "\n"
+    "    return min(l, 1.0);\n"
+    "}\n"
+    "\n"
+    "// the clustered point lights at view position p: diffuse returned, specular (power > 0) in spec\n"
+    "float3 GxDynamic(float3 p, float3 n, float2 pixel, float power, out float3 spec) {\n"
+    "    spec = 0.0;\n"
+    "    float3 sum = 0.0;\n"
+    "    uint dx = gxLightFlags.z & 0xFFu;\n"
+    "    uint dy = (gxLightFlags.z >> 8) & 0xFFu;\n"
+    "    uint dz = (gxLightFlags.z >> 16) & 0xFFu;\n"
+    "\n"
+    "    if (!(gxLightFlags.x & GX_LIGHT_DYNAMIC) || dx == 0u || dy == 0u || dz == 0u) {\n"
+    "        return sum;\n"
+    "    }\n"
+    "\n"
+    "    float w = dot(float4(p, 1.0), gxProjW);\n"
+    "    uint cx = (uint)clamp((pixel.x - gxClusterXY.x) * gxClusterXY.z, 0.0, dx - 1.0);\n"
+    "    uint cy = (uint)clamp((pixel.y - gxClusterXY.y) * gxClusterXY.w, 0.0, dy - 1.0);\n"
+    "    uint cz = (uint)clamp(log2(max(w, 0.0001)) * gxClusterZ.x + gxClusterZ.y, 0.0, dz - 1.0);\n"
+    "    uint base = ((cz * dy + cy) * dx + cx) * GX_CLUSTER_STRIDE;\n"
+    "    uint count = min(gxClusters[base], GX_CLUSTER_STRIDE - 1u);\n"
+    "    float3 v = normalize(-p);\n"
+    "    float t = gxUpView.w;\n"
+    "    float wrap = gxLightParams.x;\n"
+    "\n"
+    "    for (uint k = 0; k < count; k++) {\n"
+    "        GxLight l = gxLights[gxClusters[base + 1u + k]];\n"
+    "        float3 d = l.pos - p;\n"
+    "        float dist = length(d);\n"
+    "\n"
+    "        if (dist >= l.radius) {\n"
+    "            continue;\n"
+    "        }\n"
+    "\n"
+    "        float s = saturate((l.radius - dist) / max(l.radius - l.start, 0.01));\n"
+    "        float flicker = 1.0 - l.flicker * (0.5 + 0.5 * sin(t * 11.0 + l.seed) * sin(t * 4.3 + l.seed * 1.7));\n"
+    "        float3 c = l.color * (s * s * (3.0 - 2.0 * s) * flicker);\n"
+    "        float3 dir = d / max(dist, 0.0001);\n"
+    "        float ndl = dot(n, dir);\n"
+    "        sum += c * saturate((ndl + wrap) / (1.0 + wrap));\n"
+    "\n"
+    "        if (power > 0.0 && ndl > 0.0) {\n"
+    "            float3 h = normalize(dir + v);\n"
+    "            spec += c * (pow(saturate(dot(n, h)), power) * l.specular * saturate(ndl * 4.0));\n"
+    "        }\n"
+    "    }\n"
+    "\n"
+    "    return sum;\n"
+    "}\n"
+    "\n"
+    "// the specular a sphere-mapped M2 adds to the pixel shader's colour\n"
+    "static float3 gxSpecular = 0.0;\n"
+    "\n"
+    "// a lit family's pixel: COLOR0 (and a WMO's specular COLOR1) lit again per pixel, with the dynamic lights added in\n"
+    "// linear space. flatN is the face's normal, for a surface that has none\n"
+    "float4 GxLightPixel(GxVaryings i, float4 c0, inout float4 c1, float3 flatN) {\n"
+    "    uint f = (uint)(i.gxF.x + 0.5);\n"
+    "    uint family = f & 7u;\n"
+    "    uint lights = (f >> 3) & 7u;\n"
+    "    bool hasNormal = (f & 64u) != 0u;\n"
+    "    bool wmoSpecular = (f & 128u) != 0u;\n"
+    "    bool env = (f & 256u) != 0u;\n"
+    "    bool composite = (f & 512u) != 0u;\n"
+    "    bool valid = hasNormal && i.gxN.w > 0.999;\n"
+    "\n"
+    "    // a surface with a normal whose colour is not the stock lighting is unlit on purpose: left alone\n"
+    "    if (hasNormal && !valid) {\n"
+    "        return c0;\n"
+    "    }\n"
+    "\n"
+    "    float3 p = i.gxP.xyz;\n"
+    "    float3 n = hasNormal ? normalize(i.gxN.xyz) : flatN;\n"
+    "    uint features = gxLightFlags.x;\n"
+    "    bool hemi = (features & GX_LIGHT_HEMISPHERE) != 0u;\n"
+    "    float4 c = c0;\n"
+    "    float3 mat = 1.0;\n"
+    "\n"
+    "    if (valid) {\n"
+    "        mat = family == GX_SURF_TERRAIN ? i.gxF.yzw : (composite ? VC[28].rgb : i.gxM.rgb);\n"
+    "\n"
+    "        if (features & (GX_LIGHT_PERPIXEL | GX_LIGHT_HEMISPHERE)) {\n"
+    "            if (family == GX_SURF_M2) {\n"
+    "                c.rgb = saturate(i.gxM.rgb * GxStockM2(n, p, lights, hemi) + VC[29].rgb);\n"
+    "            } else if (family == GX_SURF_WMO && composite) {\n"
+    "                c.rgb = saturate(VC[28].rgb * GxStockWmo(n, p, lights, hemi) + i.gxM.rgb + VC[29].rgb);\n"
+    "            } else if (family == GX_SURF_WMO) {\n"
+    "                c.rgb = saturate(i.gxM.rgb * GxStockWmo(n, p, lights, hemi) + VC[29].rgb);\n"
+    "            } else {\n"
+    "                float3 pw = mul(float4(p, 1.0), gxViewInv).xyz;\n"
+    "                c.rgb = GxStockTerrain(normalize(i.gxM.xyz), pw, n, lights, hemi) * i.gxF.yzw;\n"
+    "            }\n"
+    "\n"
+    "            if (wmoSpecular && (features & GX_LIGHT_PERPIXEL)) {\n"
+    "                c1.rgb = GxStockWmoSpecular(n, p);\n"
+    "            }\n"
+    "        }\n"
+    "    }\n"
+    "\n"
+    "    float power = 0.0;\n"
+    "\n"
+    "    if (features & GX_LIGHT_SPECULAR) {\n"
+    "        power = wmoSpecular ? max(VC[13].w, 1.0) : (env && valid ? 24.0 : 0.0);\n"
+    "    }\n"
+    "\n"
+    "    float3 spec;\n"
+    "    float3 dyn = GxDynamic(p, n, i.pos.xy, power, spec) * gxLightParams.y;\n"
+    "    c.rgb = GxEnc(GxDec(c.rgb) + GxDec(mat) * dyn);\n"
+    "\n"
+    "    if (power > 0.0) {\n"
+    "        if (wmoSpecular) {\n"
+    "            c1.rgb = GxEnc(GxDec(c1.rgb) + spec * (gxLightParams.y * gxLightParams.w));\n"
+    "        } else {\n"
+    "            float3 h = normalize(normalize(-p) - VC[12].xyz);\n"
+    "            gxSpecular = (GxDec(VC[10].rgb) * pow(saturate(dot(n, h)), power) + spec * gxLightParams.y) * gxLightParams.z;\n"
+    "        }\n"
+    "    }\n"
+    "\n"
+    "    return c;\n"
     "}\n"
     "\n";
 
@@ -333,7 +578,193 @@ class Writer {
     bool Instruction(const Dx9Inst& ins);
     bool Sample(const Dx9Inst& ins);
     bool Matrix(const Dx9Inst& ins, uint32_t columns, uint32_t rows);
+    // MODIFIED: modern lighting: a lit vertex family's surface outputs (empty when the shader is not one this knows)
+    std::string SurfaceOutputs() const;
+    // MODIFIED: modern lighting: the pixel shader's COLOR0 / COLOR1 input registers (-1 when it reads none)
+    bool LitPixel(int32_t& c0, int32_t& c1) const;
 };
+
+std::string Writer::SurfaceOutputs() const {
+    const Dx9Shader& sh = m_shader;
+    uint32_t family = sh.m_family;
+
+    if (!sh.m_vertex || family == Family_None || family == Family_LitPixel) {
+        return std::string();
+    }
+
+    // the input register of each GxVA, unless the vertex layout lacks it
+    int32_t reg[14];
+
+    for (int32_t& r : reg) {
+        r = -1;
+    }
+
+    for (const Dx9Shader::Input& input : sh.m_inputs) {
+        if (input.m_attrib < 14 && reg[input.m_attrib] < 0 && ((m_variant >> (input.m_attrib * 2)) & 3) != Input_Missing) {
+            reg[input.m_attrib] = static_cast<int32_t>(input.m_reg);
+        }
+    }
+
+    const int32_t pos = reg[0];
+    const int32_t weights = reg[1];
+    const int32_t indices = reg[2];
+    const int32_t normal = reg[3];
+    const int32_t color = reg[4];
+
+    auto reads = [&sh](uint32_t first, uint32_t last) {
+        for (uint32_t c = first; c <= last; c++) {
+            if (!sh.ReadsConstant(c)) {
+                return false;
+            }
+        }
+
+        return true;
+    };
+
+    if (pos < 0) {
+        return std::string();
+    }
+
+    std::string s = "    // MODIFIED: modern lighting: the surface, for the pixel shader's lighting (s_hlslLighting)\n";
+    s += "    if (gxLightFlags.x != 0u) {\n";
+
+    if (family == Family_Terrain) {
+        // Terrain: C0-C3 the chunk's world matrix, C4-C7 view and projection, C24-C26 the sun
+        if (normal < 0 || !reads(0, 7) || !reads(24, 26)) {
+            return std::string();
+        }
+
+        Appendf(s, "        float4 gxW = C[0] * v%d.x + C[1] * v%d.y + C[2] * v%d.z + C[3];\n", pos, pos, pos);
+        s += "        float4 gxClip = gxW.x * C[4] + gxW.y * C[5] + gxW.z * C[6] + gxW.w * C[7];\n";
+        Appendf(s, "        float3 gxNw = C[0].xyz * v%d.x + C[1].xyz * v%d.y + C[2].xyz * v%d.z;\n", normal, normal, normal);
+
+        // the point lights this permutation reads (three registers each from C28)
+        uint32_t lights = 0;
+
+        while (lights < 3 && reads(28 + lights * 3, 30 + lights * 3)) {
+            lights++;
+        }
+
+        Appendf(s, "        float3 gxL = GxStockTerrain(gxNw, gxW.xyz, gxNw, %uu, false);\n", lights);
+
+        if (color >= 0) {
+            // the vertex-coloured chunks (MCCV): the lighting times the colour
+            Appendf(s, "        float3 gxK = v%d.rgb;\n", color);
+        } else {
+            // the layers that blend mod2x get half the lighting
+            s += "        float3 gxK = dot(abs(o.c0.rgb - gxL * 0.5), 1.0) < dot(abs(o.c0.rgb - gxL), 1.0) ? 0.5 : 1.0;\n";
+        }
+
+        s += "        float gxOk = all(abs(o.c0.rgb - gxL * gxK) < 0.004) ? 1.0 : 0.0;\n";
+        s += "        o.gxP = float4(mul(float4(gxW.xyz, 1.0), gxView).xyz, all(abs(gxClip - o.pos) <= 0.001 * abs(o.pos.w) + 0.0001) ? 1.0 : 0.0);\n";
+        s += "        o.gxN = float4(normalize(mul(gxNw, (float3x3)gxView)), gxOk);\n";
+        s += "        o.gxM = float4(gxNw, 0.0);\n";
+        Appendf(s, "        o.gxF = float4(%u.0, gxK);\n", 3u | 64u | (lights << 3));
+        s += "    }\n";
+        return s;
+    }
+
+    // M2 and WMO: C31-C33 the world-view matrix (a bone's for a skinned M2: three registers a bone, from C31), C2-C5 the
+    // projection
+    bool skinned = sh.m_usesA0 && indices >= 0;
+
+    if (!reads(2, 5) || (!skinned && !reads(31, 33))) {
+        return std::string();
+    }
+
+    bool wmo = family == Family_Wmo || family == Family_WmoSpecular || family == Family_WmoComposite || family == Family_WmoCompositeSpecular;
+    bool composite = family == Family_WmoComposite || family == Family_WmoCompositeSpecular;
+    bool lit = normal >= 0 && reads(10, 12) && (!composite || (color >= 0 && reads(28, 29)));
+
+    // an M2 without lighting is unlit on purpose (glows, effects): not touched
+    if (!wmo && !lit) {
+        return std::string();
+    }
+
+    if (skinned && weights >= 0) {
+        Appendf(s, "        int4 gxI = (int4)round(v%d * 3.0);\n", indices);
+
+        for (uint32_t row = 0; row < 3; row++) {
+            Appendf(s, "        float4 gxR%u = C[%u + gxI.x] * v%d.x + C[%u + gxI.y] * v%d.y + C[%u + gxI.z] * v%d.z + C[%u + gxI.w] * v%d.w;\n", row, 31 + row, weights, 31 + row, weights, 31 + row, weights, 31 + row, weights);
+        }
+    } else if (skinned) {
+        Appendf(s, "        int gxI = (int)round(v%d.x * 3.0);\n", indices);
+        s += "        float4 gxR0 = C[31 + gxI];\n        float4 gxR1 = C[32 + gxI];\n        float4 gxR2 = C[33 + gxI];\n";
+    } else {
+        s += "        float4 gxR0 = C[31];\n        float4 gxR1 = C[32];\n        float4 gxR2 = C[33];\n";
+    }
+
+    Appendf(s, "        float3 gxPos = float3(dot(gxR0, v%d), dot(gxR1, v%d), dot(gxR2, v%d));\n", pos, pos, pos);
+    s += "        float4 gxH = float4(gxPos, 1.0);\n";
+    s += "        float4 gxClip = float4(dot(C[2], gxH), dot(C[3], gxH), dot(C[4], gxH), dot(C[5], gxH));\n";
+    s += "        o.gxP = float4(gxPos, all(abs(gxClip - o.pos) <= 0.001 * abs(o.pos.w) + 0.0001) ? 1.0 : 0.0);\n";
+
+    uint32_t flags = wmo ? 2u : 1u;
+
+    if (lit) {
+        flags |= 64u;
+        Appendf(s, "        float3 gxN = normalize(float3(dot(gxR0.xyz, v%d.xyz), dot(gxR1.xyz, v%d.xyz), dot(gxR2.xyz, v%d.xyz)));\n", normal, normal, normal);
+
+        if (color >= 0) {
+            Appendf(s, "        float4 gxMat = v%d;\n", color);
+        } else {
+            s += wmo ? "        float4 gxMat = float4(1.0, 1.0, 1.0, 1.0);\n" : "        float4 gxMat = C[28];\n";
+        }
+
+        // the point lights this permutation reads
+        uint32_t lights = 0;
+
+        while (lights < 4 && sh.ReadsConstant(21 + lights)) {
+            lights++;
+        }
+
+        flags |= lights << 3;
+        Appendf(s, "        float3 gxL = %s(gxN, gxPos, %uu, false);\n", wmo ? "GxStockWmo" : "GxStockM2", lights);
+
+        // the colour is the stock lighting's when the formula reproduces it; otherwise the surface is not relit
+        if (composite) {
+            flags |= 512u;
+            s += "        float gxOk = all(abs(saturate(C[28].rgb * gxL + gxMat.rgb + C[29].rgb) - o.c0.rgb) < 0.004) ? 1.0 : 0.0;\n";
+        } else {
+            s += "        float gxOk = all(abs(saturate(gxMat.rgb * gxL + C[29].rgb) - o.c0.rgb) < 0.004) ? 1.0 : 0.0;\n";
+        }
+        s += "        o.gxN = float4(gxN, gxOk);\n";
+        s += "        o.gxM = float4(gxMat.rgb, 0.0);\n";
+    }
+
+    if (family == Family_WmoSpecular || family == Family_WmoCompositeSpecular) {
+        flags |= 128u;
+    } else if (family == Family_M2Env) {
+        flags |= 256u;
+    }
+
+    Appendf(s, "        o.gxF = float4(%u.0, 1.0, 0.0, 0.0);\n", flags);
+    s += "    }\n";
+    return s;
+}
+
+bool Writer::LitPixel(int32_t& c0, int32_t& c1) const {
+    c0 = -1;
+    c1 = -1;
+
+    if (m_shader.m_vertex || m_shader.m_family != Family_LitPixel) {
+        return false;
+    }
+
+    for (const Dx9Shader::Link& link : m_shader.m_links) {
+        if (link.m_texture || (link.m_mask & 7) != 7) {
+            continue;
+        }
+
+        if (link.m_varying == Var_Color0 && c0 < 0) {
+            c0 = static_cast<int32_t>(link.m_reg);
+        } else if (link.m_varying == Var_Color1 && c1 < 0) {
+            c1 = static_cast<int32_t>(link.m_reg);
+        }
+    }
+
+    return c0 >= 0;
+}
 
 enum {
     VALUE_MASKED = 0,   // already as wide as the destination mask
@@ -1040,10 +1471,21 @@ bool Writer::Run(std::string& out, std::string& error) {
         return false;
     }
 
+    // MODIFIED: modern lighting: a lit family's surface outputs, or its pixel lighting
+    std::string surface = SurfaceOutputs();
+    int32_t litColor0 = -1;
+    int32_t litColor1 = -1;
+    bool litPixel = LitPixel(litColor0, litColor1);
+
     out.clear();
     out.reserve(8192 + mainBody.size() + functions.size());
     out += s_hlslCommon;
     out += "cbuffer GxConstants : register(b0) {\n    float4 C[256];\n};\n\n";
+
+    if (!surface.empty() || litPixel) {
+        out += vertex ? "#define GXK(i) C[i]\n" : "#define GXK(i) VC[i]\n";
+        out += s_hlslLighting;
+    }
 
     for (uint32_t c = 0; c < 256; c++) {
         if (m_defined[c]) {
@@ -1274,6 +1716,7 @@ bool Writer::Run(std::string& out, std::string& error) {
             }
         }
 
+        out += surface;
         out += "    GxFinishVertex(o, o.pos);\n";
         out += "    return o;\n}\n";
     } else {
@@ -1334,6 +1777,23 @@ bool Writer::Run(std::string& out, std::string& error) {
             out += "    vFace = front ? 1.0 : -1.0;\n";
         }
 
+        if (litPixel) {
+            // MODIFIED: modern lighting (s_hlslLighting); the face normal is taken here, outside any branch
+            out += "    // MODIFIED: modern lighting: the colour lit per pixel\n";
+            out += "    float3 gxFlatN = cross(ddy(i.gxP.xyz), ddx(i.gxP.xyz));\n";
+            out += "    gxFlatN = dot(gxFlatN, gxFlatN) > 1e-24 ? normalize(gxFlatN) : float3(0.0, 0.0, -1.0);\n";
+            out += "    gxFlatN = dot(gxFlatN, i.gxP.xyz) > 0.0 ? -gxFlatN : gxFlatN;\n";
+            out += "    if (gxLightFlags.x != 0u && i.gxF.x > 0.5 && i.gxP.w > 0.999) {\n";
+            Appendf(out, "        float4 gxC1 = %s;\n", litColor1 >= 0 ? Format("v%d", litColor1).c_str() : "0.0");
+            Appendf(out, "        v%d = GxLightPixel(i, v%d, gxC1, gxFlatN);\n", litColor0, litColor0);
+
+            if (litColor1 >= 0) {
+                Appendf(out, "        v%d = gxC1;\n", litColor1);
+            }
+
+            out += "    }\n";
+        }
+
         for (uint32_t r = 0; r < 64; r++) {
             if (sh.m_tempMask[r >> 5] & (1u << (r & 31))) {
                 Appendf(out, "    r%u = 0.0;\n", r);
@@ -1364,6 +1824,16 @@ bool Writer::Run(std::string& out, std::string& error) {
             out += "    o.c0.rgb = GxFogBlend(o.c0.rgb, i.fog);\n";
         }
 
+        if (litPixel) {
+            out += "    o.c0.rgb = any(gxSpecular > 0.0) ? GxEnc(GxDec(o.c0.rgb) + gxSpecular) : o.c0.rgb;\n";
+        }
+
+        // MODIFIED: modern lighting: into the HDR scene (gxOutput.x > 0; 0 = no clamp, as on any other target) a draw
+        // is clamped as an 8-bit target clamps it, so layers stack as before; a lit family keeps light above 1 up to
+        // the device's limit
+        out += "    if (gxOutput.x > 0.0) {\n";
+        Appendf(out, "        o.c0 = float4(clamp(o.c0.rgb, 0.0, %s), saturate(o.c0.a));\n", litPixel ? "gxOutput.x" : "min(gxOutput.x, 1.0)");
+        out += "    }\n";
         out += "    GxAlphaTest(o.c0.a);\n";
 
         if (sh.m_writesDepth) {
@@ -1695,6 +2165,11 @@ bool Dx9Shader::Analyze() {
                     this->m_constCount = used;
                 }
 
+                // MODIFIED: modern lighting: which registers the lit families read
+                if (!o.m_rel) {
+                    this->m_constRead[o.m_index >> 5] |= 1u << (o.m_index & 31);
+                }
+
                 break;
             }
 
@@ -2004,6 +2479,48 @@ bool Dx9Shader::Analyze() {
     }
 
     return true;
+}
+
+uint32_t FamilyForShader(const char* name, bool vertex) {
+    if (!name) {
+        return Family_None;
+    }
+
+    const char* colon = strchr(name, ':');
+    std::string base = colon ? std::string(name, colon - name) : std::string(name);
+
+    auto starts = [&base](const char* prefix) {
+        return base.compare(0, strlen(prefix), prefix) == 0;
+    };
+
+    if (vertex) {
+        if (base == "Terrain") {
+            return Family_Terrain;
+        }
+
+        if (starts("MapObj")) {
+            // MapObjU*: the vertex colour is added to the lit material, not multiplied
+            bool composite = starts("MapObjU");
+
+            if (base.find("Specular") != std::string::npos) {
+                return composite ? Family_WmoCompositeSpecular : Family_WmoSpecular;
+            }
+
+            return composite ? Family_WmoComposite : Family_Wmo;
+        }
+
+        if (starts("Diffuse_") || starts("CDiffuse_") || starts("Color_")) {
+            return base.find("Env") != std::string::npos ? Family_M2Env : Family_M2;
+        }
+
+        return Family_None;
+    }
+
+    if (starts("Combiners_") || starts("MapObj") || (starts("Terrain") && base != "TerrainSM" && !starts("Terrain1w"))) {
+        return Family_LitPixel;
+    }
+
+    return Family_None;
 }
 
 bool Dx9Shader::Emit(uint32_t variant, std::string& hlsl, std::string& error) const {

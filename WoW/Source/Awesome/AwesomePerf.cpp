@@ -25,9 +25,9 @@ static void OnSceneThreads(AwesomeCVar* cvar, bool changed) {
 
 static void OnGroundEffectBuffers(AwesomeCVar* cvar, bool changed);
 
-// baked grass buffer pairs (stock 128). Too few for the grass in view and the rest is rebuilt on the CPU every frame;
-// each pair is up to 4096 vertices, about 150 KB of video memory
-static AwesomeCVar s_cvGroundEffectBuffers = AwesomeCVar::Int("groundEffectBuffers", 128, 128, 2048, OnGroundEffectBuffers);
+// baked grass buffer pairs per pool (stock 128, the only pool). More pools of this size are added as the grass in view
+// needs them (CDetailDoodad::GrowPools); each pair is up to 4096 vertices, about 150 KB of video memory
+static AwesomeCVar s_cvGroundEffectBuffers = AwesomeCVar::Int("groundEffectBuffers", 128, 32, 1024, OnGroundEffectBuffers);
 
 static void OnGroundEffectBuffers(AwesomeCVar* cvar, bool changed) {
     if (!changed) {
@@ -37,6 +37,11 @@ static void OnGroundEffectBuffers(AwesomeCVar* cvar, bool changed) {
     CDetailDoodad::s_bufferPairs = static_cast<uint32_t>(cvar->m_intValue);
     // rebuilt at the next world render (CDetailDoodad::UpdatePools): the chunks' grass is regenerated
     CDetailDoodad::s_bPoolsDirty = 1;
+}
+
+static int32_t Script_GetGroundEffectBuffers(lua_State* L) {
+    lua_pushnumber(L, CDetailDoodad::s_poolPairs);
+    return 1;
 }
 
 static int32_t Script_GetFrameTimings(lua_State* L) {
@@ -76,8 +81,8 @@ SlashCmdList.FRAMETIMES = function()
         units, update, cull, animMT, threads, animST, batch, animated))
     print(("|cff33ff99Draw|r terrain %.2f, wmo %.2f, models %.2f, grass %.2f, liquid %.2f, effects %.2f, plates %.2f, other %.2f; %.0f draw calls"):format(
         terrain, wmo, models, detail, liquid, effects, plates, other, draws))
-    print(("|cff33ff99Grass|r %.0f chunks, %.0f draws; rebuilt %.0f (%.2f ms), %.0f streamed; lights %.2f ms"):format(
-        grassChunks, grassDraws, grassFills, grassFill, grassStreamed, grassLights))
+    print(("|cff33ff99Grass|r %.0f chunks, %.0f draws; rebuilt %.0f (%.2f ms), %.0f streamed; lights %.2f ms; %d buffers"):format(
+        grassChunks, grassDraws, grassFills, grassFill, grassStreamed, grassLights, GetGroundEffectBuffers()))
 end
 )lua";
 
@@ -90,6 +95,7 @@ void AwesomePerfRegisterScriptFunctions(lua_State* L) {
     static const AwesomeLuaFunction s_functions[] = {
         { "GetFrameTimings", Script_GetFrameTimings },
         { "GetSceneTimings", Script_GetSceneTimings },
+        { "GetGroundEffectBuffers", Script_GetGroundEffectBuffers },
     };
 
     AwesomeLuaRegisterGlobals(L, s_functions, sizeof(s_functions) / sizeof(s_functions[0]));

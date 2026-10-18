@@ -64,6 +64,9 @@ uint32_t CDetailDoodad::s_vtxBufItems;
 
 // MODIFIED: performance (DetailDoodad.h)
 uint32_t CDetailDoodad::s_bufferPairs = 128;
+uint32_t CDetailDoodad::s_poolPairs;
+// the pools added after the first (vertex, index, vertex, index, ...)
+static TSGrowableArray<CGxPool*> s_grownPools;
 
 // STATIC: 0x00D1C4D4
 CGxPool* CDetailDoodad::s_gxIndexPool;
@@ -115,6 +118,11 @@ static void __stdcall BuildInstanceMatrix(C33Matrix& result, C33Matrix& rotation
 // OFFSET: 0x007B2CA0
 static void AcquireBuffers(uint32_t vertexCount, CGxBuf** vertexBuf, uint32_t indexCount, CGxBuf** indexBuf) {
     uint32_t count = CDetailDoodad::s_freeGxBufs.Count();
+
+    // MODIFIED: performance, grow the pool rather than rebuild this batch every frame (DetailDoodad.h)
+    if (!count && CDetailDoodad::GrowPools()) {
+        count = CDetailDoodad::s_freeGxBufs.Count();
+    }
 
     // MODIFIED: performance diagnostics (FrameProfile.h)
     if (!count) {
@@ -544,6 +552,14 @@ void CDetailDoodad::FreeGxBufMat() {
         g_theGxDevicePtr->PoolDestroy(CDetailDoodad::s_gxIndexPool);
     }
 
+    // MODIFIED: performance, the grown pools (DetailDoodad.h)
+    for (uint32_t i = 0; i < s_grownPools.Count(); i++) {
+        g_theGxDevicePtr->PoolDestroy(s_grownPools[i]);
+    }
+
+    s_grownPools.SetCount(0);
+    CDetailDoodad::s_poolPairs = 0;
+
     CDetailDoodad::s_vtxBufItems = 0;
     CDetailDoodad::s_idxBufItems = 0;
     s_vertexBufferSize = 0;
@@ -596,7 +612,58 @@ void CDetailDoodad::UpdatePools() {
     }
 
     unk_D1C4DC = 2 * pairs;
+    CDetailDoodad::s_poolPairs = pairs;
     CDetailDoodad::s_bPoolsDirty = 0;
+}
+
+// MODIFIED: performance (DetailDoodad.h). One more pool of s_bufferPairs pairs, its buffers put on the free list
+bool CDetailDoodad::GrowPools() {
+    uint32_t pairs = CDetailDoodad::s_bufferPairs;
+
+    if (!CDetailDoodad::s_gxVertexPool || !CDetailDoodad::s_vtxBufItems || CDetailDoodad::s_poolPairs + pairs > CDetailDoodad::MAX_BUFFER_PAIRS) {
+        return false;
+    }
+
+    CGxPool* vertexPool = g_theGxDevicePtr->PoolCreate(GxPoolTarget_Vertex, GxPoolUsage_Dynamic, pairs * sizeof(CGxVertexPNCT) * CDetailDoodad::s_vtxBufItems, GxPoolHintBit_Unk3, "CDetailDoodad_vtx");
+    CGxPool* indexPool = g_theGxDevicePtr->PoolCreate(GxPoolTarget_Index, GxPoolUsage_Dynamic, pairs * sizeof(uint16_t) * CDetailDoodad::s_idxBufItems, GxPoolHintBit_Unk0, "CDetailDoodad_idx");
+
+    if (!vertexPool || !indexPool) {
+        if (vertexPool) {
+            g_theGxDevicePtr->PoolDestroy(vertexPool);
+        }
+
+        if (indexPool) {
+            g_theGxDevicePtr->PoolDestroy(indexPool);
+        }
+
+        return false;
+    }
+
+    *s_grownPools.New() = vertexPool;
+    *s_grownPools.New() = indexPool;
+
+    for (uint32_t i = 0; i < pairs; i++) {
+        *CDetailDoodad::s_freeGxBufs.New() = g_theGxDevicePtr->BufCreate(vertexPool, sizeof(CGxVertexPNCT), CDetailDoodad::s_vtxBufItems, sizeof(CGxVertexPNCT) * CDetailDoodad::s_vtxBufItems * i);
+        *CDetailDoodad::s_freeGxBufs.New() = g_theGxDevicePtr->BufCreate(indexPool, sizeof(uint16_t), CDetailDoodad::s_idxBufItems, sizeof(uint16_t) * CDetailDoodad::s_idxBufItems * i);
+    }
+
+    CDetailDoodad::s_poolPairs += pairs;
+    return true;
+}
+
+// MODIFIED: performance (DetailDoodad.h). A batch holds either one of the pools' buffers or a stream buffer
+bool CDetailDoodad::OwnsBuffer(const CGxBuf* buf) {
+    if (buf->m_pool == CDetailDoodad::s_gxVertexPool) {
+        return true;
+    }
+
+    for (uint32_t i = 0; i < s_grownPools.Count(); i += 2) {
+        if (buf->m_pool == s_grownPools[i]) {
+            return true;
+        }
+    }
+
+    return false;
 }
 
 // VERIFY: 564457f1 manual

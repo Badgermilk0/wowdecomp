@@ -35,10 +35,15 @@ class CDetailDoodad {
     static SShaderConstants s_shaderConstants;
     static CGxShader* s_vertexShader[6];
     static uint32_t s_vtxBufItems;
-    // MODIFIED: performance. Vertex/index buffer pairs the chunks' grass batches are baked into (stock 128, the
-    // groundEffectBuffers CVar). A batch that finds none free falls back to a stream buffer and is rebuilt on the CPU
-    // every frame it is drawn
+    // MODIFIED: performance. Vertex/index buffer pairs the chunks' grass batches are baked into: s_bufferPairs at
+    // first (stock 128, the groundEffectBuffers CVar), then more pools of that many whenever they run out, up to
+    // MAX_BUFFER_PAIRS. The stock pool never grew: a batch that found none free fell back to a stream buffer and was
+    // rebuilt on the CPU every frame (Crystal Lake: 220 of 348 batches, 2.8 ms a frame)
+    static const uint32_t MAX_BUFFER_PAIRS = 2048;
     static uint32_t s_bufferPairs;
+    static uint32_t s_poolPairs;
+    static bool GrowPools();
+    static bool OwnsBuffer(const CGxBuf* buf);
 
     static CDetailDoodadInst* AllocInst();
     static void CreateAlphaRampTexture(const void*& texels);
@@ -138,7 +143,8 @@ inline void CDetailDoodadInstBatch::FreeBuffers() {
         return;
     }
 
-    if (this->m_vertexBuf->m_pool == CDetailDoodad::s_gxVertexPool) {
+    // MODIFIED: performance, any of the grown pools (DetailDoodad.h)
+    if (CDetailDoodad::OwnsBuffer(this->m_vertexBuf)) {
         *CDetailDoodad::s_freeGxBufs.New() = this->m_vertexBuf;
         *CDetailDoodad::s_freeGxBufs.New() = this->m_indexBuf;
     }

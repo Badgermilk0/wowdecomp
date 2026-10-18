@@ -1031,6 +1031,12 @@ void CTextureAtlas::Reload() {
 static uint32_t s_textureLoadBudget = 0x4000000;
 
 static bool TextureLoadFits(uint32_t size) {
+    // a count wrapped below zero (a subtraction the stock code makes for something it never counted) is nothing in
+    // flight, as the stock 4 MB arithmetic took it
+    if (s_asyncLoadBufferUsed >= 0x80000000u) {
+        s_asyncLoadBufferUsed = 0;
+    }
+
     if (!s_asyncLoadBufferUsed) {
         return true;
     }
@@ -2177,8 +2183,13 @@ CTexture::~CTexture() {
             void* buffer = this->m_asyncObject->m_buffer;
 
             if (AsyncFile::Cancel(this->m_asyncObject, AsyncTextureDestroyedCallback)) {
-                s_asyncLoadBufferUsed -= this->m_asyncObject->m_size;
-                SMemFree(buffer, __FILE__, __LINE__, 0);
+                // MODIFIED: only a read that started (AsyncTextureProcess gave it its buffer) was counted in flight; a
+                // texture still waiting for the budget was not, and subtracting it wrapped the count (a teleport
+                // destroys many), which the budget then took as full for the rest of the session
+                if (buffer) {
+                    s_asyncLoadBufferUsed -= this->m_asyncObject->m_size;
+                    SMemFree(buffer, __FILE__, __LINE__, 0);
+                }
             }
         }
     }

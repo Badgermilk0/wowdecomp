@@ -100,6 +100,33 @@ struct SEAudioStats {
     float m_cpuTotal;
 };
 
+// MODIFIED: diagnostics. Times one main-thread step of the sound engine, split into laps; a step that takes
+// SESlowStep::THRESHOLD_MS or longer is written to Logs\SESound.log with its laps, so a hitch names its cause
+class SESlowStep {
+    public:
+    static const int32_t THRESHOLD_MS = 10;
+    static const int32_t MAX_LAPS = 16;
+
+    explicit SESlowStep(const char* name);
+    ~SESlowStep();
+    // ends the lap running since the previous one (or the start) under label; label must outlive the step
+    void Lap(const char* label);
+    void SetDetail(const char* format, ...);
+
+    private:
+    struct LapTime {
+        const char* m_label;
+        int64_t m_us;
+    };
+
+    const char* m_name;
+    char m_detail[160];
+    int64_t m_start;
+    int64_t m_last;
+    LapTime m_laps[MAX_LAPS];
+    int32_t m_lapCount;
+};
+
 // the direct-path occlusion (0 open .. 1 blocked) of a 3D source at position, as heard by the current listener
 typedef float (*SEOcclusionCallback)(const C3Vector& position);
 

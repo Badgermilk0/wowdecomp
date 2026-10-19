@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstdarg>
 #include <cstdio>
@@ -294,6 +295,61 @@ void SE2::Log_Write(const char* format, ...) {
     }
 
     SE2::Log_Write(__LINE__, __FILE__, FMOD_OK, buffer);
+}
+
+// MODIFIED: diagnostics, see SESlowStep
+static int64_t SlowStepNowUs() {
+    return std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
+}
+
+SESlowStep::SESlowStep(const char* name) {
+    this->m_name = name;
+    this->m_detail[0] = '\0';
+    this->m_start = SlowStepNowUs();
+    this->m_last = this->m_start;
+    this->m_lapCount = 0;
+}
+
+void SESlowStep::Lap(const char* label) {
+    int64_t now = SlowStepNowUs();
+
+    if (this->m_lapCount < MAX_LAPS) {
+        this->m_laps[this->m_lapCount].m_label = label;
+        this->m_laps[this->m_lapCount].m_us = now - this->m_last;
+        this->m_lapCount++;
+    }
+
+    this->m_last = now;
+}
+
+void SESlowStep::SetDetail(const char* format, ...) {
+    va_list args;
+    va_start(args, format);
+    SStrVPrintf(this->m_detail, sizeof(this->m_detail), format, args);
+    va_end(args);
+}
+
+SESlowStep::~SESlowStep() {
+    int64_t now = SlowStepNowUs();
+    int64_t total = now - this->m_start;
+
+    if (total < static_cast<int64_t>(THRESHOLD_MS) * 1000) {
+        return;
+    }
+
+    char laps[320] = "";
+    size_t used = 0;
+
+    for (int32_t i = 0; i < this->m_lapCount && used < sizeof(laps); i++) {
+        int written = snprintf(laps + used, sizeof(laps) - used, "%s%s %.1f", i ? ", " : "", this->m_laps[i].m_label, static_cast<double>(this->m_laps[i].m_us) / 1000.0);
+        used += written > 0 ? static_cast<size_t>(written) : 0;
+    }
+
+    if (this->m_lapCount && used < sizeof(laps)) {
+        snprintf(laps + used, sizeof(laps) - used, ", rest %.1f", static_cast<double>(now - this->m_last) / 1000.0);
+    }
+
+    SE2::Log_Write(" - SLOW %s %.1f ms [%s] %s", this->m_name, static_cast<double>(total) / 1000.0, this->m_detail, laps);
 }
 
 // VERIFY: 989f34e0 auto
@@ -1854,7 +1910,12 @@ void SEFileSound::CompleteNonBlockingLoad() {
         return;
     }
 
+    // MODIFIED: diagnostics
+    SESlowStep slow("CompleteNonBlockingLoad");
+    slow.SetDetail("#%u", this->m_id);
+
     FMOD_RESULT result = this->m_system->playSound(FMOD_CHANNEL_FREE, this->m_sound, true, &this->m_channel);
+    slow.Lap("playSound");
     SOUND_TRACE("complete #%u: playSound %d %s channel %p", this->m_id, result, FMOD_ErrorString(result), this->m_channel);
 
     if (result != FMOD_OK) {
@@ -2890,7 +2951,11 @@ int32_t SE2::HeartBeat(const void* data, void* param) {
         return 1;
     }
 
+    // MODIFIED: diagnostics
+    SESlowStep slow("HeartBeat");
+
     s_heartBeatCritSect.Enter();
+    slow.Lap("heartBeatLock");
 
 #if defined(WOWDECOMP_SOUND_TRACE)
     {
@@ -2915,21 +2980,29 @@ int32_t SE2::HeartBeat(const void* data, void* param) {
 #endif
 
     ProcessDeleteList(0);
+    slow.Lap("deleteList");
     ProcessWaveDataDeleteList(0);
+    slow.Lap("waveDataDeleteList");
     ProcessFadeList();
+    slow.Lap("fadeList");
     UpdateObjectPositions();
+    slow.Lap("objectPositions");
     // MODIFIED: audio engine upgrade
     ProcessReverbFade();
+    slow.Lap("reverbFade");
     ProcessGoGoGoList();
+    slow.Lap("goList");
     g_soundCache.Update();
 
     s_system->update();
+    slow.Lap("fmodUpdate");
 
     if (SE2::sm_bCaptureInitialized && s_chatSystem != s_system) {
         s_chatSystem->update();
     }
 
     KillVirtualSounds();
+    slow.Lap("killVirtual");
 
     s_heartBeatCritSect.Leave();
 
@@ -3012,7 +3085,12 @@ void SE2::StopAllSounds(int32_t restart) {
 // VERIFY: 675bfdff manual
 // OFFSET: 0x0087EE60
 int32_t SE2::CreateWaveData(FMOD::System* system, const char* filename, FMOD_MODE mode, SESound* sound, FMOD::SoundGroup* loadSoundGroup, FMOD::SoundGroup* soundGroup, bool randomStart, int32_t priority, int32_t reverb, bool streaming, uint32_t decodeBufferSize, int32_t software, float coneInsideAngle, float coneOutsideAngle, float coneOutsideVolume, const C3Vector* coneOrientation) {
+    // MODIFIED: diagnostics
+    SESlowStep slow("CreateWaveData");
+    slow.SetDetail("%s", filename ? filename : "");
+
     s_createCritSect.Enter();
+    slow.Lap("createLock");
 
     SEWaveDataNode* waveData = nullptr;
 
@@ -3022,6 +3100,7 @@ int32_t SE2::CreateWaveData(FMOD::System* system, const char* filename, FMOD_MOD
     }
 
     sound->Stop(1, -1.0f);
+    slow.Lap("stop");
 
     SEFileSound* internal = new (SMemAlloc(sizeof(SEFileSound), __FILE__, __LINE__, 0)) SEFileSound();
 
@@ -3115,10 +3194,13 @@ int32_t SE2::CreateWaveData(FMOD::System* system, const char* filename, FMOD_MOD
                 }
 
                 SOUND_TRACE("create #%u %s: cache hit, loaded %d", internal->m_id, filename, loaded);
+                slow.Lap("cacheHit");
                 goto done;
             }
         }
     }
+
+    slow.Lap("cacheMiss");
 
     if (!SFile::OpenEx(nullptr, filename, 1, &internal->m_file)) {
         SOUND_TRACE("create #%u %s: SFile open FAILED, error %u", internal->m_id, filename, SErrGetLastError());
@@ -3126,6 +3208,8 @@ int32_t SE2::CreateWaveData(FMOD::System* system, const char* filename, FMOD_MOD
         s_soundListCritSect.Enter();
         goto fail;
     }
+
+    slow.Lap("open");
 
     {
         FMOD_MODE createMode = mode | FMOD_VIRTUAL_PLAYFROMSTART | FMOD_IGNORETAGS | FMOD_NONBLOCKING;
@@ -3155,6 +3239,8 @@ int32_t SE2::CreateWaveData(FMOD::System* system, const char* filename, FMOD_MOD
             result = system->createSound(name, createMode, &exinfo, &internal->m_sound);
             s_soundsCreated++;
         }
+
+        slow.Lap(cacheable ? "createSound" : "createStream");
 
         SOUND_TRACE("create #%u %s: %s size %u mode 0x%x -> %d %s", internal->m_id, filename, cacheable ? "sound" : "stream", fileSize, createMode, result, FMOD_ErrorString(result));
 
@@ -4231,8 +4317,12 @@ void SE2::UpdateOcclusion(SEOcclusionCallback callback, float elapsed) {
     float minDistanceSq = settings.m_occlusionMinDistance * settings.m_occlusionMinDistance;
     float maxDistanceSq = settings.m_occlusionMaxDistance * settings.m_occlusionMaxDistance;
 
+    // MODIFIED: diagnostics
+    SESlowStep slow("UpdateOcclusion");
+
     s_heartBeatCritSect.Enter();
     s_soundListCritSect.Enter();
+    slow.Lap("locks");
 
     int32_t tracked = 0;
 
@@ -4276,6 +4366,8 @@ void SE2::UpdateOcclusion(SEOcclusionCallback callback, float elapsed) {
         return a.m_state->m_lastTest < b.m_state->m_lastTest;
     });
 
+    slow.Lap("collect");
+
     int32_t budget = (std::max)(1, settings.m_occlusionTestsPerFrame);
     int32_t tests = 0;
 
@@ -4299,6 +4391,9 @@ void SE2::UpdateOcclusion(SEOcclusionCallback callback, float elapsed) {
         state->m_lastTest = now;
         tests++;
     }
+
+    slow.Lap("rayTests");
+    slow.SetDetail("%d tests, %d candidates", tests, static_cast<int32_t>(s_candidates.size()));
 
     float step = settings.m_occlusionFade > 0.0f ? elapsed / settings.m_occlusionFade : 1.0f;
     int32_t occluded = 0;

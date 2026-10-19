@@ -757,6 +757,10 @@ int32_t SI2::PlaySoundKit(int32_t soundKitId, const C3Vector* position, SE2Sound
         }
     }
 
+    // MODIFIED: diagnostics
+    SESlowStep slow("PlaySoundKit");
+    slow.SetDetail("kit %d", soundKitId);
+
     SESound localSound;
     SESound* sound;
 
@@ -771,7 +775,10 @@ int32_t SI2::PlaySoundKit(int32_t soundKitId, const C3Vector* position, SE2Sound
         properties->m_loopMode = 2;
     }
 
+    slow.Lap("stop");
+
     const char* file = def->SelectFile(properties->m_selectMode, nullptr, properties->m_fileIndex, GetDownloadPriority(properties->m_group));
+    slow.Lap("selectFile");
 
     if (!file) {
         SOUND_TRACE("kit %d: no file selected", soundKitId);
@@ -799,6 +806,8 @@ int32_t SI2::PlaySoundKit(int32_t soundKitId, const C3Vector* position, SE2Sound
     }
 
     def->m_downloadPending = 0;
+    slow.Lap("fileIsLocal");
+    slow.SetDetail("kit %d %s", soundKitId, file);
 
     if (properties->m_blockMusicFiles && (SStrStrI(file, "music") || SStrStrI(file, "ambience") || SStrStrI(file, "cinematic"))) {
         return 16;
@@ -825,6 +834,7 @@ int32_t SI2::PlaySoundKit(int32_t soundKitId, const C3Vector* position, SE2Sound
 
     SE2::SetSoundGroupMaxAudibleBehavior(def->m_loadSoundGroup, 1, 0.0f);
     SE2::SetSoundGroupMaxAudibleBehavior(def->m_soundGroup, properties->m_maxAudibleBehavior, properties->m_muteFadeSpeed);
+    slow.Lap("soundGroups");
 
     if (def->m_advanced && !advancedId) {
         SI2::AddAdvancedSound(def->m_advanced, soundKitId, position, properties->m_coneOrientation, object, 0, 0, checkDistance, properties->m_loopMode == 1);
@@ -838,13 +848,16 @@ int32_t SI2::PlaySoundKit(int32_t soundKitId, const C3Vector* position, SE2Sound
             return 16;
         }
 
+        slow.Lap("create3D");
         sound->Set3DPosition(*position);
         sound->Set3DMinMaxDistance(def->m_minDistance, properties->m_maxDistance > -1.0f ? properties->m_maxDistance : def->m_distanceCutoff);
     } else if (!sound->Create2D(file, looping, def->m_loadSoundGroup, def->m_soundGroup, randomStart, properties->m_streaming, properties->m_reverb, properties->m_priority, properties->m_decodeBufferSize)) {
         return 16;
     }
 
+    slow.Lap("create");
     sound->SetChannelGroup(SI2::s_channelGroupNames[properties->m_group], properties->m_group != 3);
+    slow.Lap("channelGroup");
 
     SI2SoundUserData* userData = new (SMemAlloc(sizeof(SI2SoundUserData), __FILE__, __LINE__, 0)) SI2SoundUserData();
     userData->m_name = def->m_name ? def->m_name : "<UNKNOWN ERROR>";
@@ -908,7 +921,9 @@ int32_t SI2::PlaySoundKit(int32_t soundKitId, const C3Vector* position, SE2Sound
         sound->SetAttachCustomDSPChainCallback(SI2::DSP_AttachCustomDspChain, properties->m_dspChainName);
     }
 
+    slow.Lap("setup");
     sound->CompleteNonBlockingLoad();
+    slow.Lap("completeLoad");
 
     if (soundId) {
         *soundId = sound->GetID();
@@ -916,6 +931,7 @@ int32_t SI2::PlaySoundKit(int32_t soundKitId, const C3Vector* position, SE2Sound
 
     SOUND_TRACE("kit %d %s: group %d (%d playing) -> #%u", soundKitId, file, properties->m_group, SI2::s_channelGroupNumSounds[properties->m_group], sound->GetID());
     sound->Play();
+    slow.Lap("play");
     return 0;
 }
 

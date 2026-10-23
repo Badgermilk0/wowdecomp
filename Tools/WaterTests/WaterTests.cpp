@@ -197,6 +197,17 @@ static void TestPassesCompile() {
             }
         }
     }
+
+    // the tessellation stages, on the shared declarations
+    std::string source = std::string(GxD3d11::s_hlslCommon) + GxD3d11::s_hlslPatchPoint + GxD3d11::s_hlslWaterConstants + GxD3d11::s_hlslWaterTessellation;
+    const char* stages[][2] = { { "WaterHs", "hs_5_0" }, { "WaterDs", "ds_5_0" } };
+
+    for (auto& stage : stages) {
+        std::string error;
+        bool ok = Compile(source, stage[0], stage[1], nullptr, error);
+        CHECK(ok);
+        printf("  %s: %s\n", stage[0], ok ? "compiled" : error.c_str());
+    }
 }
 
 // the GxWaterPass cbuffer, as D3d11Water.cpp fills it
@@ -506,6 +517,17 @@ static void TestTranslated(const std::string& folder) {
 
             std::string compileError;
             bool compiled = emitted && Compile(hlsl, "main", test.m_vertex ? "vs_5_0" : "ps_5_0", nullptr, compileError);
+
+            if (test.m_vertex) {
+                // the variant that feeds the tessellation stages
+                std::string tessHlsl;
+                bool tessEmitted = shader.Emit(GxD3d11::Variant_Tessellated, tessHlsl, error);
+                CHECK(tessEmitted && tessHlsl.find("return GxToPatchPoint(o);") != std::string::npos);
+                std::string tessError;
+                bool tessCompiled = tessEmitted && Compile(tessHlsl, "main", "vs_5_0", nullptr, tessError);
+                CHECK(tessCompiled);
+                printf("  %s (tessellated): %s\n", name, tessCompiled ? "translated and compiled" : tessError.c_str());
+            }
             CHECK(compiled);
             printf("  %s: %s\n", name, compiled ? "translated and compiled" : compileError.c_str());
 
@@ -526,15 +548,337 @@ static void TestTranslated(const std::string& folder) {
     CHECK(GxD3d11::FamilyForShader("Terrain", true) == GxD3d11::Family_Terrain);
 }
 
+// the first record of a stock .bls, translated with the family its name gives
+static bool TranslateFirst(const std::string& path, const char* name, bool vertex, uint32_t variant, std::vector<uint8_t>& code) {
+    std::vector<uint8_t> data;
+
+    if (!ReadFile(path, data) || data.size() < 28) {
+        return false;
+    }
+
+    uint32_t size = 0;
+    memcpy(&size, data.data() + 24, 4);
+    GxD3d11::Dx9Shader shader;
+
+    if (!shader.Decode(data.data() + 28, size)) {
+        return false;
+    }
+
+    shader.m_family = GxD3d11::FamilyForShader(name, vertex);
+    std::string hlsl;
+    std::string error;
+    return shader.Emit(variant, hlsl, error) && Compile(hlsl, "main", vertex ? "vs_5_0" : "ps_5_0", &code, error);
+}
+
+struct Signature {
+    std::string m_semantic;
+    uint32_t m_index;
+    uint32_t m_register;
+    uint32_t m_mask;
+};
+
+static std::vector<Signature> Reflect(const std::vector<uint8_t>& code, bool outputs) {
+    std::vector<Signature> result;
+    ID3D11ShaderReflection* reflection = nullptr;
+
+    if (FAILED(D3DReflect(code.data(), code.size(), IID_ID3D11ShaderReflection, reinterpret_cast<void**>(&reflection)))) {
+        return result;
+    }
+
+    D3D11_SHADER_DESC desc;
+    reflection->GetDesc(&desc);
+    uint32_t count = outputs ? desc.OutputParameters : desc.InputParameters;
+
+    for (uint32_t i = 0; i < count; i++) {
+        D3D11_SIGNATURE_PARAMETER_DESC param;
+
+        if (outputs) {
+            reflection->GetOutputParameterDesc(i, &param);
+        } else {
+            reflection->GetInputParameterDesc(i, &param);
+        }
+
+        result.push_back({ param.SemanticName, param.SemanticIndex, param.Register, param.Mask });
+    }
+
+    reflection->Release();
+    return result;
+}
+
+// every element the reader takes is one the writer gives, in the same register
+static bool Links(const std::vector<Signature>& writer, const std::vector<Signature>& reader, const char* what) {
+    bool ok = !reader.empty();
+
+    for (const Signature& in : reader) {
+        if (in.m_semantic.compare(0, 3, "SV_") == 0 && in.m_semantic != "SV_Position" && in.m_semantic != "SV_POSITION") {
+            continue;
+        }
+
+        bool found = false;
+
+        for (const Signature& out : writer) {
+            if (_stricmp(out.m_semantic.c_str(), in.m_semantic.c_str()) == 0 && out.m_index == in.m_index) {
+                found = out.m_register == in.m_register && (out.m_mask & in.m_mask) == in.m_mask;
+            }
+        }
+
+        if (!found) {
+            printf("  %s: %s%u (register %u) not linked\n", what, in.m_semantic.c_str(), in.m_index, in.m_register);
+            ok = false;
+        }
+    }
+
+    return ok;
+}
+
+static void TestLinkage(const std::string& folder) {
+    std::vector<uint8_t> vs;
+    std::vector<uint8_t> vsTess;
+    std::vector<uint8_t> ps;
+
+    if (!TranslateFirst(folder + "\\vsLiquidWater.bls", "vsLiquidWater:0", true, 0, vs) || !TranslateFirst(folder + "\\vsLiquidWater.bls", "vsLiquidWater:0", true, GxD3d11::Variant_Tessellated, vsTess) || !TranslateFirst(folder + "\\psLiquidWater.bls", "psLiquidWater", false, 0, ps)) {
+        printf("SKIP the linkage: the stock water shaders are not in %s\n", folder.c_str());
+        return;
+    }
+
+    std::string source = std::string(GxD3d11::s_hlslCommon) + GxD3d11::s_hlslPatchPoint + GxD3d11::s_hlslWaterConstants + GxD3d11::s_hlslWaterTessellation;
+    std::vector<uint8_t> hs;
+    std::vector<uint8_t> ds;
+    std::string error;
+    CHECK(Compile(source, "WaterHs", "hs_5_0", &hs, error));
+    CHECK(Compile(source, "WaterDs", "ds_5_0", &ds, error));
+
+    bool plain = Links(Reflect(vs, true), Reflect(ps, false), "VS -> PS");
+    bool intoHull = Links(Reflect(vsTess, true), Reflect(hs, false), "VS (tessellated) -> HS");
+    bool intoDomain = Links(Reflect(hs, true), Reflect(ds, false), "HS -> DS");
+    bool intoPixel = Links(Reflect(ds, true), Reflect(ps, false), "DS -> PS");
+    CHECK(plain);
+    CHECK(intoHull);
+    CHECK(intoDomain);
+    CHECK(intoPixel);
+    printf("  linkage: VS -> PS %s, VS -> HS %s, HS -> DS %s, DS -> PS %s\n", plain ? "ok" : "FAIL", intoHull ? "ok" : "FAIL", intoDomain ? "ok" : "FAIL", intoPixel ? "ok" : "FAIL");
+}
+
+// the GxWater cbuffer, as D3d11Water.cpp fills it
+struct WaterConstants {
+    uint32_t m_flags[4];
+    float m_viewInv[16];
+    float m_proj[16];
+    float m_projInv[16];
+    float m_viewport[4];
+    float m_depthRange[4];
+    float m_target[4];
+    float m_sunDir[4];
+    float m_sunColor[4];
+    float m_sky[6][4];
+    float m_ambient[4];
+    float m_params0[4];
+    float m_params1[4];
+    float m_field[4];
+    float m_fieldExtra[4];
+    float m_view[16];
+    float m_tess[4];
+};
+
+// the tessellation run on WARP: a 4-yard water quad 5 yards ahead, a height field lifted 0.5 yards everywhere; the domain
+// shader's points streamed out
+static void TestTessellation() {
+    ID3D11Device* device = nullptr;
+    ID3D11DeviceContext* ctx = nullptr;
+
+    if (FAILED(D3D11CreateDevice(nullptr, D3D_DRIVER_TYPE_WARP, nullptr, 0, nullptr, 0, D3D11_SDK_VERSION, &device, nullptr, &ctx))) {
+        printf("SKIP the tessellation: no WARP device\n");
+        return;
+    }
+
+    std::string common = std::string(GxD3d11::s_hlslCommon) + GxD3d11::s_hlslPatchPoint + GxD3d11::s_hlslWaterConstants;
+    std::string vsSource = common +
+        "GxPatchPoint TestVs(float3 p : POSITION) {\n"
+        "    GxVaryings o = (GxVaryings)0;\n"
+        "    o.gxP = float4(p, 1.0);\n"
+        "    o.pos = mul(float4(p, 1.0), gxWaterProj);\n"
+        "    return GxToPatchPoint(o);\n"
+        "}\n";
+    std::string tessSource = common + GxD3d11::s_hlslWaterTessellation;
+    std::vector<uint8_t> vsCode;
+    std::vector<uint8_t> hsCode;
+    std::vector<uint8_t> dsCode;
+    std::string error;
+    bool compiled = Compile(vsSource, "TestVs", "vs_5_0", &vsCode, error) && Compile(tessSource, "WaterHs", "hs_5_0", &hsCode, error) && Compile(tessSource, "WaterDs", "ds_5_0", &dsCode, error);
+    CHECK(compiled);
+
+    if (!compiled) {
+        printf("  %s\n", error.c_str());
+        return;
+    }
+
+    ID3D11VertexShader* vs = nullptr;
+    ID3D11HullShader* hs = nullptr;
+    ID3D11DomainShader* ds = nullptr;
+    ID3D11GeometryShader* so = nullptr;
+    device->CreateVertexShader(vsCode.data(), vsCode.size(), nullptr, &vs);
+    device->CreateHullShader(hsCode.data(), hsCode.size(), nullptr, &hs);
+    device->CreateDomainShader(dsCode.data(), dsCode.size(), nullptr, &ds);
+
+    // gxP, the view-space position
+    D3D11_SO_DECLARATION_ENTRY entry = { 0, "TEXCOORD", 11, 0, 4, 0 };
+    UINT stride = 16;
+    CHECK(SUCCEEDED(device->CreateGeometryShaderWithStreamOutput(dsCode.data(), dsCode.size(), &entry, 1, &stride, 1, D3D11_SO_NO_RASTERIZED_STREAM, nullptr, &so)));
+
+    D3D11_INPUT_ELEMENT_DESC element = { "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D11_INPUT_PER_VERTEX_DATA, 0 };
+    ID3D11InputLayout* layout = nullptr;
+    device->CreateInputLayout(&element, 1, vsCode.data(), vsCode.size(), &layout);
+
+    // the view is the world here (identity), z up the field's height
+    const float quad[6][3] = { { -2, -2, 5 }, { 2, -2, 5 }, { 2, 2, 5 }, { -2, -2, 5 }, { 2, 2, 5 }, { -2, 2, 5 } };
+    D3D11_BUFFER_DESC desc = {};
+    desc.ByteWidth = sizeof(quad);
+    desc.Usage = D3D11_USAGE_DEFAULT;
+    desc.BindFlags = D3D11_BIND_VERTEX_BUFFER;
+    D3D11_SUBRESOURCE_DATA init = { quad, 0, 0 };
+    ID3D11Buffer* vb = nullptr;
+    device->CreateBuffer(&desc, &init, &vb);
+
+    WaterConstants c = {};
+    float identity[16] = { 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1 };
+    float proj[16] = { 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 1, 0, 0, -0.1f, 0 };
+    c.m_flags[0] = 0x15;
+    memcpy(c.m_viewInv, identity, sizeof(identity));
+    memcpy(c.m_view, identity, sizeof(identity));
+    memcpy(c.m_proj, proj, sizeof(proj));
+    c.m_target[0] = 1.0f / 1280.0f;
+    c.m_target[1] = 1.0f / 720.0f;
+    c.m_field[0] = -64.0f;
+    c.m_field[1] = -64.0f;
+    c.m_field[2] = 1.0f / 128.0f;
+    c.m_field[3] = 1.0f / 512.0f;
+    c.m_fieldExtra[0] = 0.25f;
+    c.m_fieldExtra[1] = 1.0f;
+    c.m_tess[0] = 1.0f;
+    c.m_tess[1] = 32.0f;
+    c.m_tess[2] = 0.3f;
+    c.m_tess[3] = 1.0f;
+    desc.ByteWidth = (sizeof(c) + 15) & ~15u;
+    desc.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
+    init.pSysMem = &c;
+    ID3D11Buffer* cb = nullptr;
+    CHECK(SUCCEEDED(device->CreateBuffer(&desc, &init, &cb)));
+
+    // a height of 0.5 everywhere (0x3800 as a half)
+    std::vector<uint16_t> texels(512 * 512 * 2, 0);
+
+    for (size_t i = 0; i < texels.size(); i += 2) {
+        texels[i] = 0x3800;
+    }
+
+    D3D11_TEXTURE2D_DESC tex = {};
+    tex.Width = 512;
+    tex.Height = 512;
+    tex.MipLevels = 1;
+    tex.ArraySize = 1;
+    tex.Format = DXGI_FORMAT_R16G16_FLOAT;
+    tex.SampleDesc.Count = 1;
+    tex.Usage = D3D11_USAGE_DEFAULT;
+    tex.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+    D3D11_SUBRESOURCE_DATA texInit = { texels.data(), 512 * 4, 0 };
+    ID3D11Texture2D* field = nullptr;
+    ID3D11ShaderResourceView* fieldSrv = nullptr;
+    device->CreateTexture2D(&tex, &texInit, &field);
+    device->CreateShaderResourceView(field, nullptr, &fieldSrv);
+    D3D11_SAMPLER_DESC samplerDesc = {};
+    samplerDesc.Filter = D3D11_FILTER_MIN_MAG_MIP_LINEAR;
+    samplerDesc.AddressU = samplerDesc.AddressV = samplerDesc.AddressW = D3D11_TEXTURE_ADDRESS_CLAMP;
+    ID3D11SamplerState* sampler = nullptr;
+    device->CreateSamplerState(&samplerDesc, &sampler);
+
+    const uint32_t capacity = 65536;
+    desc.ByteWidth = capacity * 16;
+    desc.BindFlags = D3D11_BIND_STREAM_OUTPUT;
+    ID3D11Buffer* out = nullptr;
+    device->CreateBuffer(&desc, nullptr, &out);
+    desc.Usage = D3D11_USAGE_STAGING;
+    desc.BindFlags = 0;
+    desc.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+    ID3D11Buffer* staging = nullptr;
+    device->CreateBuffer(&desc, nullptr, &staging);
+
+    D3D11_QUERY_DESC queryDesc = { D3D11_QUERY_SO_STATISTICS, 0 };
+    ID3D11Query* query = nullptr;
+    device->CreateQuery(&queryDesc, &query);
+
+    UINT offset = 0;
+    UINT vbStride = 12;
+    ctx->IASetInputLayout(layout);
+    ctx->IASetVertexBuffers(0, 1, &vb, &vbStride, &offset);
+    ctx->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_3_CONTROL_POINT_PATCHLIST);
+    ctx->VSSetShader(vs, nullptr, 0);
+    ctx->VSSetConstantBuffers(5, 1, &cb);
+    ctx->HSSetShader(hs, nullptr, 0);
+    ctx->HSSetConstantBuffers(5, 1, &cb);
+    ctx->DSSetShader(ds, nullptr, 0);
+    ctx->DSSetConstantBuffers(5, 1, &cb);
+    ctx->DSSetShaderResources(20, 1, &fieldSrv);
+    ctx->DSSetSamplers(15, 1, &sampler);
+    ctx->GSSetShader(so, nullptr, 0);
+    ctx->SOSetTargets(1, &out, &offset);
+    ctx->Begin(query);
+    ctx->Draw(6, 0);
+    ctx->End(query);
+
+    D3D11_QUERY_DATA_SO_STATISTICS stats = {};
+
+    while (ctx->GetData(query, &stats, sizeof(stats), 0) == S_FALSE) {
+    }
+
+    ctx->CopyResource(staging, out);
+    D3D11_MAPPED_SUBRESOURCE mapped;
+    ctx->Map(staging, 0, D3D11_MAP_READ, 0, &mapped);
+    const float* points = static_cast<const float*>(mapped.pData);
+    uint32_t written = static_cast<uint32_t>(stats.NumPrimitivesWritten < capacity / 3 ? stats.NumPrimitivesWritten : capacity / 3);
+    float lo = 1e9f;
+    float hi = -1e9f;
+
+    for (uint32_t i = 0; i < written * 3; i++) {
+        float z = points[i * 4 + 2];
+        lo = z < lo ? z : lo;
+        hi = z > hi ? z : hi;
+    }
+
+    ctx->Unmap(staging, 0);
+    printf("  tessellation: 2 triangles became %u, every point at z %.3f to %.3f (5 + 0.5 expected)\n", written, lo, hi);
+    // 4-yard edges at 5 yards with 0.3-yard targets: factor about 13 an edge, well over a hundred triangles
+    CHECK(written > 100);
+    CHECK_NEAR(lo, 5.5f, 0.01f);
+    CHECK_NEAR(hi, 5.5f, 0.01f);
+
+    query->Release();
+    staging->Release();
+    out->Release();
+    sampler->Release();
+    fieldSrv->Release();
+    field->Release();
+    cb->Release();
+    vb->Release();
+    layout->Release();
+    so->Release();
+    ds->Release();
+    hs->Release();
+    vs->Release();
+    ctx->Release();
+    device->Release();
+}
+
 int main(int argc, char** argv) {
     TestMonotoneCubic();
     TestCatmullRom();
     TestDome();
     TestPassesCompile();
     TestSimulation();
+    TestTessellation();
 
     if (argc > 1) {
         TestTranslated(argv[1]);
+        TestLinkage(argv[1]);
     }
 
     printf("%d checks, %d failed\n", s_checks, s_failures);

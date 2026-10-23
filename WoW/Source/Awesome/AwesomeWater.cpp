@@ -13,6 +13,9 @@
 // waterRipples: a wave-equation height field around the player (128 yards, a texel a quarter of a yard) that units
 //   disturb: a moving unit leaves a wake, one treading water sends out rings, and one entering the water splashes
 //   (waterInteraction); raindrops land on it in rain (waterRain). waterRippleStrength is how far it bends the surface.
+// waterTessellation: near the eye the water's triangles are cut finer (down to 0.3 yards) and moved up and down by the
+//   height field, so the waves are geometry (waterWaveHeight scales how far).
+// waterStockRipples: the stock splash and wake decals on the water too (off: the height field replaces them).
 // waterDebug: 1 normals, 2 depth under the surface, 3 the height field, 4 reflection hits (green world, blue sky).
 
 #include <cmath>
@@ -39,13 +42,16 @@ static AwesomeCVar s_cvDetail = AwesomeCVar::Float("waterDetail", 1.0f, 0.0f, 2.
 static AwesomeCVar s_cvFoam = AwesomeCVar::Float("waterFoam", 1.0f, 0.0f, 2.0f);
 static AwesomeCVar s_cvRipples = AwesomeCVar::Int("waterRipples", 1, 0, 1);
 static AwesomeCVar s_cvRippleStrength = AwesomeCVar::Float("waterRippleStrength", 1.0f, 0.0f, 4.0f);
+static AwesomeCVar s_cvTessellation = AwesomeCVar::Int("waterTessellation", 1, 0, 1);
+static AwesomeCVar s_cvWaveHeight = AwesomeCVar::Float("waterWaveHeight", 1.0f, 0.0f, 4.0f);
 static AwesomeCVar s_cvInteraction = AwesomeCVar::Float("waterInteraction", 1.0f, 0.0f, 4.0f);
 static AwesomeCVar s_cvRain = AwesomeCVar::Float("waterRain", 1.0f, 0.0f, 4.0f);
+static AwesomeCVar s_cvStockRipples = AwesomeCVar::Int("waterStockRipples", 0, 0, 1);
 static AwesomeCVar s_cvDebug = AwesomeCVar::Int("waterDebug", 0, 0, 4);
 
 static AwesomeCVar* const s_cvars[] = {
     &s_cvModern, &s_cvReflection, &s_cvReflectionStrength, &s_cvRefraction, &s_cvClarity, &s_cvDetail, &s_cvFoam,
-    &s_cvRipples, &s_cvRippleStrength, &s_cvInteraction, &s_cvRain, &s_cvDebug,
+    &s_cvRipples, &s_cvRippleStrength, &s_cvTessellation, &s_cvWaveHeight, &s_cvInteraction, &s_cvRain, &s_cvStockRipples, &s_cvDebug,
 };
 
 static bool s_inWorld = false;
@@ -70,6 +76,7 @@ static uint32_t Features() {
     features |= s_cvReflection.m_intValue ? GxWater_Reflection : 0;
     features |= s_cvRipples.m_intValue ? GxWater_Ripples : 0;
     features |= s_cvFoam.m_floatValue > 0.0f ? GxWater_Foam : 0;
+    features |= s_cvRipples.m_intValue && s_cvTessellation.m_intValue && s_cvWaveHeight.m_floatValue > 0.0f ? GxWater_Tessellation : 0;
     return features;
 }
 
@@ -81,6 +88,8 @@ static void BuildParams(GxWaterParams& p) {
     p.m_detail = s_cvDetail.m_floatValue;
     p.m_foam = s_cvFoam.m_floatValue;
     p.m_rippleNormal = s_cvRippleStrength.m_floatValue;
+    p.m_waveHeight = s_cvWaveHeight.m_floatValue;
+    p.m_rainStrength = 0.012f;
     p.m_reflectionSteps = 24;
     p.m_rippleSpeed = 3.0f;
     p.m_rippleDamping = 0.6f;
@@ -187,15 +196,15 @@ void AwesomeWaterOnUnitInLiquid(uintptr_t id, const C3Vector& surface, float dep
     if (event == 201) {
         // in or out of the water: a splash
         impulse.m_radius = bodyRadius * 1.6f;
-        impulse.m_strength = 0.12f * interaction;
+        impulse.m_strength = 0.35f * interaction;
     } else if (motion & 0xF) {
         // moving: pushes the water aside as it goes, a wake behind it
         float pace = speed < 0.0f ? 0.0f : (speed > 14.0f ? 14.0f : speed);
-        impulse.m_strength = (0.35f + 0.9f * pace / 7.0f) * dt * interaction * depthFactor;
+        impulse.m_strength = (0.8f + 2.0f * pace / 7.0f) * dt * interaction * depthFactor;
     } else if (motion & 0x200000) {
         // swimming in place, treading water: a slow bob, rings
         float phase = static_cast<float>((id >> 4) % 628u) * 0.01f;
-        impulse.m_strength = 0.35f * sinf(s_frameTime * 4.5f + phase) * dt * interaction * depthFactor;
+        impulse.m_strength = 0.6f * sinf(s_frameTime * 4.5f + phase) * dt * interaction * depthFactor;
         impulse.m_radius = bodyRadius * 0.8f;
     } else {
         // standing in shallow water: still
@@ -264,6 +273,10 @@ static int32_t Script_WaterCommand(lua_State* L) {
     Print(L, line);
     Print(L, "  /water on | off; waterDebug 1 normals, 2 depth, 3 height field, 4 reflection hits");
     return 0;
+}
+
+bool AwesomeWaterHidesStockRipples() {
+    return g_gxWater && s_cvModern.m_intValue && s_cvRipples.m_intValue && !s_cvStockRipples.m_intValue;
 }
 
 void AwesomeWaterRegisterCVars() {

@@ -24,6 +24,7 @@ enum EGxWaterFeature : uint32_t {
     GxWater_Reflection = 0x2,    // screen-space reflections (without it: the sky alone)
     GxWater_Ripples = 0x4,       // the interactive height field
     GxWater_Foam = 0x8,          // at the shore and on disturbed water
+    GxWater_Tessellation = 0x10, // the water's triangles cut finer near the eye and moved by the height field
 };
 
 // a disturbance of the water this frame, in world space (absolute)
@@ -43,6 +44,7 @@ struct GxWaterParams {
     float m_detail = 1.0f;           // normals from the stock water texture
     float m_foam = 1.0f;
     float m_rippleNormal = 1.0f;     // how far the height field bends the surface
+    float m_waveHeight = 1.0f;       // how far it moves the surface (yards per yard of height)
     uint32_t m_reflectionSteps = 24; // screen-space ray steps
 
     // the height field

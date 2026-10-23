@@ -1083,8 +1083,12 @@ bool CGxDeviceD3d11::IStateSync(EGxPrim primType) {
         }
     }
 
+    // MODIFIED: modern water (D3d11Water.h): the waves as geometry, a list's triangles cut finer and moved by the
+    // height field; the vertex shader then feeds the tessellation stages
+    bool tessellate = this->m_water && primType == GxPrim_Triangles && vsEntry && psEntry && vsEntry->m_dx9.m_family == Family_WaterVertex && psEntry->m_dx9.m_family == Family_WaterPixel && this->m_water->TessellationReady();
+
     if (vsEntry) {
-        uint32_t variant = 0;
+        uint32_t variant = tessellate ? Variant_Tessellated : 0;
         uint32_t reads = vsEntry->m_dx9.m_inputMask;
 
         for (uint32_t a = 0; a < GxVAs_Last; a++) {
@@ -1320,7 +1324,13 @@ bool CGxDeviceD3d11::IStateSync(EGxPrim primType) {
     // MODIFIED: modern water (D3d11Water.h): the water constants (b5), the copies (t18-t20) and their sampler (s15)
     if (this->m_water && psEntry && psEntry->m_dx9.m_family == Family_WaterPixel) {
         this->m_water->BindForDraw();
+
+        if (tessellate) {
+            this->m_water->BindTessellation();
+        }
     }
+
+    this->m_tessBound = tessellate;
 
     // bind what changed
     if (rebind || this->m_boundVs != vsProgram->m_vs) {
@@ -1401,7 +1411,8 @@ bool CGxDeviceD3d11::IStateSync(EGxPrim primType) {
         }
     }
 
-    D3D11_PRIMITIVE_TOPOLOGY topology = s_topologies[primType];
+    // MODIFIED: modern water: a tessellated water draw takes patches
+    D3D11_PRIMITIVE_TOPOLOGY topology = tessellate ? D3D11_PRIMITIVE_TOPOLOGY_3_CONTROL_POINT_PATCHLIST : s_topologies[primType];
 
     if (rebind || this->m_boundTopology != topology) {
         this->m_ctx->IASetPrimitiveTopology(topology);
@@ -1454,6 +1465,13 @@ void CGxDeviceD3d11::Draw(CGxBatch* batch, int32_t count) {
         }
 
         this->m_ctx->DrawIndexed(batch->m_count, batch->m_start + (this->m_primIndexBuf->m_index >> 1), 0);
+
+        // MODIFIED: modern water: the tessellation stages stay with the water draw
+        if (this->m_tessBound) {
+            this->m_ctx->HSSetShader(nullptr, nullptr, 0);
+            this->m_ctx->DSSetShader(nullptr, nullptr, 0);
+            this->m_tessBound = false;
+        }
     } else if (batch->m_primType == GxPrim_TriangleFan) {
         // a fan as a list: 0, i, i + 1
         if (batch->m_count < 3) {

@@ -8,6 +8,43 @@
 #include "WoW/Source/WorldClient/MapChunkLiquid.h"
 #include "WoW/Source/WorldClient/MapObj.h"
 #include "WoW/Source/WorldClient/MapObjGroup.h"
+#include <cstring>
+#include <vector>
+#include "Engine/Source/Gx/GxWater.h"
+
+// MODIFIED: modern water. The D3D11 device tessellates the water (GxWater.h), and tessellation takes triangle lists, not
+// strips: there, a strip (with its degenerate joins) becomes the list of its real triangles, in place, when the index
+// buffer has room. Elsewhere the stock strips stay
+static bool WaterStripToList(uint16_t* indices, uint32_t& count, uint32_t capacity) {
+    static std::vector<uint16_t> s_list;
+    s_list.clear();
+
+    for (uint32_t i = 2; i < count; i++) {
+        uint16_t a = indices[i - 2];
+        uint16_t b = indices[i - 1];
+        uint16_t c = indices[i];
+
+        if (a == b || b == c || a == c) {
+            continue;
+        }
+
+        // every other strip triangle is wound the other way
+        s_list.push_back((i & 1) ? b : a);
+        s_list.push_back((i & 1) ? a : b);
+        s_list.push_back(c);
+    }
+
+    if (s_list.size() > capacity) {
+        return false;
+    }
+
+    if (!s_list.empty()) {
+        memcpy(indices, s_list.data(), s_list.size() * sizeof(uint16_t));
+    }
+
+    count = static_cast<uint32_t>(s_list.size());
+    return true;
+}
 
 // STATIC: 0x00D31960
 CDataAllocator Liquid::s_meshGeomFactoryAllocator(sizeof(Liquid::CMeshGeomFactory), 4);
@@ -99,7 +136,8 @@ void Liquid::CMeshGeomFactory::GetBuffers(EGxVertexBufferFormat format, CGxBuf**
     uint32_t sharedRows = this->m_sharedVerts[1].m_count;
     uint32_t sharedTiles = this->m_mapObjGroup->GetNumSharedTiles();
     uint32_t vertexCount = (sharedRows + this->m_mapObjGroup->m_liquidVerts.y) * (sharedCols + this->m_mapObjGroup->m_liquidVerts.x) + 6 * sharedTiles;
-    this->m_mapObjGroup->AllocLiquidVB(format, vertexCount, 3 * vertexCount, &this->m_batch);
+    // MODIFIED: modern water: room for a triangle list (two triangles a tile and the clipped geometry)
+    this->m_mapObjGroup->AllocLiquidVB(format, vertexCount, (g_gxWater ? 9 : 3) * vertexCount, &this->m_batch);
 
     *vertexBuf = this->m_mapObjGroup->m_liquidVertsBlock->m_buffer;
     *indexBuf = this->m_mapObjGroup->m_liquidIndicesBlock->m_buffer;
@@ -153,6 +191,10 @@ void Liquid::CMeshGeomFactory::GetBuffers(EGxVertexBufferFormat format, CGxBuf**
         this->m_mapObj->BuildLiquidIndices(this->m_mapObjGroup, this->m_sharedVerts, &indices, 0);
         count += this->m_mapObj->ClipGroupGeometry(this->m_mapObjGroup, C44Matrix(), liquidColor, this->m_magma, this->m_texCoord1ValueX, stride, &position, &normal, &color, &texCoord0, &texCoord1, &indices, count);
 
+        // MODIFIED: modern water: a list on the D3D11 device
+        uint32_t indexCount = static_cast<uint32_t>(indices - indexStart);
+        bool list = g_gxWater && WaterStripToList(indexStart, indexCount, (*indexBuf)->m_size / sizeof(uint16_t));
+
         CGxBuf* buf = *vertexBuf;
         g_theGxDevicePtr->BufUnlock(buf, 0);
         buf->m_hasData = 1;
@@ -164,9 +206,9 @@ void Liquid::CMeshGeomFactory::GetBuffers(EGxVertexBufferFormat format, CGxBuf**
         }
 
         CGxBatch* meshBatch = this->m_batch;
-        meshBatch->m_primType = GxPrim_TriangleStrip;
+        meshBatch->m_primType = list ? GxPrim_Triangles : GxPrim_TriangleStrip;
         meshBatch->m_start = 0;
-        meshBatch->m_count = indices - indexStart;
+        meshBatch->m_count = indexCount;
         meshBatch->m_minIndex = 0;
         meshBatch->m_maxIndex = count - 1;
     }
@@ -337,6 +379,14 @@ void Liquid::CChunkGeomFactory::GetBuffers(EGxVertexBufferFormat format, CGxBuf*
         for (uint32_t i = 0; i < this->m_chunks.m_count; i++) {
             this->m_chunks.m_data[i]->BuildIndices(indices + batch->m_count, baseVertex, batch);
             baseVertex += s_vertexCounts.m_data[i];
+        }
+
+        // MODIFIED: modern water: a list on the D3D11 device
+        uint32_t listCount = batch->m_count;
+
+        if (indices && g_gxWater && WaterStripToList(indices, listCount, ib->m_size / sizeof(uint16_t))) {
+            batch->m_primType = GxPrim_Triangles;
+            batch->m_count = listCount;
         }
 
         g_theGxDevicePtr->BufUnlock(ib, 0);

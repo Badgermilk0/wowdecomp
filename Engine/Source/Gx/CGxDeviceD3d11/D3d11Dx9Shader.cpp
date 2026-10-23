@@ -337,12 +337,102 @@ const char* const s_hlslLighting =
     "}\n"
     "\n";
 
+// MODIFIED: modern water. A vertex shader feeding the tessellation stages (Variant_Tessellated) hands them this: the
+// varyings without system values, which hull and domain shader inputs may not carry (SV_ClipDistance1); the domain
+// shader turns it back into GxVaryings
+const char* const s_hlslPatchPoint =
+    "struct GxPatchPoint {\n"
+    "    float4 pos : GXPOSITION;\n"
+    "    float4 c0 : COLOR0;\n"
+    "    float4 c1 : COLOR1;\n"
+    "    float4 t0 : TEXCOORD0;\n"
+    "    float4 t1 : TEXCOORD1;\n"
+    "    float4 t2 : TEXCOORD2;\n"
+    "    float4 t3 : TEXCOORD3;\n"
+    "    float4 t4 : TEXCOORD4;\n"
+    "    float4 t5 : TEXCOORD5;\n"
+    "    float4 t6 : TEXCOORD6;\n"
+    "    float4 t7 : TEXCOORD7;\n"
+    "    float4 t8 : TEXCOORD8;\n"
+    "    float4 t9 : TEXCOORD9;\n"
+    "    float4 n0 : NORMAL0;\n"
+    "    float4 tg0 : TANGENT0;\n"
+    "    float4 bn0 : BINORMAL0;\n"
+    "    float fog : FOG;\n"
+    "    float psize : PSIZE;\n"
+    "    float4 gxN : TEXCOORD10;\n"
+    "    float4 gxP : TEXCOORD11;\n"
+    "    float4 gxM : TEXCOORD12;\n"
+    "    float4 gxF : TEXCOORD13;\n"
+    "    float4 clip0 : GXCLIP0;\n"
+    "    float2 clip1 : GXCLIP1;\n"
+    "};\n"
+    "\n"
+    "GxPatchPoint GxToPatchPoint(GxVaryings v) {\n"
+    "    GxPatchPoint p;\n"
+    "    p.pos = v.pos;\n"
+    "    p.c0 = v.c0;\n"
+    "    p.c1 = v.c1;\n"
+    "    p.t0 = v.t0;\n"
+    "    p.t1 = v.t1;\n"
+    "    p.t2 = v.t2;\n"
+    "    p.t3 = v.t3;\n"
+    "    p.t4 = v.t4;\n"
+    "    p.t5 = v.t5;\n"
+    "    p.t6 = v.t6;\n"
+    "    p.t7 = v.t7;\n"
+    "    p.t8 = v.t8;\n"
+    "    p.t9 = v.t9;\n"
+    "    p.n0 = v.n0;\n"
+    "    p.tg0 = v.tg0;\n"
+    "    p.bn0 = v.bn0;\n"
+    "    p.fog = v.fog;\n"
+    "    p.psize = v.psize;\n"
+    "    p.gxN = v.gxN;\n"
+    "    p.gxP = v.gxP;\n"
+    "    p.gxM = v.gxM;\n"
+    "    p.gxF = v.gxF;\n"
+    "    p.clip0 = v.clip0;\n"
+    "    p.clip1 = v.clip1;\n"
+    "    return p;\n"
+    "}\n"
+    "\n"
+    "GxVaryings GxFromPatchPoint(GxPatchPoint p) {\n"
+    "    GxVaryings v;\n"
+    "    v.pos = p.pos;\n"
+    "    v.c0 = p.c0;\n"
+    "    v.c1 = p.c1;\n"
+    "    v.t0 = p.t0;\n"
+    "    v.t1 = p.t1;\n"
+    "    v.t2 = p.t2;\n"
+    "    v.t3 = p.t3;\n"
+    "    v.t4 = p.t4;\n"
+    "    v.t5 = p.t5;\n"
+    "    v.t6 = p.t6;\n"
+    "    v.t7 = p.t7;\n"
+    "    v.t8 = p.t8;\n"
+    "    v.t9 = p.t9;\n"
+    "    v.n0 = p.n0;\n"
+    "    v.tg0 = p.tg0;\n"
+    "    v.bn0 = p.bn0;\n"
+    "    v.fog = p.fog;\n"
+    "    v.psize = p.psize;\n"
+    "    v.gxN = p.gxN;\n"
+    "    v.gxP = p.gxP;\n"
+    "    v.gxM = p.gxM;\n"
+    "    v.gxF = p.gxF;\n"
+    "    v.clip0 = p.clip0;\n"
+    "    v.clip1 = p.clip1;\n"
+    "    return v;\n"
+    "}\n"
+    "\n";
+
 // MODIFIED: modern water (D3d11Water.h). Follows the water pixel shader's own declarations (T0 / S0 the depth texture
 // with Light.dbc's water colours, T1 / S1 the animated water texture, C[4] the fog colour). GxWaterShade takes the stock
 // colour and, while gxWaterFlags.x is set, shades the surface instead: the copies of the opaque scene give the water's
 // thickness, what is seen through it (bent by the surface) and the screen-space reflections; the normal comes from the
 // stock texture's relief at two scales and from the ripple height field. The arithmetic is in linear light
-const char* const s_hlslWater =
+const char* const s_hlslWaterConstants =
     "cbuffer GxWater : register(b5) {\n"
     "    uint4 gxWaterFlags;                 // x features (0 = the stock colour), y debug, z reflection steps\n"
     "    row_major float4x4 gxWaterViewInv;  // view to world (relative to the render origin)\n"
@@ -359,6 +449,8 @@ const char* const s_hlslWater =
     "    float4 gxWaterParams1;              // x foam, y ripple normal, z time (seconds)\n"
     "    float4 gxWaterField;                // the height field: xy its corner (world), z 1 / size (yards), w 1 / texels\n"
     "    float4 gxWaterFieldExtra;           // x texel (yards), y 1 = valid\n"
+    "    row_major float4x4 gxWaterView;     // world (relative to the render origin) to view\n"
+    "    float4 gxWaterTess;                 // x 1 = tessellate, y largest factor, z edge length near (yards), w wave height\n"
     "};\n"
     "\n"
     "Texture2D gxWaterScene : register(t18);\n"
@@ -366,6 +458,30 @@ const char* const s_hlslWater =
     "Texture2D<float2> gxWaterHeight : register(t20); // x the height now (yards)\n"
     "SamplerState gxWaterLinear : register(s15);\n"
     "\n"
+    "// the height field at a world position (relative to the render origin): x the height (yards), yz its slope\n"
+    "float3 WxRipple(float2 w) {\n"
+    "    if (gxWaterFieldExtra.y <= 0.0) {\n"
+    "        return 0.0;\n"
+    "    }\n"
+    "\n"
+    "    float2 uv = (w - gxWaterField.xy) * gxWaterField.z;\n"
+    "    float edge = min(min(uv.x, uv.y), min(1.0 - uv.x, 1.0 - uv.y));\n"
+    "\n"
+    "    if (edge <= 0.0) {\n"
+    "        return 0.0;\n"
+    "    }\n"
+    "\n"
+    "    float e = gxWaterField.w;\n"
+    "    float h = gxWaterHeight.SampleLevel(gxWaterLinear, uv, 0.0).x;\n"
+    "    float hx = gxWaterHeight.SampleLevel(gxWaterLinear, uv + float2(e, 0.0), 0.0).x - gxWaterHeight.SampleLevel(gxWaterLinear, uv - float2(e, 0.0), 0.0).x;\n"
+    "    float hy = gxWaterHeight.SampleLevel(gxWaterLinear, uv + float2(0.0, e), 0.0).x - gxWaterHeight.SampleLevel(gxWaterLinear, uv - float2(0.0, e), 0.0).x;\n"
+    "    float k = 0.5 / gxWaterFieldExtra.x;\n"
+    "    // the border absorbs the waves; fade out before it\n"
+    "    return float3(h, hx * k, hy * k) * saturate(edge * 12.0);\n"
+    "}\n"
+    "\n";
+
+const char* const s_hlslWater =
     "float3 WxDec(float3 c) {\n"
     "    return pow(max(c, 0.0), 2.2);\n"
     "}\n"
@@ -428,28 +544,6 @@ const char* const s_hlslWater =
     "    return lerp(gxWaterAmbient.rgb, c, gxWaterAmbient.w);\n"
     "}\n"
     "\n"
-    "// the height field at a world position: x the height (yards), yz its slope\n"
-    "float3 WxRipple(float2 w) {\n"
-    "    if (gxWaterFieldExtra.y <= 0.0) {\n"
-    "        return 0.0;\n"
-    "    }\n"
-    "\n"
-    "    float2 uv = (w - gxWaterField.xy) * gxWaterField.z;\n"
-    "    float edge = min(min(uv.x, uv.y), min(1.0 - uv.x, 1.0 - uv.y));\n"
-    "\n"
-    "    if (edge <= 0.0) {\n"
-    "        return 0.0;\n"
-    "    }\n"
-    "\n"
-    "    float e = gxWaterField.w;\n"
-    "    float h = gxWaterHeight.SampleLevel(gxWaterLinear, uv, 0.0).x;\n"
-    "    float hx = gxWaterHeight.SampleLevel(gxWaterLinear, uv + float2(e, 0.0), 0.0).x - gxWaterHeight.SampleLevel(gxWaterLinear, uv - float2(e, 0.0), 0.0).x;\n"
-    "    float hy = gxWaterHeight.SampleLevel(gxWaterLinear, uv + float2(0.0, e), 0.0).x - gxWaterHeight.SampleLevel(gxWaterLinear, uv - float2(0.0, e), 0.0).x;\n"
-    "    float k = 0.5 / gxWaterFieldExtra.x;\n"
-    "    // the border absorbs the waves; fade out before it\n"
-    "    return float3(h, hx * k, hy * k) * saturate(edge * 12.0);\n"
-    "}\n"
-    "\n"
     "// the stock water texture's relief (its brightness as height) around uv, st apart\n"
     "float2 WxTexSlope(float2 uv, float2 st) {\n"
     "    float l = WxLum(T1.SampleGrad(S1, uv - float2(st.x, 0.0), st, st).rgb);\n"
@@ -482,9 +576,9 @@ const char* const s_hlslWater =
     "    float2 st = max(1.0 / size, fwidth(uv) * 0.75);\n"
     "    float2 st2 = max(1.0 / size, fwidth(uv2) * 0.75);\n"
     "    float2 slope = WxTexSlope(uv, st) + WxTexSlope(uv2, st2) * 0.6;\n"
-    "    slope *= 2.5 * gxWaterParams0.w * lerp(1.0, 0.25, saturate((dist - 20.0) / 180.0));\n"
+    "    slope *= 1.2 * gxWaterParams0.w * lerp(1.0, 0.25, saturate((dist - 20.0) / 180.0));\n"
     "    float3 ripple = WxRipple(pw.xy);\n"
-    "    slope += ripple.yz * gxWaterParams1.y;\n"
+    "    slope += ripple.yz * (2.5 * gxWaterParams1.y);\n"
     "    float3 n = normalize(float3(-slope, 1.0));\n"
     "    // the slope in view space (a rotation: the inverse view's transpose), for the refraction's shift on screen\n"
     "    float3 bendView = mul((float3x3)gxWaterViewInv, float3(-slope, 0.0));\n"
@@ -612,7 +706,7 @@ const char* const s_hlslWater =
     "    if (gxWaterParams1.x > 0.0) {\n"
     "        // foam where the water is shallow at the shore and where it is disturbed, broken up by the stock texture\n"
     "        float shore = sceneW > 0.0 ? saturate(1.0 - depth / 0.7) : 0.0;\n"
-    "        float churn = saturate(abs(ripple.x) * 8.0 - 0.1) + saturate(length(ripple.yz) * 1.5 - 0.15);\n"
+    "        float churn = saturate(abs(ripple.x) * 4.0 - 0.15) + saturate(length(ripple.yz) * 1.2 - 0.25);\n"
     "        float foam = saturate((shore * 0.8 + churn) * smoothstep(0.25, 0.75, pattern + 0.2 * churn)) * gxWaterParams1.x;\n"
     "        color = lerp(color, lit * 0.85, saturate(foam * 0.7));\n"
     "    }\n"
@@ -1815,6 +1909,13 @@ bool Writer::Run(std::string& out, std::string& error) {
     out.clear();
     out.reserve(8192 + mainBody.size() + functions.size());
     out += s_hlslCommon;
+    // MODIFIED: modern water: a vertex shader for the tessellation stages hands them GxPatchPoint
+    bool patchPoint = vertex && (m_variant & Variant_Tessellated);
+
+    if (patchPoint) {
+        out += s_hlslPatchPoint;
+    }
+
     out += "cbuffer GxConstants : register(b0) {\n    float4 C[256];\n};\n\n";
 
     if (!surface.empty() || litPixel) {
@@ -1864,6 +1965,7 @@ bool Writer::Run(std::string& out, std::string& error) {
     out += "\n";
 
     if (water) {
+        out += s_hlslWaterConstants;
         out += s_hlslWater;
     }
 
@@ -1966,9 +2068,9 @@ bool Writer::Run(std::string& out, std::string& error) {
         }
 
         if (!fields.empty()) {
-            out += "struct Dx9VsIn {\n" + fields + "};\n\nGxVaryings main(Dx9VsIn vin) {\n";
+            out += "struct Dx9VsIn {\n" + fields + (patchPoint ? "};\n\nGxPatchPoint main(Dx9VsIn vin) {\n" : "};\n\nGxVaryings main(Dx9VsIn vin) {\n");
         } else {
-            out += "GxVaryings main() {\n";
+            out += patchPoint ? "GxPatchPoint main() {\n" : "GxVaryings main() {\n";
         }
 
         out += loads;
@@ -2057,7 +2159,7 @@ bool Writer::Run(std::string& out, std::string& error) {
 
         out += surface;
         out += "    GxFinishVertex(o, o.pos);\n";
-        out += "    return o;\n}\n";
+        out += patchPoint ? "    return GxToPatchPoint(o);\n}\n" : "    return o;\n}\n";
     } else {
         out += "struct Dx9PsOut {\n";
 

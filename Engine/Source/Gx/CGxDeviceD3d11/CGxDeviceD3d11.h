@@ -225,6 +225,8 @@ class CGxDeviceD3d11 : public CGxDevice {
     D3d11Lighting* m_lighting = nullptr;
     // MODIFIED: modern water (D3d11Water.h): the ripple height field, the copies for the liquids, the water constants
     D3d11Water* m_water = nullptr;
+    // a water draw bound the hull and domain shaders (D3d11Water::BindTessellation); Draw unbinds them after it
+    bool m_tessBound = false;
     ID3D11ShaderResourceView* m_frameDepthSrv = nullptr;
     bool m_lightingBound = false;
 

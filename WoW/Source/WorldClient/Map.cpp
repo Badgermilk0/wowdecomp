@@ -1,4 +1,5 @@
 #include "Map.h"
+#include "WoW/Source/Awesome/Awesome.h"
 #include "WoW/Source/WorldClient/WorldLightingConstants.h"
 #include "WoW/Source/WorldClient/WorldConstants.h"
 #include "Engine/Source/ShaderEffect/ShadowCache.h"
@@ -5985,7 +5986,8 @@ void CMap::Unload() {
 // VERIFY: 6b4c3b7f auto
 // OFFSET: 0x0079D460
 void CMap::CreateWaterRipple(const C3Vector& pos, float a2, float a3, float a4, float a5, float a6, int32_t a7, int32_t a8) {
-    if (CWorld::s_waterRipples && !World::s_waterLOD) {
+    // MODIFIED: modern water (Awesome.h): the height field's waves stand in for the decals
+    if (CWorld::s_waterRipples && !World::s_waterLOD && !AwesomeWaterHidesStockRipples()) {
         float alpha = 1.0f;
 
         if (a5 < 0.16666667f) {

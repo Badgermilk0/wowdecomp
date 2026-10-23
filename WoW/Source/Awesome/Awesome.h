@@ -78,6 +78,8 @@ void AwesomeWaterEndWorld();
 // ripple's rate limit): id tells units apart, surface is the unit's position at the liquid's height, motion the
 // movement flags, event 201 a crossing of the surface (a splash), speed the current movement speed
 void AwesomeWaterOnUnitInLiquid(uintptr_t id, const C3Vector& surface, float depth, float maxDepth, uint32_t motion, uint32_t event, float speed);
+// CMap::CreateWaterRipple: true while the height field stands in for the stock splash and wake decals
+bool AwesomeWaterHidesStockRipples();
 
 // AwesomeSky.cpp, the smoother sky (WorldClient/SkyModel.h holds the arithmetic). DayNight::DNSky::Render: draws the
 // dome from the stock colours and returns true, or false for the stock draw (skySmooth off)

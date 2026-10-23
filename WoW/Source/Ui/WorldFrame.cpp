@@ -1760,8 +1760,8 @@ void CGWorldFrame::OnWorldRender() {
 
     if (!scene) {
         // MODIFIED: modern lighting: the world pass ends
-        AwesomeLightingEndWorld();
         AwesomeWaterEndWorld();
+        AwesomeLightingEndWorld();
         FrameProfileSwitch(FRAMEPROFILE_NONE);
         return;
     }
@@ -1828,8 +1828,8 @@ void CGWorldFrame::OnWorldRender() {
     CGChatBubbleFrame::OnWorldRender(this);
     GxXformSetViewport(minX, maxX, minY, maxY, minZ, maxZ);
     // MODIFIED: modern lighting: bloom and the tonemap into the frame; FFX glow then sees the tonemapped world
-    AwesomeLightingEndWorld();
     AwesomeWaterEndWorld();
+    AwesomeLightingEndWorld();
     FFX::Finish();
     CVehiclePassenger_C::PostRenderUpdateAll();
     FrameProfileSwitch(FRAMEPROFILE_NONE);

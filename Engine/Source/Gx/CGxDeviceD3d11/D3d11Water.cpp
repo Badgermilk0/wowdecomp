@@ -32,6 +32,8 @@ struct WaterConstants {
     float m_params1[4];         // foam, ripple normal, time, 0
     float m_field[4];           // the height field: xy its corner (world, relative), z 1 / its size (yards), w 1 / texels
     float m_fieldExtra[4];      // x texel (yards), y 1 = valid
+    float m_view[16];           // world (relative to the render origin) to view
+    float m_tess[4];            // x 1 = tessellate, y largest factor, z edge length near (yards), w wave height
 };
 
 // the passes' cbuffer (s_waterPassHlsl), b0
@@ -117,6 +119,35 @@ bool D3d11Water::ICreateShaders() {
             this->m_failed = true;
             return false;
         }
+    }
+
+    return true;
+}
+
+bool D3d11Water::ICreateTessellation() {
+    if (this->m_hullShader && this->m_domainShader) {
+        return true;
+    }
+
+    if (this->m_tessFailed) {
+        return false;
+    }
+
+    std::string source = s_hlslCommon;
+    source += s_hlslPatchPoint;
+    source += s_hlslWaterConstants;
+    source += s_hlslWaterTessellation;
+    std::vector<uint8_t> hs;
+    std::vector<uint8_t> ds;
+    std::string error;
+    ID3D11Device* device = this->m_device->m_d3dDevice;
+
+    if (!CompileHlsl(source, "WaterHs", "hs_5_0", hs, error) || !CompileHlsl(source, "WaterDs", "ds_5_0", ds, error) || FAILED(device->CreateHullShader(hs.data(), hs.size(), nullptr, &this->m_hullShader)) || FAILED(device->CreateDomainShader(ds.data(), ds.size(), nullptr, &this->m_domainShader))) {
+        CGxDevice::Log("D3d11Water: no tessellation: %.600s", error.c_str());
+        SafeRelease(this->m_hullShader);
+        SafeRelease(this->m_domainShader);
+        this->m_tessFailed = true;
+        return false;
     }
 
     return true;
@@ -274,6 +305,10 @@ void D3d11Water::ReleaseAll() {
     for (ID3D11DeviceChild*& shader : this->m_shaders) {
         SafeRelease(shader);
     }
+
+    SafeRelease(this->m_hullShader);
+    SafeRelease(this->m_domainShader);
+    this->m_tessFailed = false;
 
     SafeRelease(this->m_blendOpaque);
     SafeRelease(this->m_sampler);
@@ -544,6 +579,13 @@ void D3d11Water::IWriteConstants() {
         c.m_fieldExtra[1] = 1.0f;
     }
 
+    CopyMatrix(c.m_view, view);
+    bool tess = field && (p.m_features & GxWater_Tessellation) && this->ICreateTessellation();
+    c.m_tess[0] = tess ? 1.0f : 0.0f;
+    c.m_tess[1] = 32.0f;
+    c.m_tess[2] = 0.3f;
+    c.m_tess[3] = p.m_waveHeight;
+
     D3D11_MAPPED_SUBRESOURCE mapped;
 
     if (SUCCEEDED(dev->m_ctx->Map(this->m_constants, 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped))) {
@@ -652,6 +694,22 @@ void D3d11Water::BindForDraw() {
     ctx->PSSetSamplers(15, 1, &this->m_sampler);
     dev->m_boundSampler[15] = this->m_sampler;
     this->m_drawsThisFrame++;
+}
+
+bool D3d11Water::TessellationReady() const {
+    const CGxDeviceD3d11* dev = this->m_device;
+    return dev->m_ctx && this->m_worldActive && this->m_captured && dev->m_curRtv == this->m_capturedRtv && this->m_fieldValid && (this->m_params.m_features & GxWater_Tessellation) && this->m_hullShader && this->m_domainShader;
+}
+
+void D3d11Water::BindTessellation() {
+    ID3D11DeviceContext* ctx = this->m_device->m_ctx;
+
+    ctx->HSSetShader(this->m_hullShader, nullptr, 0);
+    ctx->DSSetShader(this->m_domainShader, nullptr, 0);
+    ctx->HSSetConstantBuffers(5, 1, &this->m_constants);
+    ctx->DSSetConstantBuffers(5, 1, &this->m_constants);
+    ctx->DSSetShaderResources(20, 1, &this->m_fieldSrv[this->m_current]);
+    ctx->DSSetSamplers(15, 1, &this->m_sampler);
 }
 
 void D3d11Water::EndWorld() {

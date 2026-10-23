@@ -16,6 +16,7 @@ target_link_libraries(WaterTests
     PRIVATE
         d3d11
         d3dcompiler
+        dxguid
 )
 
 set_target_properties(WaterTests PROPERTIES

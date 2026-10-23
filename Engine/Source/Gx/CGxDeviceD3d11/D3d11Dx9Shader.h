@@ -60,6 +60,9 @@ enum EFamily : uint32_t {
     Family_WaterPixel = 10,
 };
 
+// MODIFIED: modern water: a vertex shader variant bit, the shader feeds the tessellation stages (s_hlslPatchPoint)
+const uint32_t Variant_Tessellated = 0x80000000u;
+
 // the family of an engine shader, by its name ("Diffuse_T1:13", the permutation after the colon)
 uint32_t FamilyForShader(const char* name, bool vertex);
 
@@ -67,7 +70,11 @@ uint32_t FamilyForShader(const char* name, bool vertex);
 extern const char* const s_hlslCommon;
 // MODIFIED: modern lighting: the surface outputs and the lighting functions of a lit family (after s_hlslCommon)
 extern const char* const s_hlslLighting;
-// MODIFIED: modern water: the water pixel shader's shading (after its sampler declarations)
+// MODIFIED: modern water: the water constants, textures and height field lookup (also the tessellation stages'),
+// then the water pixel shader's shading (after its sampler declarations)
+extern const char* const s_hlslWaterConstants;
+// MODIFIED: modern water: GxPatchPoint, what a Variant_Tessellated vertex shader hands the tessellation stages
+extern const char* const s_hlslPatchPoint;
 extern const char* const s_hlslWater;
 
 // D3D9 names a varying by usage and usage index; -1 when there is no slot for it

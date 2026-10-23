@@ -24,6 +24,8 @@ class CGxDeviceD3d11;
 namespace GxD3d11 {
 // the passes (D3d11WaterHlsl.cpp): FullscreenVs, SimPs, DepthPs (GX_MSAA 0 or 1)
 extern const char* const s_hlslWaterPasses;
+// the tessellation stages WaterHs / WaterDs, after s_hlslCommon, s_hlslPatchPoint and s_hlslWaterConstants
+extern const char* const s_hlslWaterTessellation;
 }
 
 class D3d11Water : public IGxWater {
@@ -43,6 +45,10 @@ class D3d11Water : public IGxWater {
 
     // the device's side: before a draw with a water pixel shader
     void BindForDraw();
+    // a draw from a triangle list with the water shaders may be tessellated now (its vertex shader then takes the
+    // Variant_Tessellated variant); BindTessellation binds the hull and domain shaders for it
+    bool TessellationReady() const;
+    void BindTessellation();
     // the frame's size changed, or the device goes
     void ReleaseTargets();
     void ReleaseAll();
@@ -91,6 +97,9 @@ class D3d11Water : public IGxWater {
     ID3D11SamplerState* m_sampler = nullptr;
     ID3D11BlendState* m_blendOpaque = nullptr;
     ID3D11DeviceChild* m_shaders[Shaders_Last] = {};
+    ID3D11HullShader* m_hullShader = nullptr;
+    ID3D11DomainShader* m_domainShader = nullptr;
+    bool m_tessFailed = false;
 
     // this frame
     bool m_worldActive = false;
@@ -103,6 +112,7 @@ class D3d11Water : public IGxWater {
     bool m_lastCaptured = false;
 
     bool ICreateShaders();
+    bool ICreateTessellation();
     bool ICreateResources();
     bool IEnsureField();
     bool IEnsureCopies(DXGI_FORMAT format);

@@ -254,6 +254,9 @@ class CGxDevice {
     static char s_monitorName[32];
     // MODIFIED: the window's screen rect before DeviceSetFormat destroyed it, so the new one opens on that monitor
     static int32_t s_lastWindowRectValid;
+    // MODIFIED: texLodBias (World::SetTexLodBias): the mip level bias of every mipmapped texture, -1 (sharper) to 1.
+    // The 3.3.5a binary registered the CVar but applied it nowhere; the D3D11 device's samplers take it
+    static float s_texLodBias;
     static CiRect s_lastWindowRect;
     static const char* s_pixelShaderTargetNames[14];
     static const char* s_vertexShaderTargetNames[12];

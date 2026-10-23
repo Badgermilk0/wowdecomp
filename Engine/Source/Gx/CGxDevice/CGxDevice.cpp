@@ -106,6 +106,8 @@ int32_t CGxDevice::s_windowPosValid;
 C2iVector CGxDevice::s_windowPos;
 char CGxDevice::s_monitorName[32];
 int32_t CGxDevice::s_lastWindowRectValid;
+// MODIFIED: texLodBias
+float CGxDevice::s_texLodBias;
 CiRect CGxDevice::s_lastWindowRect;
 
 // STATIC: 0x00C60308

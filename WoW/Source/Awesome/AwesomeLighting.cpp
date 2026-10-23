@@ -53,6 +53,9 @@ static AwesomeCVar s_cvExposure = AwesomeCVar::Float("hdrExposure", 1.0f, 0.25f,
 static AwesomeCVar s_cvTonemap = AwesomeCVar::Int("hdrTonemap", 1, 0, 2);
 static AwesomeCVar s_cvBloom = AwesomeCVar::Float("bloom", 0.0f, 0.0f, 2.0f);
 static AwesomeCVar s_cvBloomThreshold = AwesomeCVar::Float("bloomThreshold", 1.0f, 0.1f, 8.0f);
+// contrast-adaptive sharpening of the world (not the UI) as it is tonemapped: detail softened by mips and distance
+// comes back; needs hdr 1 (0 off, to 1)
+static AwesomeCVar s_cvSharpen = AwesomeCVar::Float("sharpen", 0.0f, 0.0f, 1.0f);
 static AwesomeCVar s_cvSsao = AwesomeCVar::Float("ssao", 0.0f, 0.0f, 2.0f);
 static AwesomeCVar s_cvSsaoRadius = AwesomeCVar::Float("ssaoRadius", 1.5f, 0.25f, 8.0f);
 static AwesomeCVar s_cvSsaoDistance = AwesomeCVar::Float("ssaoDistance", 200.0f, 20.0f, 2000.0f, nullptr, "%.0f");
@@ -85,7 +88,7 @@ static AwesomeCVar s_cvDebug = AwesomeCVar::Int("lightingDebug", 0, 0, 5);
 static AwesomeCVar* const s_cvars[] = {
     &s_cvGlueTest,
     &s_cvDebug,
-    &s_cvHdr, &s_cvExposure, &s_cvTonemap, &s_cvBloom, &s_cvBloomThreshold, &s_cvSsao, &s_cvSsaoRadius, &s_cvSsaoDistance,
+    &s_cvHdr, &s_cvExposure, &s_cvTonemap, &s_cvBloom, &s_cvBloomThreshold, &s_cvSharpen, &s_cvSsao, &s_cvSsaoRadius, &s_cvSsaoDistance,
     &s_cvPerPixel, &s_cvDynamic, &s_cvDynamicIntensity, &s_cvDynamicM2, &s_cvDynamicWmo, &s_cvDynamicDistance, &s_cvFlicker,
     &s_cvWrap, &s_cvSpecular, &s_cvSpecularM2, &s_cvSpecularWmo, &s_cvSkyAmbient, &s_cvHeightFog, &s_cvHeightFogFalloff,
     &s_cvHeightFogOffset, &s_cvHeightFogMax, &s_cvScattering, &s_cvFire,
@@ -495,6 +498,7 @@ static void BuildParams(GxLightingParams& p, const C3Vector& camera) {
     p.m_tonemap = static_cast<uint32_t>(s_cvTonemap.m_intValue);
     p.m_bloomIntensity = s_cvBloom.m_floatValue;
     p.m_bloomThreshold = s_cvBloomThreshold.m_floatValue;
+    p.m_sharpen = s_cvSharpen.m_floatValue;
     p.m_ssaoIntensity = s_cvSsao.m_floatValue;
     p.m_ssaoRadius = s_cvSsaoRadius.m_floatValue;
     p.m_ssaoDistance = s_cvSsaoDistance.m_floatValue;
@@ -854,7 +858,7 @@ static int32_t Script_LightingCommand(lua_State* L) {
     static const Preset s_preset[] = {
         { &s_cvHdr, "1" }, { &s_cvBloom, "0.3" }, { &s_cvSsao, "0.8" }, { &s_cvPerPixel, "1" }, { &s_cvDynamic, "1" },
         { &s_cvSpecular, "1" }, { &s_cvSkyAmbient, "0.5" }, { &s_cvHeightFog, "0.003" }, { &s_cvScattering, "0.4" },
-        { &s_cvFire, "1" },
+        { &s_cvFire, "1" }, { &s_cvSharpen, "0.5" },
     };
 
     if (!strcmp(word, "on") || !strcmp(word, "off")) {

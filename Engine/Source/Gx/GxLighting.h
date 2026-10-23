@@ -47,6 +47,7 @@ struct GxLightingParams {
     uint32_t m_tonemap = 1;          // 0 clamp (stock), 1 neutral (stock below a shoulder), 2 ACES
     float m_bloomIntensity = 0.0f;
     float m_bloomThreshold = 1.0f;   // linear
+    float m_sharpen = 0.0f;          // 0 off, to 1: contrast-adaptive sharpening of the world in the tonemap (needs Hdr)
 
     // SSAO
     float m_ssaoIntensity = 0.0f;

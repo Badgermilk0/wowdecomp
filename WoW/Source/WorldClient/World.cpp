@@ -489,6 +489,9 @@ static float s_horizonMaxZ = 0.9990234375f;
 // VERIFY: 8564474b manual
 // OFFSET: 0x005EEB70
 void World::SetTexLodBias(float bias) {
+    // MODIFIED: texLodBias. Empty in the 3.3.5a binary, so the CVar did nothing; the D3D11 device's samplers read it
+    // (CGxDeviceD3d11::ISamplerState)
+    CGxDevice::s_texLodBias = bias;
 }
 
 // VERIFY: 64ab1743 auto

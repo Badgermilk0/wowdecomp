@@ -1997,6 +1997,9 @@ void CGGameUI::InitializeGame() {
 // VERIFY: fa2430a7 manual
 // OFFSET: 0x0052AF40
 int32_t CGGameUI::Idle(const void* data, void* param) {
+    // MODIFIED: display management (Alt+Enter, the remembered window, DPI changes) outside the frame's rendering
+    AwesomeOnIdle();
+
     if (g_theGxDevicePtr->StereoEnabled()) {
         float convergence = g_theGxDevicePtr->StereoGetConvergence();
 
@@ -2220,10 +2223,20 @@ void CGGameUI::ScaleToScreenSize(int32_t width, int32_t height, int32_t force) {
         scale = 0.63999999f;
     }
 
+    // MODIFIED: uiScaleDpi sizes the UI by the monitor's DPI when useUiScale is off
+    scale = AwesomeDisplayDefaultUiScale(scale);
+
     if (CGGameUI::m_UISimpleParent) {
         CGGameUI::m_UISimpleParent->SetFrameScale(scale, true);
         CLayoutFrame::ResizePending();
+        AwesomeDisplayOnUiScaled();
         FrameScript_SignalEvent(SCRIPT_EVENT_UPDATE_FLOATING_CHAT_WINDOWS, nullptr);
+    }
+
+    // MODIFIED: live aspect changes lay the UI out again instead of reloading it
+    if (fabs(CGGameUI::m_aspect - aspect) >= 0.001f && AwesomeDisplayApplyAspect(CGGameUI::m_simpleTop, aspect)) {
+        CGGameUI::m_aspect = aspect;
+        AwesomeDisplayOnUiScaled();
     }
 
     if (fabs(CGGameUI::m_aspect - aspect) >= 0.001f) {
@@ -2247,9 +2260,20 @@ void CGGameUI::HandleDisplaySizeChanged(const CSizeEvent& evt) {
             scale = CGGameUI::m_aspect * 0.75f;
         }
 
-        if (scale >= 0.63999999f) {
-            CGGameUI::SetUIScale(scale);
+        // MODIFIED: the uiScale floor is AwesomeDisplayMinUiScale (stock 0.64)
+        if (scale >= AwesomeDisplayMinUiScale()) {
             float aspect = Screen::GetAspectRatio();
+
+            // MODIFIED: live aspect changes lay the UI out again instead of reloading it; the scale is applied after,
+            // so uiScaleDpi and uiMaxAspect see the new window
+            if (fabs(CGGameUI::m_aspect - aspect) >= 0.001f && AwesomeDisplayApplyAspect(CGGameUI::m_simpleTop, aspect)) {
+                CGGameUI::m_aspect = aspect;
+                CGGameUI::SetUIScale(scale);
+                FrameScript_SignalEvent(SCRIPT_EVENT_DISPLAY_SIZE_CHANGED, nullptr);
+                return;
+            }
+
+            CGGameUI::SetUIScale(scale);
 
             if (fabs(CGGameUI::m_aspect - aspect) >= 0.001f) {
                 CGGameUI::Reload();
@@ -3973,15 +3997,14 @@ void CGGameUI::SetSummonRequest(WOWGUID summoner, uint32_t area, uint32_t timeou
 // VERIFY: ed4947e0 auto
 // OFFSET: 0x00513240
 void CGGameUI::SetUIScale(float scale) {
-    float clamped = 0.64f;
-
-    if (scale > 0.64f) {
-        clamped = scale;
-    }
+    // MODIFIED: stock clamps to 0.64 or more, too large for 4K; AwesomeDisplayUiScale lowers the floor and applies
+    // uiScaleDpi
+    float clamped = AwesomeDisplayUiScale(scale);
 
     if (CGGameUI::m_UISimpleParent) {
         CGGameUI::m_UISimpleParent->SetFrameScale(clamped, true);
         CLayoutFrame::ResizePending();
+        AwesomeDisplayOnUiScaled();
         FrameScript_SignalEvent(SCRIPT_EVENT_UPDATE_FLOATING_CHAT_WINDOWS, nullptr);
     }
 }

@@ -1095,6 +1095,9 @@ void CGlueMgr::Initialize() {
 // VERIFY: 5e7db3b8 manual
 // OFFSET: 0x004DAB40
 int32_t CGlueMgr::Idle(const void* data, void* param) {
+    // MODIFIED: display management (Alt+Enter, the remembered window, DPI changes) outside the frame's rendering
+    AwesomeOnIdle();
+
     if (g_theGxDevicePtr->StereoEnabled()) {
         CGlueMgr::SetUIDepth(g_theGxDevicePtr->StereoGetConvergence());
     }

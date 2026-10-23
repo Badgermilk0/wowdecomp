@@ -17,6 +17,7 @@ class CGNamePlateFrame;
 class CGObject_C;
 class CGUnit_C;
 class CGWorldFrame;
+class CSimpleTop;
 struct CVar;
 
 // Version reported to addons as the AwesomeWotlk global, matching the upstream release this port follows
@@ -56,6 +57,20 @@ void AwesomeLightingEndWorld();
 // CSimpleModelFFX::Render around the login screen's model, for lightingGlueTest (off by default)
 void AwesomeLightingGlueBegin();
 void AwesomeLightingGlueEnd();
+
+// AwesomeDisplay.cpp, display management. CGGameUI::Idle and CGlueMgr::Idle, once per frame outside the frame's
+// rendering: Alt+Enter, the remembered window, DPI and gxMonitor changes
+void AwesomeOnIdle();
+// CGGameUI::SetUIScale: the scale UIParent gets for a requested uiScale (floor AwesomeDisplayMinUiScale, uiScaleDpi)
+float AwesomeDisplayUiScale(float scale);
+float AwesomeDisplayMinUiScale();
+// CGGameUI::ScaleToScreenSize (useUiScale off): the stock automatic scale, or the DPI-based one with uiScaleDpi
+float AwesomeDisplayDefaultUiScale(float scale);
+// after UIParent's scale or the aspect changed: uiMaxAspect's centred area
+void AwesomeDisplayOnUiScaled();
+// CGGameUI on a new window aspect: lays top's frames out for it and returns true (uiLiveResize), or returns false and
+// the caller reloads the UI as stock did. The glue screens always reload
+bool AwesomeDisplayApplyAspect(CSimpleTop* top, float aspect);
 
 // CGCamera's constructor: the world camera's field of view (cameraFov CVar)
 float AwesomeCameraFieldOfView();

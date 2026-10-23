@@ -111,7 +111,9 @@ static int32_t s_fontStringCount;
 // VERIFY: 0e98fd61 auto
 // OFFSET: 0x004826D0
 static int32_t IsRectOffscreen(const CRect& rect) {
-    return rect.maxY < 0.0f || rect.minY > 1.0f || rect.maxX < 0.0f || rect.minX > 1.0f;
+    // MODIFIED: live aspect changes. The screen's size in DDC; stock's [0, 1] held only for its diagonal-normalised
+    // coordinates, the fixed-height ones are wider than 1 past 5:3 (Coordinate.cpp)
+    return rect.maxY < 0.0f || rect.minY > NDCToDDCHeight(1.0f) || rect.maxX < 0.0f || rect.minX > NDCToDDCWidth(1.0f);
 }
 
 // VERIFY: d066960a manual

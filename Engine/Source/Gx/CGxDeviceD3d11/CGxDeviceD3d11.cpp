@@ -185,6 +185,45 @@ int32_t CGxDeviceD3d11::IInitD3d11() {
     return 1;
 }
 
+// MODIFIED: per-monitor DPI (WinMain.cpp). A monitor's effective DPI (Windows 8.1+), 0 when unknown
+static UINT MonitorDpi(HMONITOR monitor) {
+    typedef HRESULT(WINAPI * GetDpiForMonitorProc)(HMONITOR, int, UINT*, UINT*);
+    static GetDpiForMonitorProc s_getDpiForMonitor = nullptr;
+    static bool s_looked = false;
+
+    if (!s_looked) {
+        s_looked = true;
+        HMODULE shcore = LoadLibraryA("shcore.dll");
+        s_getDpiForMonitor = shcore ? reinterpret_cast<GetDpiForMonitorProc>(GetProcAddress(shcore, "GetDpiForMonitor")) : nullptr;
+    }
+
+    UINT dpiX = 0;
+    UINT dpiY = 0;
+
+    // MDT_EFFECTIVE_DPI
+    if (!monitor || !s_getDpiForMonitor || FAILED(s_getDpiForMonitor(monitor, 0, &dpiX, &dpiY))) {
+        return 0;
+    }
+
+    return dpiY;
+}
+
+// MODIFIED: per-monitor DPI. s_clientAdjust for a window of style on a monitor at dpi: the frame's size follows the
+// monitor's scale, and AdjustWindowRectEx only knows the primary's. AdjustWindowRectExForDpi is Windows 10 1607+
+static void SetClientAdjust(DWORD style, UINT dpi) {
+    typedef BOOL(WINAPI * AdjustForDpiProc)(LPRECT, DWORD, BOOL, DWORD, UINT);
+    static AdjustForDpiProc s_adjustForDpi = reinterpret_cast<AdjustForDpiProc>(GetProcAddress(GetModuleHandleA("user32.dll"), "AdjustWindowRectExForDpi"));
+
+    RECT rect = { 0, 0, 100, 100 };
+
+    if (!dpi || !s_adjustForDpi || !s_adjustForDpi(&rect, style, FALSE, 0, dpi)) {
+        AdjustWindowRectEx(&rect, style, FALSE, 0);
+    }
+
+    CGxDevice::s_clientAdjust.x = rect.right - rect.left - 100;
+    CGxDevice::s_clientAdjust.y = rect.bottom - rect.top - 100;
+}
+
 int32_t CGxDeviceD3d11::ICreateWindow(CGxFormat& format) {
     HINSTANCE instance = GetModuleHandleA(nullptr);
     DWORD style;
@@ -205,33 +244,35 @@ int32_t CGxDeviceD3d11::ICreateWindow(CGxFormat& format) {
         aspectRatio = static_cast<float>(format.m_size.x) / format.m_size.y;
     }
 
-    RECT clientRect;
-    clientRect.left = 0;
-    clientRect.top = 0;
-    clientRect.right = format.m_size.x;
-    clientRect.bottom = format.m_size.y;
-    AdjustWindowRectEx(&clientRect, style, FALSE, 0);
+    // MODIFIED: display management. The monitor the window goes on: gxMonitor, else the one it was last on
+    CiRect monitorRect;
+    CiRect workRect;
 
-    CGxDevice::s_clientAdjust.x = clientRect.right - format.m_size.x - clientRect.left;
-    CGxDevice::s_clientAdjust.y = clientRect.bottom - format.m_size.y - clientRect.top;
+    if (!CGxDevice::PickMonitor(&monitorRect, &workRect)) {
+        monitorRect.minX = 0;
+        monitorRect.minY = 0;
+        monitorRect.maxX = GetSystemMetrics(SM_CXSCREEN);
+        monitorRect.maxY = GetSystemMetrics(SM_CYSCREEN);
+        workRect = monitorRect;
+    }
 
-    if (!format.m_window) {
-        // full screen is a borderless window over the primary monitor, at its own resolution: flip-model swap chains
-        // present there without an exclusive mode, so alt-tab and other windows behave as on the desktop
-        MONITORINFO monitor;
-        monitor.cbSize = sizeof(monitor);
-        GetMonitorInfoA(MonitorFromPoint(POINT { 0, 0 }, MONITOR_DEFAULTTOPRIMARY), &monitor);
-        format.m_pos.x = monitor.rcMonitor.left;
-        format.m_pos.y = monitor.rcMonitor.top;
-        format.m_size.x = monitor.rcMonitor.right - monitor.rcMonitor.left;
-        format.m_size.y = monitor.rcMonitor.bottom - monitor.rcMonitor.top;
-        CGxDevice::s_clientAdjust.x = 0;
-        CGxDevice::s_clientAdjust.y = 0;
-    } else if (format.m_maximize == 1) {
-        format.m_pos.x = 0;
-        format.m_pos.y = 0;
-        format.m_size.x = GetSystemMetrics(SM_CXSCREEN);
-        format.m_size.y = GetSystemMetrics(SM_CYSCREEN);
+    // MODIFIED: per-monitor DPI. The frame at that monitor's scale (stock: AdjustWindowRectEx, the primary's)
+    RECT pickedRect = { monitorRect.minX, monitorRect.minY, monitorRect.maxX, monitorRect.maxY };
+    SetClientAdjust(style, MonitorDpi(MonitorFromRect(&pickedRect, MONITOR_DEFAULTTONEAREST)));
+
+    if (!format.m_window || format.m_maximize == 1) {
+        // full screen is a borderless window over its monitor, at that monitor's resolution: flip-model swap chains
+        // present there without an exclusive mode, so alt-tab and other windows behave as on the desktop. A maximized
+        // window (gxMaximize) is the same window without the cursor clip; stock put it at 0,0 with the primary's size
+        format.m_pos.x = monitorRect.minX;
+        format.m_pos.y = monitorRect.minY;
+        format.m_size.x = monitorRect.maxX - monitorRect.minX;
+        format.m_size.y = monitorRect.maxY - monitorRect.minY;
+
+        if (!format.m_window) {
+            CGxDevice::s_clientAdjust.x = 0;
+            CGxDevice::s_clientAdjust.y = 0;
+        }
     } else {
         RECT windowRect;
         windowRect.left = 0;
@@ -247,6 +288,35 @@ int32_t CGxDeviceD3d11::ICreateWindow(CGxFormat& format) {
         } else {
             format.m_pos.x = 0;
             format.m_pos.y = 0;
+        }
+
+        // MODIFIED: display management. Back where the window was last time (gxWindowPos), if that is still on a
+        // monitor (on gxMonitor's, when one is set), kept inside its work area; stock always centred on the primary
+        if (CGxDevice::s_windowPosValid) {
+            int32_t outerWidth = format.m_size.x + CGxDevice::s_clientAdjust.x;
+            int32_t outerHeight = format.m_size.y + CGxDevice::s_clientAdjust.y;
+            RECT saved = { CGxDevice::s_windowPos.x, CGxDevice::s_windowPos.y, CGxDevice::s_windowPos.x + outerWidth, CGxDevice::s_windowPos.y + outerHeight };
+            HMONITOR savedMonitor = MonitorFromRect(&saved, MONITOR_DEFAULTTONULL);
+            MONITORINFO info;
+            info.cbSize = sizeof(info);
+
+            if (savedMonitor && GetMonitorInfoA(savedMonitor, &info) && (CGxDevice::s_monitorIndex < 1 || (info.rcMonitor.left == monitorRect.minX && info.rcMonitor.top == monitorRect.minY))) {
+                // the frame at the scale of the monitor the window goes back to
+                SetClientAdjust(style, MonitorDpi(savedMonitor));
+                outerWidth = format.m_size.x + CGxDevice::s_clientAdjust.x;
+                outerHeight = format.m_size.y + CGxDevice::s_clientAdjust.y;
+
+                // the invisible resize borders may hang over the work area's edge, as a window snapped there does
+                int32_t border = CGxDevice::s_clientAdjust.x / 2;
+                int32_t x = saved.left;
+                int32_t y = saved.top;
+                x = x > info.rcWork.right - outerWidth + border ? info.rcWork.right - outerWidth + border : x;
+                x = x < info.rcWork.left - border ? info.rcWork.left - border : x;
+                y = y > info.rcWork.bottom - outerHeight + border ? info.rcWork.bottom - outerHeight + border : y;
+                y = y < info.rcWork.top ? info.rcWork.top : y;
+                format.m_pos.x = x;
+                format.m_pos.y = y;
+            }
         }
     }
 
@@ -664,6 +734,27 @@ void CGxDeviceD3d11::ISetWindowFocus(int32_t focus) {
     }
 }
 
+int32_t CGxDeviceD3d11::IFitToMonitor() {
+    if (!this->m_hwnd || (this->m_format.m_window && this->m_format.m_maximize != 1)) {
+        return 0;
+    }
+
+    MONITORINFO info;
+    info.cbSize = sizeof(info);
+    RECT window;
+
+    if (GetMonitorInfoA(MonitorFromWindow(this->m_hwnd, MONITOR_DEFAULTTONEAREST), &info) && GetWindowRect(this->m_hwnd, &window) && !EqualRect(&window, &info.rcMonitor)) {
+        SetWindowPos(this->m_hwnd, nullptr, info.rcMonitor.left, info.rcMonitor.top, info.rcMonitor.right - info.rcMonitor.left, info.rcMonitor.bottom - info.rcMonitor.top, SWP_NOZORDER | SWP_NOACTIVATE);
+    }
+
+    // the full-screen cursor clip follows the window
+    if (this->m_windowFocus) {
+        this->ISetWindowFocus(1);
+    }
+
+    return 1;
+}
+
 int32_t CGxDeviceD3d11::DeviceSetFormat(const CGxFormat& format) {
     CGxDevice::Log("CGxDeviceD3d11::DeviceSetFormat():");
     this->Log(format);
@@ -675,6 +766,17 @@ int32_t CGxDeviceD3d11::DeviceSetFormat(const CGxFormat& format) {
     // the device, and with it every texture, buffer and shader, outlives the format: only the window, the swap
     // chain and the frame are made again
     this->IReleaseSwapChain();
+
+    // MODIFIED: display management. The new window opens on the monitor the old one was on (PickMonitor)
+    RECT lastRect;
+
+    if (this->m_hwnd && !IsIconic(this->m_hwnd) && GetWindowRect(this->m_hwnd, &lastRect)) {
+        CGxDevice::s_lastWindowRect.minX = lastRect.left;
+        CGxDevice::s_lastWindowRect.minY = lastRect.top;
+        CGxDevice::s_lastWindowRect.maxX = lastRect.right;
+        CGxDevice::s_lastWindowRect.maxY = lastRect.bottom;
+        CGxDevice::s_lastWindowRectValid = 1;
+    }
 
     if (this->m_hwnd && this->m_ownhwnd) {
         DestroyWindow(this->m_hwnd);
@@ -1426,6 +1528,13 @@ LRESULT CALLBACK CGxDeviceD3d11::WindowProcD3d11(HWND hwnd, UINT message, WPARAM
             break;
 
         case WM_DISPLAYCHANGE:
+            // MODIFIED: display management. A full-screen or maximized window covers its monitor again after the
+            // monitor's resolution changed or it was unplugged; the move resizes the frame through WM_SIZE. Stock
+            // took the new size from lparam, which is the primary monitor's
+            if (device && device->IFitToMonitor()) {
+                break;
+            }
+
             if (device && !device->IDevIsWindowed()) {
                 CRect rect;
                 rect.minY = 0.0f;
@@ -1436,6 +1545,21 @@ LRESULT CALLBACK CGxDeviceD3d11::WindowProcD3d11(HWND hwnd, UINT message, WPARAM
             }
 
             break;
+
+        // MODIFIED: per-monitor DPI (WinMain.cpp). Moved to a monitor with another scale, a window takes the size
+        // Windows suggests, which keeps it the same size on screen; a full-screen or maximized one covers the new monitor
+        case WM_DPICHANGED: {
+            if (device && device->IFitToMonitor()) {
+                return 0;
+            }
+
+            // the frame at the new scale, for the aspect-keeping resize (WM_SIZING)
+            SetClientAdjust(static_cast<DWORD>(GetWindowLongA(hwnd, GWL_STYLE)), HIWORD(wparam));
+
+            const RECT* suggested = reinterpret_cast<const RECT*>(lparam);
+            SetWindowPos(hwnd, nullptr, suggested->left, suggested->top, suggested->right - suggested->left, suggested->bottom - suggested->top, SWP_NOZORDER | SWP_NOACTIVATE);
+            return 0;
+        }
 
         case WM_SYSCOMMAND:
             if (wparam == SC_SCREENSAVE || wparam == SC_MONITORPOWER) {

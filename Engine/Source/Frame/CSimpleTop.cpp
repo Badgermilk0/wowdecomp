@@ -34,6 +34,8 @@ uint32_t CSimpleTop::s_eventTime;
 
 // MODIFIED
 void (*CSimpleTop::s_paintCallback)();
+// MODIFIED: live aspect changes
+void (*CSimpleTop::s_displayAspectCallback)(CSimpleTop* top);
 void (*CSimpleTop::s_layerRenderCallback)(CSimpleTop* top);
 bool (*CSimpleTop::s_frameRenderFilter)(CSimpleFrame* frame);
 
@@ -977,6 +979,11 @@ int32_t CSimpleTop::OnDisplaySizeChanged(const void* data, void* param) {
 
     GxuFontWindowSizeChanged();
 
+    // MODIFIED: live aspect changes
+    if (CSimpleTop::s_displayAspectCallback) {
+        CSimpleTop::s_displayAspectCallback(top);
+    }
+
     for (CSimpleFrame* frame = top->m_frames.Head(); frame; frame = top->m_frames.Next(frame)) {
         frame->OnScreenSizeChanged();
     }
@@ -1249,4 +1256,24 @@ int32_t CSimpleTop::LowerFrame(CSimpleFrame* frame) {
 // VERIFY: 0cc3f3ae auto
 // OFFSET: 0x00632050
 void CSimpleTop::ValidateDeletedFrame(CSimpleFrame* frame) {
+}
+
+// MODIFIED: live aspect changes. With the fixed-height coordinates (Coordinate.cpp) a UI unit keeps its DDC size, so
+// only the screen rect changes. The frames anchored to the screen follow it through the resize list; every other frame
+// is queued too, for those clamped to the screen (CLayoutFrame reads the screen size there) or anchored to a frame that
+// does not depend on the screen
+void CSimpleTop::RelayoutForAspect() {
+    this->m_rect.minX = 0.0f;
+    this->m_rect.minY = 0.0f;
+    NDCToDDC(1.0f, 1.0f, &this->m_rect.maxX, &this->m_rect.maxY);
+
+    for (CLayoutFrame::FRAMENODE* node = this->m_resizeList.Head(); node; node = this->m_resizeList.Next(node)) {
+        node->m_frame->Resize(0);
+    }
+
+    for (CSimpleFrame* frame = this->m_frames.Head(); frame; frame = this->m_frames.Next(frame)) {
+        frame->Resize(0);
+    }
+
+    CLayoutFrame::ResizePending();
 }

@@ -245,6 +245,16 @@ class CGxDevice {
 
     static HSLOG m_log;
     static C2iVector s_clientAdjust;
+    // MODIFIED: display management, set by the game before a format is set (ConsoleDevice_CVar.cpp). gxMonitor: 0 =
+    // the monitor the window was last on, N = the Nth (MonitorRects order, 1 = primary); gxWindowPos: the windowed
+    // window's top-left last time; gxMonitorName: the monitor the window was last on, by device name
+    static int32_t s_monitorIndex;
+    static int32_t s_windowPosValid;
+    static C2iVector s_windowPos;
+    static char s_monitorName[32];
+    // MODIFIED: the window's screen rect before DeviceSetFormat destroyed it, so the new one opens on that monitor
+    static int32_t s_lastWindowRectValid;
+    static CiRect s_lastWindowRect;
     static const char* s_pixelShaderTargetNames[14];
     static const char* s_vertexShaderTargetNames[12];
     // MODIFIED: awesome_wotlk shader overrides; asked first by IShaderLoad, nonzero when it filled the shaders itself
@@ -263,6 +273,15 @@ class CGxDevice {
     static int32_t AdapterFormats(EGxApi api, TSGrowableArray<CGxFormat>& formats);
     static int32_t AdapterMonitorModes(TSGrowableArray<CGxMonitorMode>& modes);
     static int32_t AdjustWindowRectToWorkArea(float aspectRatio, C2iVector* adjust, tagRECT* rect);
+    // MODIFIED: display management (Win64/CGxDevice.cpp). The connected monitors, primary first, then left to right
+    // and top to bottom; MonitorRects fills the Nth's (1-based) whole and work-area rects and device name
+    static int32_t MonitorCount();
+    static int32_t MonitorRects(int32_t index, CiRect* monitor, CiRect* work, char* name, uint32_t nameSize);
+    // the monitor a new window goes on: gxMonitor, else the last window's, else gxMonitorName's, else gxWindowPos's,
+    // else the primary; returns its MonitorRects index
+    static int32_t PickMonitor(CiRect* monitor, CiRect* work);
+    // the index of the monitor a window is on (nearest)
+    static int32_t MonitorOfWindow(void* hwnd);
     static int32_t D3d9ExAdapterFormats(TSGrowableArray<CGxFormat>& formats);
     static int32_t D3dAdapterFormats(TSGrowableArray<CGxFormat>& formats);
     static int32_t DeviceAdapterID(uint16_t& vendorID, uint16_t& deviceID, uint32_t& driverVersionHi, uint32_t& driverVersionLo);

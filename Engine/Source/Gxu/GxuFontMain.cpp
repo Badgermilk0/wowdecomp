@@ -952,6 +952,21 @@ void GxuFontWindowSizeChanged() {
     }
 }
 
+// MODIFIED: live aspect changes. A string keeps its position, block width and shadow offset in NDC, converted from
+// DDC when it was made (TextBlockCreate); with fixed-height coordinates only the horizontal scale changes with the
+// aspect, so they are rescaled here. Without it, centred and right-justified text that keeps its size drifts sideways,
+// as the frame layer only moves such a string instead of making it again
+void GxuFontAspectChanged(float widthRatio) {
+    for (CGxFont* face = g_fonts.Head(); face; face = g_fonts.Next(face)) {
+        for (CGxString* string = face->m_strings.Head(); string; string = face->m_strings.Next(string)) {
+            string->m_position.x *= widthRatio;
+            string->m_blockWidth *= widthRatio;
+            string->m_shadowOffset.x *= widthRatio;
+            string->ClearInstanceData();
+        }
+    }
+}
+
 // MODIFIED: font rendering
 void GxuFontRefreshSizes() {
     if (!g_FTLibrary) {

@@ -74,7 +74,12 @@ void CAngle::Set_(const float& value) {
 // OFFSET: 0x004BECF0
 void CCamera::SetupWorldProjection(const CRect& rect, uint32_t flags) {
     C44Matrix projection;
-    GxuXformCreateProjection_SG(this->m_fov.m_data, (rect.maxX - rect.minX) / (rect.maxY - rect.minY), this->m_zNear.m_data, this->m_zFar.m_data, projection);
+    // MODIFIED: ultrawide. A model scene's field of view is diagonal (_SG), so a wider frame narrows its vertical view:
+    // a full-screen 32:9 login scene was zoomed in almost twice as far as at 16:9. Past 16:9 the vertical view stays at
+    // 16:9's and the frame shows more at the sides; narrower frames are unchanged
+    float aspect = (rect.maxX - rect.minX) / (rect.maxY - rect.minY);
+    float diagonalAspect = aspect > 16.0f / 9.0f ? 16.0f / 9.0f : aspect;
+    GxuXformCreateProjection_Exact(this->m_fov.m_data / sqrt(diagonalAspect * diagonalAspect + 1.0f), aspect, this->m_zNear.m_data, this->m_zFar.m_data, projection);
     g_theGxDevicePtr->XformSetProjection(projection);
 
     C44Matrix view;

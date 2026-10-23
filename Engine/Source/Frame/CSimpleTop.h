@@ -66,6 +66,9 @@ class CSimpleTop : public CLayoutFrame {
     // frames it accepts in the batches (CSimpleFrame::OnFrameRender and the overrides that queue their own geometry)
     static void (*s_layerRenderCallback)(CSimpleTop* top);
     static bool (*s_frameRenderFilter)(CSimpleFrame* frame);
+    // MODIFIED: live aspect changes. Run by OnDisplaySizeChanged once the fonts know the new pixel size and before the
+    // frames measure their text again, so the new aspect is in place for both (AwesomeDisplay.cpp)
+    static void (*s_displayAspectCallback)(CSimpleTop* top);
 
     static CSimpleTop* GetInstance();
     static int32_t OnChar(const void* data, void* param);
@@ -123,6 +126,8 @@ class CSimpleTop : public CLayoutFrame {
     void NotifyFrameMovedOrResized(CSimpleFrame* frame);
     void OnLayerRender();
     void OnLayerUpdate(float elapsedSec);
+    // MODIFIED: live aspect changes. Lays the screen-anchored frames out again after CoordinateSetAspectRatio
+    void RelayoutForAspect();
     int32_t RaiseFrame(CSimpleFrame* frame, int32_t checkOcclusion);
     void RegisterForCleanup(CSimpleFrame* frame);
     void RegisterForEvent(CSimpleFrame* frame, CSimpleEventType event, int32_t a4, int32_t priority);

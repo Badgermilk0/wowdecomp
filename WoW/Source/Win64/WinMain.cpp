@@ -18,8 +18,43 @@ static bool ReturnFalse() {
 
 extern "C" int WinMainCRTStartup();
 
+// MODIFIED: per-monitor DPI awareness (v2), before any window exists. Unaware, Windows reports a scaled-down desktop
+// at display scaling above 100% and stretches a smaller frame over it: a 4K monitor at 150% got a 2560x1440 picture.
+// Windows 10 1703+ takes the v2 context; older versions fall back to per-monitor, then system awareness. A
+// compatibility setting on the exe (Properties > Compatibility > high DPI) overrides this
+static void SetDpiAwareness() {
+    HMODULE user32 = GetModuleHandleA("user32.dll");
+
+    typedef BOOL(WINAPI * SetContextProc)(HANDLE);
+    SetContextProc setContext = user32 ? reinterpret_cast<SetContextProc>(GetProcAddress(user32, "SetProcessDpiAwarenessContext")) : nullptr;
+
+    // DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2
+    if (setContext && setContext(reinterpret_cast<HANDLE>(static_cast<intptr_t>(-4)))) {
+        return;
+    }
+
+    HMODULE shcore = LoadLibraryA("shcore.dll");
+
+    if (shcore) {
+        typedef HRESULT(WINAPI * SetAwarenessProc)(int);
+        SetAwarenessProc setAwareness = reinterpret_cast<SetAwarenessProc>(GetProcAddress(shcore, "SetProcessDpiAwareness"));
+
+        // PROCESS_PER_MONITOR_DPI_AWARE; E_ACCESSDENIED means it is already set, by a manifest or compatibility setting
+        if (setAwareness) {
+            HRESULT hr = setAwareness(2);
+
+            if (SUCCEEDED(hr) || hr == E_ACCESSDENIED) {
+                return;
+            }
+        }
+    }
+
+    SetProcessDPIAware();
+}
+
 // OFFSET: 0x00401000
 extern "C" int start() {
+    SetDpiAwareness();
     StormRtlInitialize();
     return WinMainCRTStartup();
 }

@@ -100,6 +100,13 @@ static float kWinAspect;
 
 // STATIC: 0x00C60300
 C2iVector CGxDevice::s_clientAdjust;
+// MODIFIED: display management
+int32_t CGxDevice::s_monitorIndex;
+int32_t CGxDevice::s_windowPosValid;
+C2iVector CGxDevice::s_windowPos;
+char CGxDevice::s_monitorName[32];
+int32_t CGxDevice::s_lastWindowRectValid;
+CiRect CGxDevice::s_lastWindowRect;
 
 // STATIC: 0x00C60308
 static uint32_t s_nextFrameTime;

@@ -4,6 +4,9 @@
 float CoordinateGetAspectCompensation();
 float CoordinateGetAspectRatio();
 void CoordinateSetAspectRatio(float aspect);
+// MODIFIED: live aspect changes (Coordinate.cpp)
+void CoordinateSetFixedHeight(bool fixedHeight);
+bool CoordinateIsFixedHeight();
 void DDCToNDC(float ddcx, float ddcy, float* ndcx, float* ndcy);
 float DDCToNDCHeight(float ddcy);
 float DDCToNDCWidth(float ddcx);

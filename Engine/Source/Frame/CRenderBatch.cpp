@@ -131,7 +131,8 @@ void CRenderBatch::QueueFontString(CSimpleFontString* string) {
         return;
     }
 
-    if (rect.maxY < 0.0f || rect.minY > 1.0f || rect.maxX < 0.0f || rect.minX > 1.0f) {
+    // MODIFIED: live aspect changes. Against the screen's size in DDC, not [0, 1] (IsRectOffscreen, CSimpleRender.cpp)
+    if (rect.maxY < 0.0f || rect.minY > NDCToDDCHeight(1.0f) || rect.maxX < 0.0f || rect.minX > NDCToDDCWidth(1.0f)) {
         return;
     }
 

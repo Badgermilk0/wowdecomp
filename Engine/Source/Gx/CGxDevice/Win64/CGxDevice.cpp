@@ -58,17 +58,164 @@ int32_t CGxDevice::AdapterFormats(EGxApi api, TSGrowableArray<CGxFormat>& format
     return formats.Count() != 0;
 }
 
+// MODIFIED: display management. The connected monitors in a stable order: primary first, then by position
+struct MonitorEntry {
+    HMONITOR m_handle;
+    MONITORINFOEXA m_info;
+};
+
+static const int32_t MAX_MONITORS = 16;
+
+static BOOL CALLBACK CollectMonitor(HMONITOR handle, HDC dc, LPRECT rect, LPARAM param) {
+    TSGrowableArray<MonitorEntry>* monitors = reinterpret_cast<TSGrowableArray<MonitorEntry>*>(param);
+
+    if (monitors->Count() >= MAX_MONITORS) {
+        return FALSE;
+    }
+
+    MonitorEntry entry;
+    entry.m_handle = handle;
+    entry.m_info.cbSize = sizeof(entry.m_info);
+
+    if (GetMonitorInfoA(handle, &entry.m_info)) {
+        *monitors->New() = entry;
+    }
+
+    return TRUE;
+}
+
+static int MonitorEntrySort(const void* a, const void* b) {
+    const MonitorEntry* entryA = static_cast<const MonitorEntry*>(a);
+    const MonitorEntry* entryB = static_cast<const MonitorEntry*>(b);
+    int32_t primaryA = (entryA->m_info.dwFlags & MONITORINFOF_PRIMARY) != 0;
+    int32_t primaryB = (entryB->m_info.dwFlags & MONITORINFOF_PRIMARY) != 0;
+
+    if (primaryA != primaryB) {
+        return primaryB - primaryA;
+    }
+
+    if (entryA->m_info.rcMonitor.left != entryB->m_info.rcMonitor.left) {
+        return entryA->m_info.rcMonitor.left < entryB->m_info.rcMonitor.left ? -1 : 1;
+    }
+
+    return entryA->m_info.rcMonitor.top - entryB->m_info.rcMonitor.top;
+}
+
+static void CollectMonitors(TSGrowableArray<MonitorEntry>& monitors) {
+    monitors.SetCount(0);
+    EnumDisplayMonitors(nullptr, nullptr, CollectMonitor, reinterpret_cast<LPARAM>(&monitors));
+    qsort(monitors.Ptr(), monitors.Count(), sizeof(MonitorEntry), MonitorEntrySort);
+}
+
+static void ToCiRect(const RECT& rect, CiRect* out) {
+    if (out) {
+        out->minX = rect.left;
+        out->minY = rect.top;
+        out->maxX = rect.right;
+        out->maxY = rect.bottom;
+    }
+}
+
+static int32_t IndexOfMonitor(TSGrowableArray<MonitorEntry>& monitors, HMONITOR handle) {
+    for (uint32_t i = 0; i < monitors.Count(); i++) {
+        if (monitors[i].m_handle == handle) {
+            return static_cast<int32_t>(i) + 1;
+        }
+    }
+
+    return 0;
+}
+
+int32_t CGxDevice::MonitorCount() {
+    TSGrowableArray<MonitorEntry> monitors;
+    CollectMonitors(monitors);
+    return static_cast<int32_t>(monitors.Count());
+}
+
+int32_t CGxDevice::MonitorRects(int32_t index, CiRect* monitor, CiRect* work, char* name, uint32_t nameSize) {
+    TSGrowableArray<MonitorEntry> monitors;
+    CollectMonitors(monitors);
+
+    if (index < 1 || index > static_cast<int32_t>(monitors.Count())) {
+        return 0;
+    }
+
+    const MONITORINFOEXA& info = monitors[index - 1].m_info;
+    ToCiRect(info.rcMonitor, monitor);
+    ToCiRect(info.rcWork, work);
+
+    if (name && nameSize) {
+        strncpy(name, info.szDevice, nameSize - 1);
+        name[nameSize - 1] = '\0';
+    }
+
+    return 1;
+}
+
+int32_t CGxDevice::MonitorOfWindow(void* hwnd) {
+    TSGrowableArray<MonitorEntry> monitors;
+    CollectMonitors(monitors);
+    return IndexOfMonitor(monitors, MonitorFromWindow(static_cast<HWND>(hwnd), MONITOR_DEFAULTTONEAREST));
+}
+
+int32_t CGxDevice::PickMonitor(CiRect* monitor, CiRect* work) {
+    TSGrowableArray<MonitorEntry> monitors;
+    CollectMonitors(monitors);
+    int32_t index = 0;
+
+    if (CGxDevice::s_monitorIndex >= 1 && CGxDevice::s_monitorIndex <= static_cast<int32_t>(monitors.Count())) {
+        index = CGxDevice::s_monitorIndex;
+    }
+
+    if (!index && CGxDevice::s_lastWindowRectValid) {
+        RECT rect = { CGxDevice::s_lastWindowRect.minX, CGxDevice::s_lastWindowRect.minY, CGxDevice::s_lastWindowRect.maxX, CGxDevice::s_lastWindowRect.maxY };
+        index = IndexOfMonitor(monitors, MonitorFromRect(&rect, MONITOR_DEFAULTTONULL));
+    }
+
+    if (!index && CGxDevice::s_monitorName[0]) {
+        for (uint32_t i = 0; i < monitors.Count(); i++) {
+            if (!_stricmp(monitors[i].m_info.szDevice, CGxDevice::s_monitorName)) {
+                index = static_cast<int32_t>(i) + 1;
+                break;
+            }
+        }
+    }
+
+    if (!index && CGxDevice::s_windowPosValid) {
+        POINT point = { CGxDevice::s_windowPos.x, CGxDevice::s_windowPos.y };
+        index = IndexOfMonitor(monitors, MonitorFromPoint(point, MONITOR_DEFAULTTONULL));
+    }
+
+    if (!index) {
+        POINT origin = { 0, 0 };
+        index = IndexOfMonitor(monitors, MonitorFromPoint(origin, MONITOR_DEFAULTTOPRIMARY));
+    }
+
+    if (!index) {
+        return 0;
+    }
+
+    ToCiRect(monitors[index - 1].m_info.rcMonitor, monitor);
+    ToCiRect(monitors[index - 1].m_info.rcWork, work);
+    return index;
+}
+
 // OFFSET: 0x00684D70
 int32_t CGxDevice::AdjustWindowRectToWorkArea(float aspectRatio, C2iVector* adjust, tagRECT* rect) {
-    POINT origin = { 0, 0 };
-    HMONITOR monitor = MonitorFromPoint(origin, MONITOR_DEFAULTTOPRIMARY);
+    // MODIFIED: display management. The work area of the monitor the window goes on (PickMonitor), not the primary's
+    CiRect monitorRect;
+    CiRect workRect;
+
+    if (!CGxDevice::PickMonitor(&monitorRect, &workRect)) {
+        return 0;
+    }
 
     MONITORINFO info;
     info.cbSize = sizeof(info);
-
-    if (!GetMonitorInfoA(monitor, &info)) {
-        return 0;
-    }
+    info.rcWork.left = workRect.minX;
+    info.rcWork.top = workRect.minY;
+    info.rcWork.right = workRect.maxX;
+    info.rcWork.bottom = workRect.maxY;
 
     int32_t height = rect->bottom - rect->top;
     int32_t width = rect->right - rect->left;

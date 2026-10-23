@@ -2013,7 +2013,7 @@ void CGUnit_C::CreateRipple(uint32_t a2) {
     // ripple's moments
     C3Vector surface = this->GetPosition();
     surface.z = liquidHeight;
-    AwesomeWaterOnUnitInLiquid(reinterpret_cast<uintptr_t>(this), surface, depth, maxDepth, this->m_movement->m_flags, a2, this->m_movement->m_currentSpeed);
+    AwesomeWaterOnUnitInLiquid(reinterpret_cast<uintptr_t>(this), surface, depth, maxDepth, this->m_movement->m_flags, a2, this->m_movement->m_currentSpeed, this->GetFacing());
 
     uint32_t time = FrameTime::s_curTimeMs;
 

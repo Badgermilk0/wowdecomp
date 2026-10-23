@@ -114,6 +114,7 @@ CVARS.Lighting = {
     { name = "waterRipples", label = L.W_LABEL_WATER_RIPPLES, desc = L.W_DESC_WATER_RIPPLES, perf = L.W_PERF_LOW, type = "toggle", min = 0, max = 1, default = 1, requires = REQUIRES.water },
     { name = "waterTessellation", label = L.W_LABEL_WATER_TESSELLATION, desc = L.W_DESC_WATER_TESSELLATION, perf = L.W_PERF_LOW, type = "toggle", min = 0, max = 1, default = 1, requires = REQUIRES.ripples },
     { name = "waterWaveHeight", label = L.W_LABEL_WATER_WAVE_HEIGHT, desc = L.W_DESC_WATER_WAVE_HEIGHT, perf = L.PERF_NONE, type = "slider", min = 0, max = 4, step = 0.05, default = 0.5, requires = REQUIRES.ripples },
+    { name = "waterSplashes", label = L.W_LABEL_WATER_SPLASHES, desc = L.W_DESC_WATER_SPLASHES, perf = L.W_PERF_LOW, type = "slider", min = 0, max = 2, step = 0.05, default = 1, requires = REQUIRES.ripples },
     { name = "waterStockRipples", label = L.W_LABEL_WATER_STOCK_RIPPLES, desc = L.W_DESC_WATER_STOCK_RIPPLES, perf = L.PERF_NONE, type = "toggle", min = 0, max = 1, default = 0, requires = REQUIRES.ripples },
     { name = "waterRippleStrength", label = L.W_LABEL_WATER_RIPPLE_STRENGTH, desc = L.W_DESC_WATER_RIPPLE_STRENGTH, perf = L.PERF_NONE, type = "slider", min = 0, max = 4, step = 0.05, default = 1, requires = REQUIRES.ripples },
     { name = "waterInteraction", label = L.W_LABEL_WATER_INTERACTION, desc = L.W_DESC_WATER_INTERACTION, perf = L.PERF_NONE, type = "slider", min = 0, max = 4, step = 0.05, default = 1, requires = REQUIRES.ripples },

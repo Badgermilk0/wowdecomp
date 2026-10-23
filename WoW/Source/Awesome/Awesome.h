@@ -73,11 +73,13 @@ void AwesomeLightingGlueEnd();
 // liquids (the scene is copied for them); with AwesomeLightingEndWorld
 void AwesomeWaterBeginWorld();
 void AwesomeWaterBeforeLiquids();
+// after the transparent liquids: the splash droplets and mist
+void AwesomeWaterAfterLiquids();
 void AwesomeWaterEndWorld();
 // CGUnit_C::CreateRipple, every frame a unit is in liquid shallow enough to touch the surface (before the stock
 // ripple's rate limit): id tells units apart, surface is the unit's position at the liquid's height, motion the
 // movement flags, event 201 a crossing of the surface (a splash), speed the current movement speed
-void AwesomeWaterOnUnitInLiquid(uintptr_t id, const C3Vector& surface, float depth, float maxDepth, uint32_t motion, uint32_t event, float speed);
+void AwesomeWaterOnUnitInLiquid(uintptr_t id, const C3Vector& surface, float depth, float maxDepth, uint32_t motion, uint32_t event, float speed, float facing);
 // CMap::CreateWaterRipple: true while the height field stands in for the stock splash and wake decals
 bool AwesomeWaterHidesStockRipples();
 

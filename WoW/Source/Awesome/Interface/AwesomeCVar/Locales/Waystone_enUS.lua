@@ -193,6 +193,8 @@ do
     L.W_DESC_WATER_TESSELLATION = "Near you the water surface is subdivided and moved by the ripples, so wakes, rings and splashes are actual waves in the surface (D3D11 tessellation)."
     L.W_LABEL_WATER_WAVE_HEIGHT = "Wave Height"
     L.W_DESC_WATER_WAVE_HEIGHT = "How far the ripples move the surface up and down."
+    L.W_LABEL_WATER_SPLASHES = "Splashes"
+    L.W_DESC_WATER_SPLASHES = "Droplets and spray when jumping or falling into water, walking in or out, and ahead of swimmers; falling droplets make small rings, and disturbed water keeps foam for a while. 0 is off."
     L.W_LABEL_WATER_STOCK_RIPPLES = "Stock Ripple Decals"
     L.W_DESC_WATER_STOCK_RIPPLES = "Also draws the original flat splash and wake rings on the water. Off, the simulated waves replace them."
     L.W_LABEL_WATER_RIPPLE_STRENGTH = "Ripple Strength"

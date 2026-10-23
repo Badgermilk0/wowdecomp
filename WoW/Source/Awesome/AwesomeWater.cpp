@@ -16,11 +16,16 @@
 // waterTessellation: near the eye the water's triangles are cut finer (down to 0.3 yards) and moved up and down by the
 //   height field, so the waves are geometry (waterWaveHeight scales how far).
 // waterStockRipples: the stock splash and wake decals on the water too (off: the height field replaces them).
+// waterSplashes: droplets (small spheres of water: the world behind them turned over, the sky at their rim, a sun
+//   glint, streaked by their motion), torn sheets of the crown and mist thrown up when a unit jumps or falls into the water (more when it falls), walks in or
+//   out, and as spray ahead of a unit moving through it; each droplet that falls back makes a small ring. The field also
+//   keeps foam where the water was disturbed, fading over a few seconds. The amount (0 = none).
 // waterDebug: 1 normals, 2 depth under the surface, 3 the height field, 4 reflection hits (green world, blue sky).
 
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <unordered_map>
 #include <vector>
 #include "WoW/Source/Awesome/AwesomeInternal.h"
 #include "Engine/Source/FrameScript/FrameScript.h"
@@ -47,16 +52,20 @@ static AwesomeCVar s_cvWaveHeight = AwesomeCVar::Float("waterWaveHeight", 0.5f, 
 static AwesomeCVar s_cvInteraction = AwesomeCVar::Float("waterInteraction", 1.0f, 0.0f, 4.0f);
 static AwesomeCVar s_cvRain = AwesomeCVar::Float("waterRain", 1.0f, 0.0f, 4.0f);
 static AwesomeCVar s_cvStockRipples = AwesomeCVar::Int("waterStockRipples", 0, 0, 1);
+static AwesomeCVar s_cvSplashes = AwesomeCVar::Float("waterSplashes", 1.0f, 0.0f, 2.0f);
 static AwesomeCVar s_cvDebug = AwesomeCVar::Int("waterDebug", 0, 0, 4);
 
 static AwesomeCVar* const s_cvars[] = {
     &s_cvModern, &s_cvReflection, &s_cvReflectionStrength, &s_cvRefraction, &s_cvClarity, &s_cvDetail, &s_cvFoam,
-    &s_cvRipples, &s_cvRippleStrength, &s_cvTessellation, &s_cvWaveHeight, &s_cvInteraction, &s_cvRain, &s_cvStockRipples, &s_cvDebug,
+    &s_cvRipples, &s_cvRippleStrength, &s_cvTessellation, &s_cvWaveHeight, &s_cvInteraction, &s_cvRain, &s_cvStockRipples, &s_cvSplashes, &s_cvDebug,
 };
 
 static bool s_inWorld = false;
 static GxWaterParams s_params;
 static std::vector<GxWaterImpulse> s_pending;
+static std::vector<GxWaterSplash> s_splashes;
+// the spray each moving unit owes, in droplets (a fraction carries to the next frame)
+static std::unordered_map<uintptr_t, float> s_spray;
 static uint32_t s_lastMs = 0;
 static float s_frameDt = 0.0f;
 static float s_frameTime = 0.0f;
@@ -77,6 +86,7 @@ static uint32_t Features() {
     features |= s_cvRipples.m_intValue ? GxWater_Ripples : 0;
     features |= s_cvFoam.m_floatValue > 0.0f ? GxWater_Foam : 0;
     features |= s_cvRipples.m_intValue && s_cvTessellation.m_intValue && s_cvWaveHeight.m_floatValue > 0.0f ? GxWater_Tessellation : 0;
+    features |= s_cvRipples.m_intValue && s_cvSplashes.m_floatValue > 0.0f ? GxWater_Splashes : 0;
     return features;
 }
 
@@ -139,12 +149,19 @@ void AwesomeWaterBeginWorld() {
 
     if (!g_gxWater) {
         s_pending.clear();
+        s_splashes.clear();
         return;
     }
 
     BuildParams(s_params);
-    g_gxWater->Update(s_params, s_pending.data(), static_cast<uint32_t>(s_pending.size()));
+    g_gxWater->Update(s_params, s_pending.data(), static_cast<uint32_t>(s_pending.size()), s_splashes.data(), static_cast<uint32_t>(s_splashes.size()));
     s_pending.clear();
+    s_splashes.clear();
+
+    // units that stopped spraying long ago
+    if (s_spray.size() > 512) {
+        s_spray.clear();
+    }
     s_inWorld = true;
 }
 
@@ -152,6 +169,31 @@ void AwesomeWaterBeforeLiquids() {
     if (s_inWorld && g_gxWater) {
         g_gxWater->BeforeLiquids(CWorldScene::s_activeWorldView);
     }
+}
+
+void AwesomeWaterAfterLiquids() {
+    if (s_inWorld && g_gxWater) {
+        g_gxWater->AfterLiquids();
+    }
+}
+
+static void AddSplash(const C3Vector& at, float count, float up, float out, float radius, uint32_t kind) {
+    uint32_t n = static_cast<uint32_t>(count * s_cvSplashes.m_floatValue + 0.5f);
+
+    if (!n || s_splashes.size() >= 32) {
+        return;
+    }
+
+    GxWaterSplash splash;
+    splash.m_x = at.x;
+    splash.m_y = at.y;
+    splash.m_z = at.z;
+    splash.m_count = n;
+    splash.m_up = up;
+    splash.m_out = out;
+    splash.m_radius = radius;
+    splash.m_kind = kind;
+    s_splashes.push_back(splash);
 }
 
 void AwesomeWaterEndWorld() {
@@ -162,7 +204,7 @@ void AwesomeWaterEndWorld() {
     s_inWorld = false;
 }
 
-void AwesomeWaterOnUnitInLiquid(uintptr_t id, const C3Vector& surface, float depth, float maxDepth, uint32_t motion, uint32_t event, float speed) {
+void AwesomeWaterOnUnitInLiquid(uintptr_t id, const C3Vector& surface, float depth, float maxDepth, uint32_t motion, uint32_t event, float speed, float facing) {
     if (!g_gxWater || !s_cvModern.m_intValue || !s_cvRipples.m_intValue || s_cvInteraction.m_floatValue <= 0.0f) {
         return;
     }
@@ -193,14 +235,46 @@ void AwesomeWaterOnUnitInLiquid(uintptr_t id, const C3Vector& surface, float dep
     impulse.m_y = surface.y;
     impulse.m_radius = bodyRadius;
 
+    bool splashes = s_cvSplashes.m_floatValue > 0.0f;
+    // falling (MOVEFLAG_FALLING / FALLING_FAR): a jump or a drop into the water
+    bool falling = (motion & 0x3000) != 0;
+
     if (event == 201) {
-        // in or out of the water: a splash
-        impulse.m_radius = bodyRadius * 1.6f;
-        impulse.m_strength = 0.12f * interaction;
+        // in or out of the water (CreateRipple's crossing of 0.4 of the collision height, a fifth of maxDepth): a splash
+        bool entering = depth >= maxDepth * 0.2f;
+        impulse.m_radius = bodyRadius * (falling ? 2.0f : 1.6f);
+        impulse.m_strength = (entering && falling ? 0.2f : 0.12f) * interaction;
+
+        if (splashes && entering && falling) {
+            // the crown torn into sheets, a spray of fine droplets, a column from the middle, and mist over it
+            AddSplash(surface, 36.0f, 6.0f, 3.0f, bodyRadius * 1.0f, 2);
+            AddSplash(surface, 260.0f, 7.0f, 3.2f, bodyRadius * 0.9f, 0);
+            AddSplash(surface, 70.0f, 10.0f, 0.8f, bodyRadius * 0.35f, 0);
+            AddSplash(surface, 8.0f, 1.2f, 1.6f, bodyRadius * 0.8f, 1);
+        } else if (splashes && entering) {
+            AddSplash(surface, 10.0f, 2.0f, 1.5f, bodyRadius * 0.9f, 2);
+            AddSplash(surface, 70.0f, 2.4f, 1.8f, bodyRadius * 0.8f, 0);
+        } else if (splashes) {
+            // out of the water: it runs off
+            AddSplash(surface, 40.0f, 0.9f, 0.6f, bodyRadius * 0.6f, 0);
+        }
     } else if (motion & 0xF) {
         // moving: pushes the water aside as it goes, a wake behind it
         float pace = speed < 0.0f ? 0.0f : (speed > 14.0f ? 14.0f : speed);
         impulse.m_strength = (0.25f + 0.5f * pace / 7.0f) * dt * interaction * depthFactor;
+
+        if (splashes && depthFactor > 0.7f) {
+            // spray thrown off ahead of it, more the faster it goes
+            float& owed = s_spray[id];
+            owed += (12.0f + 40.0f * pace / 7.0f) * dt;
+
+            if (owed >= 1.0f) {
+                float ahead = bodyRadius * 0.9f;
+                C3Vector front(surface.x + cosf(facing) * ahead, surface.y + sinf(facing) * ahead, surface.z);
+                AddSplash(front, floorf(owed), 1.4f + 0.15f * pace, 1.1f, bodyRadius * 0.6f, 0);
+                owed -= floorf(owed);
+            }
+        }
     } else if (motion & 0x200000) {
         // swimming in place, treading water: a slow bob, rings
         float phase = static_cast<float>((id >> 4) % 628u) * 0.01f;
@@ -269,7 +343,7 @@ static int32_t Script_WaterCommand(lua_State* L) {
     snprintf(line, sizeof(line), "|cff33ff99Water|r features 0x%X; scene copied %s, %u water draws shaded; height field %s (%u x %u, %.2f yd), %u steps, %u disturbances (%u from units)",
         Features(), stats.m_captured ? "yes" : "no", stats.m_waterDraws, stats.m_simActive ? "on" : "off", stats.m_fieldSize, stats.m_fieldSize, stats.m_texel, stats.m_simSteps, stats.m_impulses, s_statsUnitsLast);
     Print(L, line);
-    snprintf(line, sizeof(line), "  rain %.2f drops / yd2 / s, sky visible %.2f", s_params.m_rain, s_params.m_skyVisible);
+    snprintf(line, sizeof(line), "  rain %.2f drops / yd2 / s, sky visible %.2f, %u splash particles started", s_params.m_rain, s_params.m_skyVisible, stats.m_particlesStarted);
     Print(L, line);
     Print(L, "  /water on | off; waterDebug 1 normals, 2 depth, 3 height field, 4 reflection hits");
     return 0;

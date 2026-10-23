@@ -10,6 +10,7 @@
 //                  equation on the GPU around the player), with this frame's disturbances
 //   BeforeLiquids  in CWorldScene::RenderLiquidPass, before the transparent liquids: the opaque scene's colour and
 //                  depth are copied for refraction, thickness and reflections; the water constants are written
+//   AfterLiquids   after the transparent liquids: the splash droplets and mist
 //   EndWorld       with the lighting's EndWorld: the water constants switch off
 //
 // The water pixel shaders (psLiquidWater*, translated in D3d11Dx9Shader.cpp, s_hlslWater) still compute the stock
@@ -25,6 +26,7 @@ enum EGxWaterFeature : uint32_t {
     GxWater_Ripples = 0x4,       // the interactive height field
     GxWater_Foam = 0x8,          // at the shore and on disturbed water
     GxWater_Tessellation = 0x10, // the water's triangles cut finer near the eye and moved by the height field
+    GxWater_Splashes = 0x20,     // droplets and mist thrown up, falling back as rings
 };
 
 // a disturbance of the water this frame, in world space (absolute)
@@ -33,6 +35,18 @@ struct GxWaterImpulse {
     float m_y;
     float m_radius;      // yards
     float m_strength;    // yards the surface is pushed down (negative lifts it)
+};
+
+// droplets (and mist) thrown up this frame, in world space (absolute)
+struct GxWaterSplash {
+    float m_x;
+    float m_y;
+    float m_z;           // the surface
+    uint32_t m_count;
+    float m_up;          // yards per second, the fastest
+    float m_out;         // yards per second outward, the fastest
+    float m_radius;      // yards
+    uint32_t m_kind;     // 0 droplets, 1 mist
 };
 
 struct GxWaterParams {
@@ -75,15 +89,17 @@ struct GxWaterStats {
     uint32_t m_impulses;             // disturbances last frame
     bool m_captured;                 // the scene was copied for the liquids last frame
     uint32_t m_waterDraws;           // water draws that shaded with it last frame
+    uint32_t m_particlesStarted;     // splash particles started last frame
     uint32_t m_fieldSize;            // texels
     float m_texel;                   // yards
 };
 
 class IGxWater {
     public:
-    virtual void Update(const GxWaterParams& params, const GxWaterImpulse* impulses, uint32_t count) = 0;
+    virtual void Update(const GxWaterParams& params, const GxWaterImpulse* impulses, uint32_t count, const GxWaterSplash* splashes, uint32_t splashCount) = 0;
     // origin: the point the world draws relative to this frame (CWorldScene::s_activeWorldView)
     virtual void BeforeLiquids(const C3Vector& origin) = 0;
+    virtual void AfterLiquids() = 0;
     virtual void EndWorld() = 0;
     virtual void GetStats(GxWaterStats& stats) = 0;
 };

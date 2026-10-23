@@ -89,7 +89,7 @@ const char* const s_hlslWaterPasses =
     "    // the border absorbs what reaches it instead of reflecting it\n"
     "    float edge = (float)min(min(p.x, p.y), min(wsShift.w - 1 - p.x, wsShift.w - 1 - p.y));\n"
     "    float keep = lerp(0.8, 1.0, saturate(edge / 24.0));\n"
-    "    return float4(clamp(h * keep, -1.0, 1.0), clamp(prev * keep, -1.0, 1.0), 0.0, 0.0);\n"
+    "    return float4(clamp(h * keep, -0.3, 0.3), clamp(prev * keep, -0.3, 0.3), 0.0, 0.0);\n"
     "}\n"
     "\n"
     "// the opaque scene's depth as clip w (the distance along the view axis); 0 where the sky shows\n"

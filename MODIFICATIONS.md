@@ -578,6 +578,8 @@ alpha by the vertex's water depth) times the per-vertex sun and ambient, plus th
 
 **The HD client's water is procedural water.** Its `patch-w.mpq` replaces `LiquidType.dbc`: water, ocean, rivers and WMO water become material 3, `CMaterialProcWater` (`vsLiquidProcWater` / `psLiquidProcWater`: two cube reflection maps, the depth texture at s2, `ocean_h` at s3, two normal maps at s4 / s5, lit from pixel constants C6-C8; no vertex colour). The first two versions only knew `psLiquidWater` and shaded nothing in the live client (`/water` said 0 water draws). Both are water families now; the shading reads its inputs by kind (`WX_KIND` 1 or 2: for procedural water the normal from its own normal maps, the body colour from s2 lit by C6-C8, the foam pattern from s3). The vertex side is the same: both place the vertex with C5-C8.
 
+**Tuned after the first working test** (the wake read as yard-high crests, the reflections had contour lines): the height field is R32G32_FLOAT (at 16 bits neighbouring heights differed in steps, and the slopes drew contours), slopes over two texels, heights clamped to 0.3 yd, damping 0.9 / s; a splash 0.12 yd, a swimmer 0.25 + 0.5 x pace / 7 yd/s, a bob 0.2; `waterWaveHeight` 0.5 by default; the field's slope weighs 1.2 in the normal.
+
 Settings: the Lighting tab of the built-in settings window has Water and Sky sections.
 
 Tested offline (`Tools/WaterTests`, `ctest -R WaterSky`; with the folder of the stock `vsLiquidWater.bls`,

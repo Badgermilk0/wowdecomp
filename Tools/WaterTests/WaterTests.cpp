@@ -249,7 +249,7 @@ static void TestSimulation() {
     desc.Height = n;
     desc.MipLevels = 1;
     desc.ArraySize = 1;
-    desc.Format = DXGI_FORMAT_R16G16_FLOAT;
+    desc.Format = DXGI_FORMAT_R32G32_FLOAT;
     desc.SampleDesc.Count = 1;
     desc.Usage = D3D11_USAGE_DEFAULT;
     desc.BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
@@ -284,14 +284,6 @@ static void TestSimulation() {
     D3D11_VIEWPORT vp = { 0.0f, 0.0f, static_cast<float>(n), static_cast<float>(n), 0.0f, 1.0f };
     uint32_t current = 0;
 
-    auto halfToFloat = [](uint16_t h) {
-        uint32_t sign = (h >> 15) & 1;
-        int32_t exp = (h >> 10) & 0x1F;
-        uint32_t mant = h & 0x3FF;
-        float value = exp == 0 ? mant / 1024.0f * powf(2.0f, -14.0f) : (exp == 31 ? INFINITY : (1.0f + mant / 1024.0f) * powf(2.0f, exp - 15.0f));
-        return sign ? -value : value;
-    };
-
     // the heights along the row through the centre, x the height now
     auto readRow = [&](std::vector<float>& row, bool& finite) {
         ctx->CopyResource(staging, field[current]);
@@ -301,10 +293,10 @@ static void TestSimulation() {
         finite = true;
 
         for (uint32_t y = 0; y < n; y++) {
-            const uint16_t* line = reinterpret_cast<const uint16_t*>(static_cast<const uint8_t*>(mapped.pData) + y * mapped.RowPitch);
+            const float* line = reinterpret_cast<const float*>(static_cast<const uint8_t*>(mapped.pData) + y * mapped.RowPitch);
 
             for (uint32_t x = 0; x < n; x++) {
-                float h = halfToFloat(line[x * 2]);
+                float h = line[x * 2];
                 finite = finite && std::isfinite(h);
 
                 if (y == n / 2) {
@@ -428,7 +420,7 @@ static void TestSimulation() {
 
     printf("  after a minute of heavy rain: largest height %.4f yd\n", rainMax);
     CHECK(finite);
-    CHECK(rainMax > 0.0f && rainMax < 0.3f);
+    CHECK(rainMax > 0.0f && rainMax <= 0.3f);
 
     staging->Release();
     cb->Release();

@@ -3,7 +3,7 @@
 
 // MODIFIED: modern water on the D3D11 device (GxWater.h is the interface the game drives). Three parts:
 //
-//  - the ripple height field: two R16G16_FLOAT textures (height now, height a step ago) of s_fieldSize texels, s_texel
+//  - the ripple height field: two R32G32_FLOAT textures (height now, height a step ago) of s_fieldSize texels, s_texel
 //    yards each, centred on the player and scrolled by whole texels as the player moves. Each step is a full-screen
 //    pass of the wave equation (a 5-point Laplacian, damped, absorbing at the border) that also adds the frame's
 //    disturbances (Gaussian dips at units in water) and raindrops. Steps are fixed at 60 a second

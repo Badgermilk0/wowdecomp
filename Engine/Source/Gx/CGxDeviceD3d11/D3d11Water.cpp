@@ -215,7 +215,8 @@ bool D3d11Water::IEnsureField() {
     desc.Height = s_fieldSize;
     desc.MipLevels = 1;
     desc.ArraySize = 1;
-    desc.Format = DXGI_FORMAT_R16G16_FLOAT;
+    // 32-bit: at 16 bits the difference of neighbouring heights came in steps, and the slopes drew contour lines
+    desc.Format = DXGI_FORMAT_R32G32_FLOAT;
     desc.SampleDesc.Count = 1;
     desc.Usage = D3D11_USAGE_DEFAULT;
     desc.BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;

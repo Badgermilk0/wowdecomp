@@ -44,12 +44,12 @@ struct GxWaterParams {
     float m_detail = 1.0f;           // normals from the stock water texture
     float m_foam = 1.0f;
     float m_rippleNormal = 1.0f;     // how far the height field bends the surface
-    float m_waveHeight = 1.0f;       // how far it moves the surface (yards per yard of height)
+    float m_waveHeight = 0.5f;       // how far it moves the surface (yards per yard of height)
     uint32_t m_reflectionSteps = 24; // screen-space ray steps
 
     // the height field
     float m_rippleSpeed = 3.0f;      // yards per second
-    float m_rippleDamping = 0.6f;    // amplitude lost per second (e-folding rate)
+    float m_rippleDamping = 0.9f;    // amplitude lost per second (e-folding rate)
     float m_rain = 0.0f;             // raindrops per square yard and second
     float m_rainStrength = 0.012f;   // yards a drop pushes the surface down
     float m_centerX = 0.0f;          // the field follows this point (absolute world)

@@ -43,7 +43,7 @@ static AwesomeCVar s_cvFoam = AwesomeCVar::Float("waterFoam", 1.0f, 0.0f, 2.0f);
 static AwesomeCVar s_cvRipples = AwesomeCVar::Int("waterRipples", 1, 0, 1);
 static AwesomeCVar s_cvRippleStrength = AwesomeCVar::Float("waterRippleStrength", 1.0f, 0.0f, 4.0f);
 static AwesomeCVar s_cvTessellation = AwesomeCVar::Int("waterTessellation", 1, 0, 1);
-static AwesomeCVar s_cvWaveHeight = AwesomeCVar::Float("waterWaveHeight", 1.0f, 0.0f, 4.0f);
+static AwesomeCVar s_cvWaveHeight = AwesomeCVar::Float("waterWaveHeight", 0.5f, 0.0f, 4.0f);
 static AwesomeCVar s_cvInteraction = AwesomeCVar::Float("waterInteraction", 1.0f, 0.0f, 4.0f);
 static AwesomeCVar s_cvRain = AwesomeCVar::Float("waterRain", 1.0f, 0.0f, 4.0f);
 static AwesomeCVar s_cvStockRipples = AwesomeCVar::Int("waterStockRipples", 0, 0, 1);
@@ -92,7 +92,7 @@ static void BuildParams(GxWaterParams& p) {
     p.m_rainStrength = 0.012f;
     p.m_reflectionSteps = 24;
     p.m_rippleSpeed = 3.0f;
-    p.m_rippleDamping = 0.6f;
+    p.m_rippleDamping = 0.9f;
     p.m_time = s_frameTime;
     p.m_deltaTime = s_frameDt;
     p.m_debug = static_cast<uint32_t>(s_cvDebug.m_intValue);
@@ -196,15 +196,15 @@ void AwesomeWaterOnUnitInLiquid(uintptr_t id, const C3Vector& surface, float dep
     if (event == 201) {
         // in or out of the water: a splash
         impulse.m_radius = bodyRadius * 1.6f;
-        impulse.m_strength = 0.35f * interaction;
+        impulse.m_strength = 0.12f * interaction;
     } else if (motion & 0xF) {
         // moving: pushes the water aside as it goes, a wake behind it
         float pace = speed < 0.0f ? 0.0f : (speed > 14.0f ? 14.0f : speed);
-        impulse.m_strength = (0.8f + 2.0f * pace / 7.0f) * dt * interaction * depthFactor;
+        impulse.m_strength = (0.25f + 0.5f * pace / 7.0f) * dt * interaction * depthFactor;
     } else if (motion & 0x200000) {
         // swimming in place, treading water: a slow bob, rings
         float phase = static_cast<float>((id >> 4) % 628u) * 0.01f;
-        impulse.m_strength = 0.6f * sinf(s_frameTime * 4.5f + phase) * dt * interaction * depthFactor;
+        impulse.m_strength = 0.2f * sinf(s_frameTime * 4.5f + phase) * dt * interaction * depthFactor;
         impulse.m_radius = bodyRadius * 0.8f;
     } else {
         // standing in shallow water: still

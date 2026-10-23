@@ -1085,7 +1085,233 @@ static void TestParticles() {
     device->Release();
 }
 
+// WaterTests --render <background.rgba> <width> <height> <out.rgba> [seconds]: a big splash (the game's emitters for a jump
+// into the water) drawn over a background with the real shaders on WARP, to look at; raw 8-bit RGBA in and out
+static int32_t RenderSplash(const char* inPath, uint32_t width, uint32_t height, const char* outPath, float seconds) {
+    std::vector<uint8_t> background;
+
+    if (!ReadFile(inPath, background) || background.size() != width * height * 4) {
+        printf("render: %s is not %u x %u RGBA\n", inPath, width, height);
+        return 1;
+    }
+
+    ID3D11Device* device = nullptr;
+    ID3D11DeviceContext* ctx = nullptr;
+
+    if (FAILED(D3D11CreateDevice(nullptr, D3D_DRIVER_TYPE_WARP, nullptr, 0, nullptr, 0, D3D11_SDK_VERSION, &device, nullptr, &ctx))) {
+        return 1;
+    }
+
+    std::string source = std::string(GxD3d11::s_hlslWaterConstants) + GxD3d11::s_hlslWaterParticles;
+    std::vector<uint8_t> emitCode, updateCode, vsCode, psCode;
+    std::string error;
+
+    if (!Compile(source, "EmitCs", "cs_5_0", &emitCode, error) || !Compile(source, "UpdateCs", "cs_5_0", &updateCode, error) || !Compile(source, "ParticleVs", "vs_5_0", &vsCode, error) || !Compile(source, "ParticlePs", "ps_5_0", &psCode, error)) {
+        printf("render: %s\n", error.c_str());
+        return 1;
+    }
+
+    ID3D11ComputeShader* emitCs = nullptr;
+    ID3D11ComputeShader* updateCs = nullptr;
+    ID3D11VertexShader* vs = nullptr;
+    ID3D11PixelShader* ps = nullptr;
+    device->CreateComputeShader(emitCode.data(), emitCode.size(), nullptr, &emitCs);
+    device->CreateComputeShader(updateCode.data(), updateCode.size(), nullptr, &updateCs);
+    device->CreateVertexShader(vsCode.data(), vsCode.size(), nullptr, &vs);
+    device->CreatePixelShader(psCode.data(), psCode.size(), nullptr, &ps);
+
+    const uint32_t capacity = 8192;
+    D3D11_BUFFER_DESC desc = {};
+    desc.ByteWidth = sizeof(Particle) * capacity;
+    desc.Usage = D3D11_USAGE_DEFAULT;
+    desc.BindFlags = D3D11_BIND_UNORDERED_ACCESS | D3D11_BIND_SHADER_RESOURCE;
+    desc.MiscFlags = D3D11_RESOURCE_MISC_BUFFER_STRUCTURED;
+    desc.StructureByteStride = sizeof(Particle);
+    ID3D11Buffer* particles = nullptr;
+    ID3D11UnorderedAccessView* particleUav = nullptr;
+    ID3D11ShaderResourceView* particleSrv = nullptr;
+    device->CreateBuffer(&desc, nullptr, &particles);
+    device->CreateUnorderedAccessView(particles, nullptr, &particleUav);
+    device->CreateShaderResourceView(particles, nullptr, &particleSrv);
+    UINT zero[4] = {};
+    ctx->ClearUnorderedAccessViewUint(particleUav, zero);
+
+    D3D11_TEXTURE2D_DESC tex = {};
+    tex.Width = width;
+    tex.Height = height;
+    tex.MipLevels = 1;
+    tex.ArraySize = 1;
+    tex.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+    tex.SampleDesc.Count = 1;
+    tex.Usage = D3D11_USAGE_DEFAULT;
+    tex.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+    D3D11_SUBRESOURCE_DATA init = { background.data(), width * 4, 0 };
+    ID3D11Texture2D* scene = nullptr;
+    ID3D11ShaderResourceView* sceneSrv = nullptr;
+    device->CreateTexture2D(&tex, &init, &scene);
+    device->CreateShaderResourceView(scene, nullptr, &sceneSrv);
+    tex.BindFlags = D3D11_BIND_RENDER_TARGET;
+    ID3D11Texture2D* target = nullptr;
+    ID3D11RenderTargetView* rtv = nullptr;
+    device->CreateTexture2D(&tex, &init, &target);
+    device->CreateRenderTargetView(target, nullptr, &rtv);
+    tex.BindFlags = 0;
+    tex.Usage = D3D11_USAGE_STAGING;
+    tex.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+    ID3D11Texture2D* staging = nullptr;
+    device->CreateTexture2D(&tex, nullptr, &staging);
+
+    // the camera 6 yards back and 1.5 up, looking north; view x right, y up, z ahead
+    WaterConstants w = {};
+    float view[16] = { 1, 0, 0, 0, 0, 0, 1, 0, 0, 1, 0, 0, 0, -1.5f, 6.0f, 1 };
+    float aspect = static_cast<float>(width) / height;
+    float n = 0.2f;
+    float f = 1000.0f;
+    float proj[16] = { 1.732f / aspect, 0, 0, 0, 0, 1.732f, 0, 0, 0, 0, f / (f - n), 1, 0, 0, -n * f / (f - n), 0 };
+    memcpy(w.m_view, view, sizeof(view));
+    memcpy(w.m_proj, proj, sizeof(proj));
+    w.m_viewport[2] = static_cast<float>(width);
+    w.m_viewport[3] = static_cast<float>(height);
+    w.m_target[0] = 1.0f / width;
+    w.m_target[1] = 1.0f / height;
+    // an evening sky and a low sun behind the camera, to the right
+    const float sky[6][3] = { { 0.25f, 0.35f, 0.55f }, { 0.35f, 0.45f, 0.6f }, { 0.5f, 0.5f, 0.55f }, { 0.6f, 0.5f, 0.45f }, { 0.65f, 0.5f, 0.4f }, { 0.6f, 0.55f, 0.5f } };
+
+    for (int32_t i = 0; i < 6; i++) {
+        w.m_sky[i][0] = sky[i][0];
+        w.m_sky[i][1] = sky[i][1];
+        w.m_sky[i][2] = sky[i][2];
+    }
+
+    w.m_sunDir[0] = 0.5f;
+    w.m_sunDir[1] = -0.6f;
+    w.m_sunDir[2] = 0.62f;
+    w.m_sunDir[3] = 1.0f;
+    w.m_sunColor[0] = 1.0f;
+    w.m_sunColor[1] = 0.8f;
+    w.m_sunColor[2] = 0.55f;
+    w.m_ambient[0] = 0.15f;
+    w.m_ambient[1] = 0.15f;
+    w.m_ambient[2] = 0.18f;
+    w.m_ambient[3] = 1.0f;
+
+    desc.ByteWidth = (sizeof(WaterConstants) + 15) & ~15u;
+    desc.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
+    desc.MiscFlags = 0;
+    desc.StructureByteStride = 0;
+    D3D11_SUBRESOURCE_DATA cbInit = { &w, 0, 0 };
+    ID3D11Buffer* waterCb = nullptr;
+    device->CreateBuffer(&desc, &cbInit, &waterCb);
+    desc.ByteWidth = (sizeof(ParticleConstants) + 15) & ~15u;
+    ID3D11Buffer* particleCb = nullptr;
+    device->CreateBuffer(&desc, nullptr, &particleCb);
+
+    // AwesomeWaterOnUnitInLiquid's jump into the water, a body radius of 0.6 yards
+    const float body = 0.6f;
+    const float emitters[4][5] = { { 36, 6.0f, 3.0f, body * 1.0f, 2 }, { 260, 7.0f, 3.2f, body * 0.9f, 0 }, { 70, 10.0f, 0.8f, body * 0.35f, 0 }, { 8, 1.2f, 1.6f, body * 0.8f, 1 } };
+    ParticleConstants c = {};
+    c.m_sim[0] = 15.0f;
+    c.m_sim[1] = 0.6f;
+    c.m_sim[2] = 1000000.0f;
+    c.m_sim[3] = 0.004f;
+    c.m_emit[1] = capacity;
+    c.m_emit[2] = 777;
+    uint32_t total = 0;
+
+    for (int32_t i = 0; i < 4; i++) {
+        total += static_cast<uint32_t>(emitters[i][0]);
+        c.m_emitters[i * 2][3] = static_cast<float>(total);
+        c.m_emitters[i * 2 + 1][0] = emitters[i][1];
+        c.m_emitters[i * 2 + 1][1] = emitters[i][2];
+        c.m_emitters[i * 2 + 1][2] = emitters[i][3];
+        c.m_emitters[i * 2 + 1][3] = emitters[i][4];
+    }
+
+    c.m_emit[3] = total;
+    c.m_count[0] = 4;
+    c.m_offset[3] = 1.0f / 60.0f;
+    ctx->UpdateSubresource(particleCb, 0, nullptr, &c, 0, 0);
+    ID3D11UnorderedAccessView* uavs[2] = { particleUav, nullptr };
+    ctx->CSSetUnorderedAccessViews(0, 2, uavs, nullptr);
+    ctx->CSSetConstantBuffers(6, 1, &particleCb);
+    ctx->CSSetShader(emitCs, nullptr, 0);
+    ctx->Dispatch((total + 63) / 64, 1, 1);
+    c.m_emit[3] = 0;
+    ctx->UpdateSubresource(particleCb, 0, nullptr, &c, 0, 0);
+    ctx->CSSetShader(updateCs, nullptr, 0);
+
+    for (int32_t i = 0; i < static_cast<int32_t>(seconds * 60.0f); i++) {
+        ctx->Dispatch(capacity / 64, 1, 1);
+    }
+
+    ID3D11UnorderedAccessView* noUavs[2] = {};
+    ctx->CSSetUnorderedAccessViews(0, 2, noUavs, nullptr);
+
+    D3D11_BLEND_DESC blend = {};
+    blend.RenderTarget[0].BlendEnable = TRUE;
+    blend.RenderTarget[0].SrcBlend = D3D11_BLEND_SRC_ALPHA;
+    blend.RenderTarget[0].DestBlend = D3D11_BLEND_INV_SRC_ALPHA;
+    blend.RenderTarget[0].BlendOp = D3D11_BLEND_OP_ADD;
+    blend.RenderTarget[0].SrcBlendAlpha = D3D11_BLEND_ZERO;
+    blend.RenderTarget[0].DestBlendAlpha = D3D11_BLEND_ONE;
+    blend.RenderTarget[0].BlendOpAlpha = D3D11_BLEND_OP_ADD;
+    blend.RenderTarget[0].RenderTargetWriteMask = 7;
+    ID3D11BlendState* blendState = nullptr;
+    device->CreateBlendState(&blend, &blendState);
+    D3D11_RASTERIZER_DESC raster = {};
+    raster.FillMode = D3D11_FILL_SOLID;
+    raster.CullMode = D3D11_CULL_NONE;
+    raster.DepthClipEnable = TRUE;
+    ID3D11RasterizerState* rasterState = nullptr;
+    device->CreateRasterizerState(&raster, &rasterState);
+    D3D11_SAMPLER_DESC samplerDesc = {};
+    samplerDesc.Filter = D3D11_FILTER_MIN_MAG_MIP_LINEAR;
+    samplerDesc.AddressU = samplerDesc.AddressV = samplerDesc.AddressW = D3D11_TEXTURE_ADDRESS_CLAMP;
+    ID3D11SamplerState* sampler = nullptr;
+    device->CreateSamplerState(&samplerDesc, &sampler);
+
+    D3D11_VIEWPORT vp = { 0, 0, static_cast<float>(width), static_cast<float>(height), 0, 1 };
+    ctx->OMSetRenderTargets(1, &rtv, nullptr);
+    ctx->OMSetBlendState(blendState, nullptr, 0xFFFFFFFF);
+    ctx->RSSetState(rasterState);
+    ctx->RSSetViewports(1, &vp);
+    ctx->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    ctx->VSSetShader(vs, nullptr, 0);
+    ctx->PSSetShader(ps, nullptr, 0);
+    ID3D11Buffer* cbs[2] = { waterCb, particleCb };
+    ctx->VSSetConstantBuffers(5, 2, cbs);
+    ctx->PSSetConstantBuffers(5, 2, cbs);
+    ctx->VSSetShaderResources(21, 1, &particleSrv);
+    ctx->PSSetShaderResources(18, 1, &sceneSrv);
+    ctx->PSSetSamplers(15, 1, &sampler);
+    ctx->Draw(capacity * 6, 0);
+
+    ctx->CopyResource(staging, target);
+    D3D11_MAPPED_SUBRESOURCE mapped;
+    ctx->Map(staging, 0, D3D11_MAP_READ, 0, &mapped);
+    std::vector<uint8_t> out(width * height * 4);
+
+    for (uint32_t y = 0; y < height; y++) {
+        memcpy(out.data() + y * width * 4, static_cast<const uint8_t*>(mapped.pData) + y * mapped.RowPitch, width * 4);
+    }
+
+    ctx->Unmap(staging, 0);
+    FILE* file = fopen(outPath, "wb");
+
+    if (file) {
+        fwrite(out.data(), 1, out.size(), file);
+        fclose(file);
+    }
+
+    printf("render: %u particles, %.2f s after the splash, written to %s\n", total, seconds, outPath);
+    return 0;
+}
+
 int main(int argc, char** argv) {
+    if (argc >= 6 && !strcmp(argv[1], "--render")) {
+        return RenderSplash(argv[2], static_cast<uint32_t>(atoi(argv[3])), static_cast<uint32_t>(atoi(argv[4])), argv[5], argc > 6 ? static_cast<float>(atof(argv[6])) : 0.25f);
+    }
+
     TestMonotoneCubic();
     TestCatmullRom();
     TestDome();

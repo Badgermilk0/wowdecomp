@@ -16,7 +16,8 @@
 // waterTessellation: near the eye the water's triangles are cut finer (down to 0.3 yards) and moved up and down by the
 //   height field, so the waves are geometry (waterWaveHeight scales how far).
 // waterStockRipples: the stock splash and wake decals on the water too (off: the height field replaces them).
-// waterSplashes: droplets and mist thrown up when a unit jumps or falls into the water (more when it falls), walks in or
+// waterSplashes: droplets (small spheres of water: the world behind them turned over, the sky at their rim, a sun
+//   glint, streaked by their motion), torn sheets of the crown and mist thrown up when a unit jumps or falls into the water (more when it falls), walks in or
 //   out, and as spray ahead of a unit moving through it; each droplet that falls back makes a small ring. The field also
 //   keeps foam where the water was disturbed, fading over a few seconds. The amount (0 = none).
 // waterDebug: 1 normals, 2 depth under the surface, 3 the height field, 4 reflection hits (green world, blue sky).
@@ -245,15 +246,17 @@ void AwesomeWaterOnUnitInLiquid(uintptr_t id, const C3Vector& surface, float dep
         impulse.m_strength = (entering && falling ? 0.2f : 0.12f) * interaction;
 
         if (splashes && entering && falling) {
-            // a crown of droplets, a column from the middle, and spray hanging over it
-            AddSplash(surface, 70.0f, 5.5f, 2.6f, bodyRadius * 0.9f, 0);
-            AddSplash(surface, 25.0f, 8.0f, 0.8f, bodyRadius * 0.35f, 0);
-            AddSplash(surface, 12.0f, 1.6f, 1.8f, bodyRadius * 0.8f, 1);
+            // the crown torn into sheets, a spray of fine droplets, a column from the middle, and mist over it
+            AddSplash(surface, 36.0f, 6.0f, 3.0f, bodyRadius * 1.0f, 2);
+            AddSplash(surface, 260.0f, 7.0f, 3.2f, bodyRadius * 0.9f, 0);
+            AddSplash(surface, 70.0f, 10.0f, 0.8f, bodyRadius * 0.35f, 0);
+            AddSplash(surface, 8.0f, 1.2f, 1.6f, bodyRadius * 0.8f, 1);
         } else if (splashes && entering) {
-            AddSplash(surface, 22.0f, 2.0f, 1.6f, bodyRadius * 0.8f, 0);
+            AddSplash(surface, 10.0f, 2.0f, 1.5f, bodyRadius * 0.9f, 2);
+            AddSplash(surface, 70.0f, 2.4f, 1.8f, bodyRadius * 0.8f, 0);
         } else if (splashes) {
             // out of the water: it runs off
-            AddSplash(surface, 14.0f, 0.9f, 0.6f, bodyRadius * 0.6f, 0);
+            AddSplash(surface, 40.0f, 0.9f, 0.6f, bodyRadius * 0.6f, 0);
         }
     } else if (motion & 0xF) {
         // moving: pushes the water aside as it goes, a wake behind it
@@ -263,7 +266,7 @@ void AwesomeWaterOnUnitInLiquid(uintptr_t id, const C3Vector& surface, float dep
         if (splashes && depthFactor > 0.7f) {
             // spray thrown off ahead of it, more the faster it goes
             float& owed = s_spray[id];
-            owed += (4.0f + 14.0f * pace / 7.0f) * dt;
+            owed += (12.0f + 40.0f * pace / 7.0f) * dt;
 
             if (owed >= 1.0f) {
                 float ahead = bodyRadius * 0.9f;

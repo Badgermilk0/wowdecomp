@@ -297,9 +297,13 @@ void D3d11Water::AfterLiquids() {
     ctx->VSSetConstantBuffers(5, 2, constants);
     ctx->PSSetConstantBuffers(5, 2, constants);
     ctx->VSSetShaderResources(21, 1, &this->m_particleSrv);
+    // the droplets show the scene behind them, turned over: its copy and the linear sampler
+    ctx->PSSetShaderResources(18, 1, &this->m_sceneSrv);
+    ctx->PSSetSamplers(15, 1, &this->m_sampler);
     ctx->Draw(s_maxParticles * 6, 0);
 
     ID3D11ShaderResourceView* none = nullptr;
     ctx->VSSetShaderResources(21, 1, &none);
+    ctx->PSSetShaderResources(18, 1, &none);
     this->IRestoreDevice();
 }

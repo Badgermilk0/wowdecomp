@@ -276,6 +276,19 @@ void D3d11Water::AfterLiquids() {
     // the render origin of this frame
     this->IWriteParticleConstants(0.0f, 0, nullptr, 0);
 
+    // the droplets show what is behind them: the frame as it is now, the water drawn (the copy taken before the liquids
+    // holds the bottom of the lake, and droplets showed it dark)
+    bool hdr = dev->m_lighting && dev->m_lighting->HdrActive() && dev->m_lighting->SceneTexture();
+    ID3D11Texture2D* source = hdr ? dev->m_lighting->SceneTexture() : dev->m_frameColor;
+
+    if (source && this->m_scene) {
+        if (dev->m_samples > 1) {
+            dev->m_ctx->ResolveSubresource(this->m_scene, 0, source, 0, this->m_sceneFormat);
+        } else {
+            dev->m_ctx->CopyResource(this->m_scene, source);
+        }
+    }
+
     dev->IXformSetViewport();
     D3D11_VIEWPORT viewport = dev->m_boundViewport;
     ID3D11RenderTargetView* rtv = dev->m_curRtv;

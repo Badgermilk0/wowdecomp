@@ -263,14 +263,14 @@ int main() {
     ThunderDspChain body = { "Body", 2600.0f, 1.0f, 1.0f, 0.0f };
     ThunderDspChain distant = { "Distant", 650.0f, 1.0f, 1.0f, -1.0f };
 
-    // the client's defaults (weatherThunderBass 3, weatherThunderBoost 10, picked by ear in game) and the CVars' limits (3, 24)
+    // the client's defaults (weatherThunderBass 2.2, weatherThunderBoost 8, picked by ear in game) and the CVars' limits (3, 24)
     Measure dry = Render(clap, nullptr, 1.0f, 1.0f, 0.0f, "dry");
-    Measure crackOut = Render(clap, &crack, 1.0f, 3.0f, 10.0f, "crack");
-    Measure bodyOut = Render(clap, &body, 0.6f, 3.0f, 10.0f, "body pitch 0.6");
+    Measure crackOut = Render(clap, &crack, 1.0f, 2.2f, 8.0f, "crack");
+    Measure bodyOut = Render(clap, &body, 0.6f, 2.2f, 8.0f, "body pitch 0.6");
     Measure bodyFlat = Render(clap, &body, 1.0f, 1.0f, 0.0f, "body flat");
-    Measure distantOut = Render(clap, &distant, 0.7f, 3.0f, 10.0f, "distant");
-    Measure bassOnly = Render(clap, &body, 1.0f, 3.0f, 0.0f, "bass only");
-    Measure boostOnly = Render(clap, &body, 1.0f, 1.0f, 10.0f, "boost only");
+    Measure distantOut = Render(clap, &distant, 0.7f, 2.2f, 8.0f, "distant");
+    Measure bassOnly = Render(clap, &body, 1.0f, 2.2f, 0.0f, "bass only");
+    Measure boostOnly = Render(clap, &body, 1.0f, 1.0f, 8.0f, "boost only");
     Measure crackMax = Render(clap, &crack, 1.0f, 3.0f, 24.0f, "crack max");
 
     // louder than the channel volume alone could make it, with the bass lifted more than the rest
@@ -289,11 +289,11 @@ int main() {
     CHECK(bodyFlat.m_rms <= dry.m_rms * 1.05);
     // the distant roll is mostly bass
     CHECK(distantOut.m_lowRms / distantOut.m_rms > dry.m_lowRms / dry.m_rms);
-    // the defaults (picked loud by ear) let short peaks reach full scale on under 1% of samples; the limits stay
-    // under 2%
-    CHECK(crackOut.m_clipped < 0.003);
-    CHECK(bodyOut.m_clipped < 0.01);
-    CHECK(distantOut.m_clipped < 0.01);
+    // the defaults stay clean: at most a couple of samples in ten thousand at full scale (3 / 10 clipped 0.1-0.7%
+    // and crackled in the user's speakers); the limits stay under 2%
+    CHECK(crackOut.m_clipped < 0.0002);
+    CHECK(bodyOut.m_clipped < 0.0002);
+    CHECK(distantOut.m_clipped < 0.0002);
     CHECK(crackMax.m_clipped < 0.02);
 
     printf("%d checks, %d failed\n", s_checks, s_failures);

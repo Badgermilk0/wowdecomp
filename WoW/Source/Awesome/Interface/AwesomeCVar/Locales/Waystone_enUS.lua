@@ -97,8 +97,10 @@ do
     L.W_DESC_UI_MAX_ASPECT = "On a screen wider than this, the interface keeps to a centred area of this shape; the world still fills the screen."
     L.W_LABEL_UI_LIVE_RESIZE = "Resize Without Reloading"
     L.W_DESC_UI_LIVE_RESIZE = "A window that changes shape lays the interface out again instead of reloading it. Takes effect after a restart."
-    L.W_LABEL_UI_SCALE_FLOOR = "UI Scale below 0.64"
-    L.W_DESC_UI_SCALE_FLOOR = "The Video options slider stops at 0.64, but the client accepts down to 0.1: /console uiScale 0.5. A pixel-exact UI at 4K is 0.36."
+    L.W_LABEL_UI_SCALE_FLOOR = "UI Scale below 0.36"
+    L.W_DESC_UI_SCALE_FLOOR = "The Video options slider goes down to 0.36, a pixel-exact UI at 4K; the client accepts down to 0.1: /console uiScale 0.3."
+    L.W_LABEL_DISPLAY_NOTE = "In Video Options"
+    L.W_DESC_DISPLAY_NOTE = "The monitor, scaling the UI with the display, interface upscaling, text resolution and animated portraits are in the game's Video options (Resolution and Advanced)."
     L.W_LABEL_UI_UPSCALE = "Upscale Interface Art"
     L.W_DESC_UI_UPSCALE = "Sharpens interface textures drawn larger than they are (most of the UI at 1440p and 4K) without new art."
     L.W_LABEL_UI_UPSCALE_EDGES = "Crisp Edges"
@@ -117,8 +119,8 @@ do
     L.W_DESC_CHAT_WHILE_DEAD = "Allows /say, /yell and emotes while dead or a ghost."
 
     -- Lighting
-    L.W_LABEL_LIGHTING_NOTE = "Modern Lighting"
-    L.W_DESC_LIGHTING_NOTE = "These effects need the D3D11 renderer. /lighting on turns on a tuned set (HDR, bloom, SSAO, per-pixel and dynamic lights, specular, fog, sharpening); /lighting off turns them off; /lighting shows statistics."
+    L.W_LABEL_LIGHTING_NOTE = "Fine Tuning"
+    L.W_DESC_LIGHTING_NOTE = "The lighting, water, sky and shadow settings themselves are in the game's Video options (Lighting, Water and Sky); this tab holds their fine tuning. They need the D3D11 renderer. /lighting on turns on a tuned set, /lighting off turns them off, /lighting shows statistics."
     L.W_LABEL_HDR = "HDR"
     L.W_DESC_HDR = "Renders the world in high dynamic range and tonemaps it. Needed for bloom and sharpening."
     L.W_LABEL_EXPOSURE = "Exposure"
@@ -261,8 +263,8 @@ do
     L.W_DESC_WMO_CACHE_TIME = "Seconds an unused building stays loaded (stock 10)."
 
     -- World
-    L.W_LABEL_WORLD_NOTE = "View Distance"
-    L.W_DESC_WORLD_NOTE = "These go past the Video options' sliders. Clicking Okay in Video options after changing one of its own sliders writes that slider's value back."
+    L.W_LABEL_WORLD_NOTE = "More World Detail"
+    L.W_DESC_WORLD_NOTE = "View distance, ground clutter, environment detail, particles, textures and the frame rate caps are in the game's Video options (Effects and Advanced), up to the client's limits. These are the rest."
     L.W_LABEL_FARCLIP = "View Distance"
     L.W_DESC_FARCLIP = "How far the world is drawn, in yards (stock slider: up to 1277)."
     L.W_LABEL_HORIZON = "Horizon Distance"

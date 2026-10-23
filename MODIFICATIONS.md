@@ -356,14 +356,13 @@ leave out or cap:
 
 | Where | Settings |
 |---|---|
-| **World** tab | View distance `farclip` (177-5000; the stock slider stops at 1277, the client takes 10000), `horizonFarclipScale`, `environmentDetail` (0.5-3), `groundEffectDist` (0-600) and `groundEffectDensity`, `objectFade`. Effects: `spellEffectLevel`, `particleDensity`, `weatherDensity`, `SkyCloudLOD`, footprints and footstep dust, `ffxGlow`, `ffxDeath`, `ffxNetherWorld`. Textures: `textureFilteringMode` (restart), `texLodBias` (moved here from Lighting), `baseMip`, `componentTextureLevel` (restart), `projectedTextures`. Frame rate: `maxFPS`, `maxFPSBk` (0 = no limit). |
+| **World** tab | `horizonFarclipScale`, `objectFade`. Effects: `spellEffectLevel`, loot sparkle, `SkyCloudLOD`, footprints and footstep dust, `ffxNetherWorld`. View distance, ground clutter, environment detail, particles, weather, glow, death effect, the texture settings and the frame rate caps moved to the native Video options (see "Native Video options"). |
 | Rendering tab, Camera | `cameraDistanceMaxFactor` (1-4; the Interface option stops at 2), turn, pitch and zoom speeds, `cameraWaterCollision`, `cameraPivot`, `cameraDive`, `cameraBobbing`. |
 | Sound tab, More | `Sound_ZoneMusicNoDelay`, armour sounds for yourself and others, `Sound_ListenerAtCharacter`. |
 | Other tab | `screenshotFormat` (JPEG or TGA) and `screenshotQuality`; Troubleshooting: `scriptErrors`, `taintLog`, and `awesomeBuiltInAddOns`. |
 
 Ranges stay inside what each CVar's callback accepts, so a value set here is never refused (a refused value is
-dropped from `Config.wtf`). One limit: clicking Okay in the stock Video options after moving one of its own sliders
-writes that slider's value back.
+dropped from `Config.wtf`).
 
 Left out of the upstream AddOn, as they belong to a separately released mod: the About tab (the mod, its version and
 links; the window opens on World instead), and the version broadcast (an addon message to the group and guild comparing awesome_wotlk releases) with its "Updates" option.
@@ -383,6 +382,54 @@ Tested offline: the client builds and embeds 19 files. A Lua 5.1 run of the embe
 
 The client also starts and exits cleanly with an old `AwesomeCVar` folder in `Interface\AddOns`.
 **Not seen in the world**, where the UI loads: the window, the Esc menu and minimap buttons, and Flash.
+
+### Native Video options (branch `feature/native-video-options`)
+
+The graphics this client adds were reachable only through the AwesomeCVar window. The ones a player chooses (on or off,
+how much, which renderer) are now in the game's own Video options (Esc > Video), as stock options controls: nothing
+applies until Okay or Apply, Cancel puts it back, Defaults resets it to the CVar's default, a renderer change asks for
+a restart. The fine tuning of each feature (per-type light strengths, fog shape, water refraction and foam, SSAO
+radius, the tonemap curve, ...) stays in the AwesomeCVar window, whose tabs now say where the rest went; nothing is in
+both places.
+
+| Category | What it holds |
+|---|---|
+| **Resolution** (stock) | UI Scale slider down to 0.36 (pixel-exact at 2160p; stock 0.64). New **Scale with Display** (`uiScaleDpi`) in the free slot beside Reduce Input Lag. |
+| **Effects** (stock) | The sliders reach the client's limits: View Distance 177-5017 (stock 1277), Environment Detail 0.5-3 (1.5), Ground Clutter Density 16-256 (64), Ground Clutter Radius 70-600 (140). Every stock quality preset still sits on its slider's grid, so Low to Ultra read and apply as before. |
+| **Lighting** (new, D3D11) | A *Lighting Quality* preset slider like the Effects panel's: Off (stock), Low, Medium, High (the `/lighting on` set), Ultra, Custom. Sliders: Exposure, Bloom, Sharpening, Ambient Occlusion, Sky Lighting, Valley Mist (`fogHeight`), Sun Scattering, Firelight, Light Distance; Shadow Resolution (1024-8192) and Shadow Softness. Switches: HDR Rendering, Per-Pixel Lighting, Dynamic Lights, Specular Highlights, Stable Shadows. |
+| **Water and Sky** (new) | Water (D3D11): Modern Water, Interactive Ripples, Reflections, Real Waves, Water Murkiness (`waterClarity`), Wave Height, Splashes. Sky and Weather: Smooth Sky, Light Transitions, Gradient Dithering, Lightning (off / storms / heavy rain too), Lightning Brightness. |
+| **Advanced** (new) | Graphics API (D3D9, D3D9Ex, D3D11; restart) with the renderer this session runs, Monitor (`gxMonitor`), Interface Upscaling (`uiUpscale`), Animated Portraits, Max Foreground / Background FPS, Texture Sharpness (`texLodBias`, D3D11), Text Resolution (`fontMaxPixelSize`). |
+
+How it works:
+
+- **Built-in FrameXML.** `Awesome/Interface/FrameXML` (`FrameXML.toc`: `VideoOptionsStrings.lua`,
+  `VideoOptionsPanelsWaystone.lua`) is embedded like the AwesomeCVar files and run by `AwesomeLoadBuiltInFrameXML`
+  right after the FrameXML files and before the built-in AddOns, untainted, always (not tied to
+  `awesomeBuiltInAddOns`). The panels are made with the stock templates and registered with `VideoOptionsPanel_OnLoad`,
+  so the stock code sets up, refreshes, applies, cancels and resets them. Strings are globals as in GlobalStrings
+  (`HDR_RENDERING`, `OPTION_TOOLTIP_HDR_RENDERING`, ...), English only; none collides with the client's GlobalStrings.
+- **Requirements.** A control that needs D3D11 is disabled on another renderer, and the panel's description says
+  why; a control that depends on a switch (Bloom on HDR, Real Waves on Interactive Ripples, Gradient Dithering on HDR
+  across panels) follows the switch as set on screen, before Okay.
+- **The view distance slider.** `GetCVarMax("farclip")` still says 1277 (both the game and glue scripts), and the
+  stock handler sets the slider's step to a tenth of the range. A hook on the Effects panel's
+  `PLAYER_ENTERING_WORLD` widens it afterwards on the stock 110-yard grid. The glue screen's Video options keep the
+  stock ranges.
+- **Lua API** (`Ui/VideoOptions_Scripts.cpp`, game and glue): `GetGraphicsAPIs()` (the renderers offered, as `gxApi`
+  names) and `GetCurrentGraphicsAPI()` (the one this session runs; a changed `gxApi` waits for a restart, as
+  `gxRestart` keeps the device).
+
+Not moved: tuning knobs, the performance internals (threads, streaming, caches), sound, camera and nameplates, which
+stay in the AwesomeCVar window. The login screen's Video options (GlueXML) do not have the new panels.
+
+Tested offline by `Tools/VideoOptionsTests` (`python video_options_tests.py <stock FrameXML folder> [--png <dir>]`;
+the stock files come from the client's MPQs, see its docstring). It loads the real stock options XML and Lua with a
+small FrameXML loader under Lua 5.1 (lupa), runs the built-in files as the client does, and plays the options through
+with the CVar defaults and clamps read from the C++ sources: labels and tooltips, Okay without changes changing nothing,
+the stock presets on the widened Effects sliders, the Lighting presets against `/lighting on`, Cancel, the
+requirements on D3D11 and D3D9, shadow resolution leaving the stock 0 alone until moved, the renderer change and its
+restart popup, Defaults; then lays every panel out from its anchors (no control overlapping another or leaving the
+panel) and draws them. 537 checks pass. **Not seen in the game.**
 
 ### Audio engine upgrade (branch `feature/audio-engine`)
 

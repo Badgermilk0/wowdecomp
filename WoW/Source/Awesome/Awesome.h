@@ -119,6 +119,9 @@ void AwesomeWeatherSoundShutdown();
 // AwesomeEmbeddedUi.cpp, the AwesomeCVar settings window and the Flash helper built into the client:
 // CGGameUI::InitializeFrameXML, after the FrameXML files and before LoadAddOns, runs them as FrameXML
 void AwesomeLoadBuiltInAddOns(CStatus* status);
+// The client's own FrameXML additions (Interface/FrameXML: the Video options panels for the Waystone graphics
+// settings), run right after the FrameXML files, before the built-in AddOns; always on
+void AwesomeLoadBuiltInFrameXML(CStatus* status);
 // LoadAddOnInfo: true for an AddOn the client has built in (and awesomeBuiltInAddOns on), which is then not listed or
 // loaded from Interface\AddOns
 bool AwesomeIsBuiltInAddOn(const char* name);

@@ -1810,7 +1810,9 @@ void CGGameUI::InitializeFrameXML() {
     }
 
     BugReportRegister();
-    // MODIFIED: built-in AwesomeCVar and Flash, as FrameXML before the AddOns
+    // MODIFIED: the client's own FrameXML additions (Video options panels), then the built-in AwesomeCVar and Flash,
+    // as FrameXML before the AddOns
+    AwesomeLoadBuiltInFrameXML(&status);
     AwesomeLoadBuiltInAddOns(&status);
     LoadAddOns(&status);
     FrameXML_RegisterLoadProgressCallback(nullptr, nullptr, 0);

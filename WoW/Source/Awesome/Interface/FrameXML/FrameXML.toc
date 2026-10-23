@@ -1,0 +1,6 @@
+# The client's own FrameXML additions, built in (Awesome/AwesomeEmbeddedUi.cpp) and run in this order right after the
+# FrameXML files, before the AddOns, whatever awesomeBuiltInAddOns says
+
+# Video options: the Lighting, Water and Sky, and Advanced panels, and the stock panels widened
+VideoOptionsStrings.lua
+VideoOptionsPanelsWaystone.lua

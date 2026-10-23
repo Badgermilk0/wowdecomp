@@ -69,6 +69,7 @@ static void OnPortraitResolution(AwesomeCVar* cvar, bool changed);
 static void OnPortraitLive(AwesomeCVar* cvar, bool changed);
 static void OnMinimapIndoorResolution(AwesomeCVar* cvar, bool changed);
 static void OnObjectHighlightMode(AwesomeCVar* cvar, bool changed);
+static void OnLootSparkle(AwesomeCVar* cvar, bool changed);
 static void OnChatLogSessionKey(AwesomeCVar* cvar, bool changed);
 static void OnCombatLogSessionKey(AwesomeCVar* cvar, bool changed);
 
@@ -82,6 +83,10 @@ static AwesomeCVar s_cvPortraitLive = AwesomeCVar::Int("portraitLive", 1, 0, 1, 
 // MODIFIED: indoor minimap render target (stock 256); 1024 keeps the WMO minimap textures' full detail at every zoom
 static AwesomeCVar s_cvMinimapIndoorResolution = AwesomeCVar::Int("minimapIndoorResolution", 1024, 256, 2048, OnMinimapIndoorResolution);
 static AwesomeCVar s_cvObjectHighlightMode = AwesomeCVar::Int("objectHighlightMode", 0, 0, 2, OnObjectHighlightMode);
+// MODIFIED: loot sparkle on lootable corpses and highlighted objects; 1 = stock
+static AwesomeCVar s_cvLootSparkleAmount = AwesomeCVar::Float("lootSparkleAmount", 1.0f, 0.0f, 5.0f, OnLootSparkle);
+static AwesomeCVar s_cvLootSparkleBrightness = AwesomeCVar::Float("lootSparkleBrightness", 1.0f, 0.0f, 3.0f, OnLootSparkle);
+static AwesomeCVar s_cvLootSparkleSize = AwesomeCVar::Float("lootSparkleSize", 1.0f, 0.25f, 3.0f, OnLootSparkle);
 static AwesomeCVar s_cvChatLogSessionKey = AwesomeCVar::Int("chatLogSessionKey", 1, 0, 1, OnChatLogSessionKey);
 static AwesomeCVar s_cvCombatLogSessionKey = AwesomeCVar::Int("combatLogSessionKey", 1, 0, 1, OnCombatLogSessionKey);
 
@@ -521,6 +526,16 @@ static void OnObjectHighlightMode(AwesomeCVar* cvar, bool changed) {
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
+// lootSparkleAmount / Brightness / Size: the loot sparkle's particle emission rate, opacity and particle size, as
+// multiples of stock. Read every frame by the sparkle models' emitters (CM2Model::m_lootSparkle), so live.
+
+static void OnLootSparkle(AwesomeCVar* cvar, bool changed) {
+    CM2Model::s_lootSparkleRate = s_cvLootSparkleAmount.m_floatValue;
+    CM2Model::s_lootSparkleAlpha = s_cvLootSparkleBrightness.m_floatValue;
+    CM2Model::s_lootSparkleSize = s_cvLootSparkleSize.m_floatValue;
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
 // Session logs: chat and combat logs go to a new "Logs\<date-time> WoWChatLog.txt" every client launch.
 
 static void SetSessionLogName(int32_t index, bool session, const char* file, const char* defaultName) {
@@ -671,6 +686,9 @@ void AwesomeMiscRegisterCVars() {
     s_cvPortraitLive.Register();
     s_cvMinimapIndoorResolution.Register();
     s_cvObjectHighlightMode.Register();
+    s_cvLootSparkleAmount.Register();
+    s_cvLootSparkleBrightness.Register();
+    s_cvLootSparkleSize.Register();
     s_cvChatLogSessionKey.Register();
     s_cvCombatLogSessionKey.Register();
 }

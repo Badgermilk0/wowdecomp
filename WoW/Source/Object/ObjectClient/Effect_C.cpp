@@ -887,6 +887,9 @@ void CEffect::AddLootEffect(CGUnit_C* unit, void (*callback)(CM2Model* model, ui
         return;
     }
 
+    // MODIFIED: loot sparkle tuning (CM2Model::m_lootSparkle)
+    this->m_model->m_lootSparkle = true;
+
     if (this->m_flags & 0x400000) {
         this->SetEmissionRateIgnoresDistance(1);
     }

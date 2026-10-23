@@ -145,6 +145,14 @@ void WORLDTEXTSTRING::RecreateString() {
     shadow.y = 0.0f;
     DDCToNDC(s_shadowOffset.x, s_shadowOffset.y, &shadow.x, &shadow.y);
 
+    // MODIFIED: CalculateNewColor gives the string s_shadowOffset itself, unconverted, and the string wraps with that
+    // shadow width. Stock DDC is narrower than NDC so the converted width was the larger; with the fixed-height DDC of
+    // live aspect changes (DDC width 0.6 x aspect) it is the smaller at any aspect wider than 5:3, the block came out a
+    // pixel short and the last glyph wrapped off ("Mis" for "Miss"). Measure with the larger of the two.
+    if (shadow.x < s_shadowOffset.x) {
+        shadow.x = s_shadowOffset.x;
+    }
+
     float extent;
     GxuFontGetTextExtent(font, this->m_text, SStrLen(this->m_text), fontHeight, &extent, shadow.x, 1.0f, 0.0f, 0);
     float textHeight = GxuFontGetWrappedTextHeight(font, this->m_text, fontHeight, extent, shadow, 1.0f, 0.0f, 0);

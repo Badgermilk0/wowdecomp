@@ -178,6 +178,8 @@ void CGCorpse_C::PostInit(uint32_t time, const CClientObjCreate& create, bool a3
         this->m_lootEffect = this->m_worldModel->m_scene->CreateModel(effect->m_fileName, 0);
 
         if (this->m_lootEffect) {
+            // MODIFIED: loot sparkle tuning (CM2Model::m_lootSparkle)
+            this->m_lootEffect->m_lootSparkle = true;
             this->m_lootEffect->AttachToParent(this->m_worldModel, 19, nullptr, 0);
         }
     }
@@ -284,6 +286,8 @@ void CGCorpse_C::ShowLootEffect() {
     this->m_lootEffect = this->m_worldModel->m_scene->CreateModel(effect->m_fileName, 0);
 
     if (this->m_lootEffect) {
+        // MODIFIED: loot sparkle tuning (CM2Model::m_lootSparkle)
+        this->m_lootEffect->m_lootSparkle = true;
         this->m_lootEffect->AttachToParent(this->m_worldModel, 19, nullptr, 0);
     }
 }

@@ -474,7 +474,7 @@ int32_t ThunderParts(float distance, bool layered, LightningScheduler& random, T
         // the crack, the body under it, and the roll as the sound comes back off the land
         parts[0] = { THUNDER_CRACK, 0.0f, 1.0f, 0.92f + 0.14f * random.Random() };
         parts[1] = { THUNDER_BODY, 0.02f, 0.9f, 0.55f + 0.12f * random.Random() };
-        parts[2] = { THUNDER_ROLL, 0.45f + 0.5f * random.Random(), 0.55f, 0.75f + 0.1f * random.Random() };
+        parts[2] = { THUNDER_ROLL, 0.45f + 0.5f * random.Random(), 0.7f, 0.75f + 0.1f * random.Random() };
         return 3;
     }
 

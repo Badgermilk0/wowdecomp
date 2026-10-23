@@ -67,9 +67,9 @@ static AwesomeCVar s_cvThunderNearKit = AwesomeCVar::Int("weatherThunderNearKit"
 static AwesomeCVar s_cvThunderFarKit = AwesomeCVar::Int("weatherThunderFarKit", 13006, 0, 1000000);
 static AwesomeCVar s_cvThunderLayers = AwesomeCVar::Int("weatherThunderLayers", 1, 0, 1);
 // gain of the low bands (FMOD PARAMEQ, 1 = flat) and the compressor's make-up gain in dB. The defaults make a clap
-// about 13 dB louder with 16 dB more bass and no clipping (WeatherAudioTests); 3 and 24 are the limits
-static AwesomeCVar s_cvThunderBass = AwesomeCVar::Float("weatherThunderBass", 1.8f, 1.0f, 3.0f, OnThunderSettings);
-static AwesomeCVar s_cvThunderBoost = AwesomeCVar::Float("weatherThunderBoost", 6.0f, 0.0f, 24.0f, OnThunderSettings, "%.1f");
+// about 15-17 dB louder with 19-20 dB more bass, peaks under full scale (WeatherAudioTests); 3 and 24 are the limits
+static AwesomeCVar s_cvThunderBass = AwesomeCVar::Float("weatherThunderBass", 2.2f, 1.0f, 3.0f, OnThunderSettings);
+static AwesomeCVar s_cvThunderBoost = AwesomeCVar::Float("weatherThunderBoost", 8.0f, 0.0f, 24.0f, OnThunderSettings, "%.1f");
 static AwesomeCVar s_cvSoundLayer = AwesomeCVar::Int("weatherSoundLayer", 1, 0, 1, OnCurveSettings);
 static AwesomeCVar s_cvSoundIndoor = AwesomeCVar::Float("weatherSoundIndoor", 0.35f, 0.0f, 1.0f);
 static AwesomeCVar s_cvAmbienceDuck = AwesomeCVar::Float("weatherAmbienceDuck", 0.6f, 0.0f, 1.0f);
@@ -142,7 +142,7 @@ static WeatherLoop s_rumble;
 
 // the thunder layers' FMOD chains (AwesomeThunderDsp), made when the first thunder of a layer plays
 static ThunderDspChain s_chains[THUNDER_LAYER_COUNT] = {
-    { "AwesomeThunderCrack", 0.0f, 1.6f, 0.8f, 0.0f },
+    { "AwesomeThunderCrack", 0.0f, 1.6f, 0.8f, -1.0f },
     { "AwesomeThunderBody", 2600.0f, 1.0f, 1.0f, 0.0f },
     { "AwesomeThunderRoll", 1400.0f, 1.0f, 1.0f, -2.0f },
     { "AwesomeThunderDistant", 650.0f, 1.0f, 1.0f, -1.0f },

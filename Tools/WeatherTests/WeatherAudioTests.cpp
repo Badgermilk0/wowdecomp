@@ -259,26 +259,26 @@ static Measure Render(const std::vector<uint8_t>& clap, ThunderDspChain* chain, 
 int main() {
     std::vector<uint8_t> clap = MakeClap();
 
-    ThunderDspChain crack = { "Crack", 0.0f, 1.6f, 0.8f, 0.0f };
+    ThunderDspChain crack = { "Crack", 0.0f, 1.6f, 0.8f, -1.0f };
     ThunderDspChain body = { "Body", 2600.0f, 1.0f, 1.0f, 0.0f };
     ThunderDspChain distant = { "Distant", 650.0f, 1.0f, 1.0f, -1.0f };
 
-    // the client's defaults (weatherThunderBass 1.8, weatherThunderBoost 6) and the CVars' limits (3, 24)
+    // the client's defaults (weatherThunderBass 2.2, weatherThunderBoost 8) and the CVars' limits (3, 24)
     Measure dry = Render(clap, nullptr, 1.0f, 1.0f, 0.0f, "dry");
-    Measure crackOut = Render(clap, &crack, 1.0f, 1.8f, 6.0f, "crack");
-    Measure bodyOut = Render(clap, &body, 0.6f, 1.8f, 6.0f, "body pitch 0.6");
+    Measure crackOut = Render(clap, &crack, 1.0f, 2.2f, 8.0f, "crack");
+    Measure bodyOut = Render(clap, &body, 0.6f, 2.2f, 8.0f, "body pitch 0.6");
     Measure bodyFlat = Render(clap, &body, 1.0f, 1.0f, 0.0f, "body flat");
-    Measure distantOut = Render(clap, &distant, 0.7f, 1.8f, 6.0f, "distant");
-    Measure bassOnly = Render(clap, &body, 1.0f, 1.8f, 0.0f, "bass only");
-    Measure boostOnly = Render(clap, &body, 1.0f, 1.0f, 6.0f, "boost only");
+    Measure distantOut = Render(clap, &distant, 0.7f, 2.2f, 8.0f, "distant");
+    Measure bassOnly = Render(clap, &body, 1.0f, 2.2f, 0.0f, "bass only");
+    Measure boostOnly = Render(clap, &body, 1.0f, 1.0f, 8.0f, "boost only");
     Measure crackMax = Render(clap, &crack, 1.0f, 3.0f, 24.0f, "crack max");
 
     // louder than the channel volume alone could make it, with the bass lifted more than the rest
-    CHECK(Db(crackOut.m_rms / dry.m_rms) >= 8.0);
-    CHECK(Db(crackOut.m_lowRms / dry.m_lowRms) >= 10.0);
+    CHECK(Db(crackOut.m_rms / dry.m_rms) >= 12.0);
+    CHECK(Db(crackOut.m_lowRms / dry.m_lowRms) >= 15.0);
     CHECK(Db(crackOut.m_lowRms / dry.m_lowRms) > Db(crackOut.m_rms / dry.m_rms));
-    CHECK(Db(bodyOut.m_rms / dry.m_rms) >= 6.0);
-    CHECK(Db(bodyOut.m_lowRms / dry.m_lowRms) >= 10.0);
+    CHECK(Db(bodyOut.m_rms / dry.m_rms) >= 12.0);
+    CHECK(Db(bodyOut.m_lowRms / dry.m_lowRms) >= 15.0);
     // each half does its part: the bass bands and the compressor's make-up gain
     CHECK(Db(bassOnly.m_lowRms / dry.m_lowRms) >= 6.0);
     CHECK(Db(boostOnly.m_rms / dry.m_rms) >= 2.0);
@@ -289,8 +289,8 @@ int main() {
     CHECK(bodyFlat.m_rms <= dry.m_rms * 1.05);
     // the distant roll is mostly bass
     CHECK(distantOut.m_lowRms / distantOut.m_rms > dry.m_lowRms / dry.m_rms);
-    // the defaults never reach full scale; at the limits only a sliver of samples does
-    CHECK(crackOut.m_clipped < 0.0005);
+    // the defaults keep within a few samples per ten thousand of full scale; at the limits only a sliver
+    CHECK(crackOut.m_clipped < 0.0002);
     CHECK(bodyOut.m_clipped < 0.0005);
     CHECK(distantOut.m_clipped < 0.0005);
     CHECK(crackMax.m_clipped < 0.02);

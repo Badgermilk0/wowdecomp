@@ -1,4 +1,5 @@
 #include "World.h"
+#include "WoW/Source/Awesome/Awesome.h"
 #include "WoW/Source/WorldClient/WorldConstants.h"
 #include <cstdlib>
 #include <new>
@@ -1932,6 +1933,8 @@ void CWorldScene::UpdateViewerLiquid() {
 // OFFSET: 0x00790A80
 void CWorldScene::RenderLiquidPass() {
     CWorldScene::ApplyFogState();
+    // MODIFIED: modern water (Awesome.h): the opaque scene copied for the water
+    AwesomeWaterBeforeLiquids();
 
     if ((CWorld::enables & Enable_Water) && CWorldScene::s_liquidRenderer) {
         CWorldScene::s_liquidRenderer->Flush(CWorldScene::s_activeWorldView, 1);

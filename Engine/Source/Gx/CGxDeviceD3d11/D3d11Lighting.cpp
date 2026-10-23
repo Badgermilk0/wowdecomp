@@ -60,6 +60,7 @@ struct PostConstants {
     float m_clusterDims[4];
     float m_clusterZ[4];
     float m_projW[4];
+    float m_extra[4];
 };
 
 const char* const s_postHlsl =
@@ -84,6 +85,7 @@ const char* const s_postHlsl =
     "    float4 gxClusterDims;          // x, y, z clusters, w lights\n"
     "    float4 gxClusterZ;             // slice = log2(clip w) * x + y\n"
     "    float4 gxProjW;                // clip w = dot(float4(view position, 1), gxProjW)\n"
+    "    float4 gxExtra;                // x dither (8-bit steps of noise in the tonemap)\n"
     "};\n"
     "\n"
     "#if GX_MSAA\n"
@@ -404,7 +406,16 @@ const char* const s_postHlsl =
     "        c = saturate(c);\n"
     "    }\n"
     "\n"
-    "    return float4(GxEnc(c), s.a);\n"
+    "    float3 encoded = GxEnc(c);\n"
+    "\n"
+    "    if (gxExtra.x > 0.0) {\n"
+    "        // triangular noise around 0 of up to gxExtra.x steps of the 8-bit frame: no bands in smooth gradients\n"
+    "        float a = frac(52.9829189 * frac(dot(i.pos.xy, float2(0.06711056, 0.00583715))));\n"
+    "        float b = frac(52.9829189 * frac(dot(i.pos.xy + 17.0, float2(0.00583715, 0.06711056))));\n"
+    "        encoded += (a + b - 1.0) * (gxExtra.x / 255.0);\n"
+    "    }\n"
+    "\n"
+    "    return float4(encoded, s.a);\n"
     "}\n"
     "\n"
     "// the clusters: the lights whose sphere touches each cell of the view, the count first\n"
@@ -968,6 +979,8 @@ void D3d11Lighting::IWritePostConstants(const D3D11_VIEWPORT& viewport, uint32_t
     c.m_tone[2] = static_cast<float>(p.m_debug);
     // MODIFIED: sharpen
     c.m_tone[3] = p.m_sharpen > 1.0f ? 1.0f : p.m_sharpen;
+    // MODIFIED: skyDither
+    c.m_extra[0] = p.m_dither;
 
     if (source) {
         memcpy(c.m_source, source, sizeof(c.m_source));

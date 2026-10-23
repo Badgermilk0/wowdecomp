@@ -48,6 +48,7 @@ struct GxLightingParams {
     float m_bloomIntensity = 0.0f;
     float m_bloomThreshold = 1.0f;   // linear
     float m_sharpen = 0.0f;          // 0 off, to 1: contrast-adaptive sharpening of the world in the tonemap (needs Hdr)
+    float m_dither = 0.0f;           // 8-bit steps of triangular noise the tonemap adds, against banding (needs Hdr)
 
     // SSAO
     float m_ssaoIntensity = 0.0f;

@@ -1738,6 +1738,8 @@ void CGWorldFrame::OnWorldRender() {
     CShaderEffect::UpdateProjMatrix();
     // MODIFIED: modern lighting (Awesome.h): the world pass begins (the HDR scene target)
     AwesomeLightingBeginWorld();
+    // MODIFIED: modern water (Awesome.h): the ripple height field steps
+    AwesomeWaterBeginWorld();
     CWorld::Render(this->m_camera->m_position, this->m_elapsedSec);
     // MODIFIED: performance diagnostics (FrameProfile.h), the FrameProfileSwitch calls below
     FrameProfileSwitch(FRAMEPROFILE_NAMEPLATES);
@@ -1758,6 +1760,7 @@ void CGWorldFrame::OnWorldRender() {
 
     if (!scene) {
         // MODIFIED: modern lighting: the world pass ends
+        AwesomeWaterEndWorld();
         AwesomeLightingEndWorld();
         FrameProfileSwitch(FRAMEPROFILE_NONE);
         return;
@@ -1825,6 +1828,7 @@ void CGWorldFrame::OnWorldRender() {
     CGChatBubbleFrame::OnWorldRender(this);
     GxXformSetViewport(minX, maxX, minY, maxY, minZ, maxZ);
     // MODIFIED: modern lighting: bloom and the tonemap into the frame; FFX glow then sees the tonemapped world
+    AwesomeWaterEndWorld();
     AwesomeLightingEndWorld();
     FFX::Finish();
     CVehiclePassenger_C::PostRenderUpdateAll();

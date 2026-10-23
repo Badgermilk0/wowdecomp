@@ -256,6 +256,8 @@ void AwesomeRegisterCVars() {
     AwesomeHdClientRegisterCVars();
     AwesomeShadowsRegisterCVars();
     AwesomeLightingRegisterCVars();
+    AwesomeWaterRegisterCVars();
+    AwesomeSkyRegisterCVars();
     AwesomePerfRegisterCVars();
     AwesomeStreamingRegisterCVars();
     AwesomeAudioRegisterCVars();
@@ -296,6 +298,8 @@ void AwesomeOnEnterWorld() {
     AwesomeAudioOnEnterWorld();
     AwesomeWeatherOnEnterWorld();
     AwesomeLightingOnEnterWorld();
+    AwesomeWaterOnEnterWorld();
+    AwesomeSkyOnEnterWorld();
 }
 
 void AwesomeOnLeaveWorld() {

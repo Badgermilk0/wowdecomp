@@ -1,4 +1,5 @@
 #include "WoW/Source/WorldClient/DayNight__DNInfo.h"
+#include "WoW/Source/Awesome/Awesome.h"
 #include <cmath>
 #include "Engine/Source/Base/Status.h"
 #include "Engine/Source/Gx/CGxDevice/CGxDevice.h"
@@ -176,16 +177,19 @@ void DayNight::DNSky::Render() {
     GxRsSet(GxRs_BlendingMode, 3);
     GxUpdateAlphaRef(GxRs_AlphaRef);
 
-    GxPrimVertexPtr(this->m_nVerts, this->m_geoVerts.m_data, sizeof(C3Vector), nullptr, 0, this->m_clrVerts.m_data, sizeof(CImVector), nullptr, 0, nullptr, 0);
-    GxPrimIndexPtr(this->m_nIndices, this->m_indices.m_data);
+    // MODIFIED: smoother sky (Awesome.h): the same colours on a dense dome, interpolated smoothly
+    if (!AwesomeSkyDraw(this)) {
+        GxPrimVertexPtr(this->m_nVerts, this->m_geoVerts.m_data, sizeof(C3Vector), nullptr, 0, this->m_clrVerts.m_data, sizeof(CImVector), nullptr, 0, nullptr, 0);
+        GxPrimIndexPtr(this->m_nIndices, this->m_indices.m_data);
 
-    CGxBatch batch;
-    batch.m_primType = GxPrim_TriangleStrip;
-    batch.m_start = 0;
-    batch.m_count = this->m_nIndices;
-    batch.m_minIndex = 0;
-    batch.m_maxIndex = this->m_nVerts - 1;
-    g_theGxDevicePtr->Draw(&batch, 1);
+        CGxBatch batch;
+        batch.m_primType = GxPrim_TriangleStrip;
+        batch.m_start = 0;
+        batch.m_count = this->m_nIndices;
+        batch.m_minIndex = 0;
+        batch.m_maxIndex = this->m_nVerts - 1;
+        g_theGxDevicePtr->Draw(&batch, 1);
+    }
 
     GxXformPop(GxXform_World);
     g_theGxDevicePtr->RsPop();

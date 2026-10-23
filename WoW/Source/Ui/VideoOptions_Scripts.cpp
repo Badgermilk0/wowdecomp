@@ -614,6 +614,33 @@ static int32_t Script_SetMultisampleFormat(lua_State* L) {
     return 0;
 }
 
+// MODIFIED: the Video options' Graphics API choice. The renderers the options offer, as gxApi names: D3D9, D3D9Ex
+// and the D3D11 device. OpenGL, which GxApiSupported also accepts, is left out: untested in this build.
+static int32_t Script_GetGraphicsAPIs(lua_State* L) {
+    static const EGxApi s_offered[] = { GxApi_D3d9, GxApi_D3d9Ex, GxApi_D3d11 };
+    int32_t count = 0;
+
+    for (EGxApi api : s_offered) {
+        if (GxApiSupported(api)) {
+            lua_pushstring(L, g_gxApiNames[api]);
+            count++;
+        }
+    }
+
+    return count;
+}
+
+// MODIFIED: the renderer this session runs (gxApi or a command-line switch, chosen at startup; a changed gxApi waits
+// for a restart), as its gxApi name; nothing before the device exists
+static int32_t Script_GetCurrentGraphicsAPI(lua_State* L) {
+    if (!g_theGxDevicePtr) {
+        return 0;
+    }
+
+    lua_pushstring(L, g_gxApiNames[g_theGxDevicePtr->DeviceApi()]);
+    return 1;
+}
+
 // STATIC: 0x00ACD320
 static FrameScript_Method s_scriptFunctions[] = {
     { "GetScreenResolutions", &Script_GetScreenResolutions },
@@ -631,6 +658,9 @@ static FrameScript_Method s_scriptFunctions[] = {
     { "SetTerrainMip", &Script_SetTerrainMip },
     { "IsStereoVideoAvailable", &Script_IsStereoVideoAvailable },
     { "IsPlayerResolutionAvailable", &Script_IsPlayerResolutionAvailable },
+    // MODIFIED: the Video options' Graphics API choice
+    { "GetGraphicsAPIs", &Script_GetGraphicsAPIs },
+    { "GetCurrentGraphicsAPI", &Script_GetCurrentGraphicsAPI },
 };
 
 // VERIFY: 9fc618b7 auto

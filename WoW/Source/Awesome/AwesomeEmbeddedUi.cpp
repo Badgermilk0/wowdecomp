@@ -16,8 +16,11 @@
 // table shared by its files), in the order its .toc lists them; then ADDON_LOADED fires with the name.
 // awesomeBuiltInAddOns 0 turns them off, and AddOns of those names in Interface\AddOns load instead.
 // AwesomeCVar's own settings, an AddOn's SavedVariables, are the CVars below (Interface/AwesomeCVar/Embedded.lua).
+// Interface/FrameXML holds the client's own FrameXML additions (FrameXML.toc): the same loader runs them first, always,
+// with the folder name and a shared table as arguments and no ADDON_LOADED.
 
 static const char* const s_embeddedAddOns[] = { "AwesomeCVar", "Flash" };
+static const char* const s_frameXmlFolder = "FrameXML";
 
 static AwesomeCVar s_cvBuiltInAddOns = AwesomeCVar::Int("awesomeBuiltInAddOns", 1, 0, 1);
 
@@ -46,7 +49,8 @@ static const AwesomeEmbeddedFile* FindFile(const char* path) {
     return nullptr;
 }
 
-static void RunFile(lua_State* L, const char* addOn, int32_t ns, const char* entry, CStatus* status) {
+// chunkFolder: where an error message says the file is ("Interface\AddOns" or "Interface")
+static void RunFile(lua_State* L, const char* addOn, const char* chunkFolder, int32_t ns, const char* entry, CStatus* status) {
     char path[260];
     SStrPrintf(path, sizeof(path), "%s\\%s", addOn, entry);
     const AwesomeEmbeddedFile* file = FindFile(path);
@@ -73,7 +77,7 @@ static void RunFile(lua_State* L, const char* addOn, int32_t ns, const char* ent
     }
 
     char chunkName[300];
-    SStrPrintf(chunkName, sizeof(chunkName), "@Interface\\AddOns\\%s", path);
+    SStrPrintf(chunkName, sizeof(chunkName), "@%s\\%s", chunkFolder, path);
 
     if (luaL_loadbuffer(L, data, size, chunkName) == 0) {
         lua_pushstring(L, addOn);
@@ -89,14 +93,15 @@ static void RunFile(lua_State* L, const char* addOn, int32_t ns, const char* ent
     lua_pop(L, 1);
 }
 
-static void LoadEmbeddedAddOn(const char* addOn, CStatus* status) {
+// Runs the Lua files a built-in .toc lists (folder\toc.toc), untainted; returns false when the .toc is not built in
+static bool RunEmbeddedToc(const char* addOn, const char* tocName, const char* chunkFolder, CStatus* status) {
     char tocPath[260];
-    SStrPrintf(tocPath, sizeof(tocPath), "%s\\%s.toc", addOn, addOn);
+    SStrPrintf(tocPath, sizeof(tocPath), "%s\\%s.toc", addOn, tocName);
     const AwesomeEmbeddedFile* toc = FindFile(tocPath);
 
     if (!toc) {
         status->Add(STATUS_WARNING, "Built-in %s: no %s", addOn, tocPath);
-        return;
+        return false;
     }
 
     lua_State* L = FrameScript_GetContext();
@@ -136,13 +141,19 @@ static void LoadEmbeddedAddOn(const char* addOn, CStatus* status) {
             continue;
         }
 
-        RunFile(L, addOn, ns, entry, status);
+        RunFile(L, addOn, chunkFolder, ns, entry, status);
     }
 
     lua_settop(L, top);
     lua_tainted = savedTaint;
 
-    FrameScript_SignalEvent(SCRIPT_EVENT_ADDON_LOADED, "%s", addOn);
+    return true;
+}
+
+static void LoadEmbeddedAddOn(const char* addOn, CStatus* status) {
+    if (RunEmbeddedToc(addOn, addOn, "Interface\\AddOns", status)) {
+        FrameScript_SignalEvent(SCRIPT_EVENT_ADDON_LOADED, "%s", addOn);
+    }
 }
 
 bool AwesomeIsBuiltInAddOn(const char* name) {
@@ -167,6 +178,10 @@ void AwesomeLoadBuiltInAddOns(CStatus* status) {
     for (const char* addOn : s_embeddedAddOns) {
         LoadEmbeddedAddOn(addOn, status);
     }
+}
+
+void AwesomeLoadBuiltInFrameXML(CStatus* status) {
+    RunEmbeddedToc(s_frameXmlFolder, s_frameXmlFolder, "Interface", status);
 }
 
 void AwesomeEmbeddedUiRegisterCVars() {

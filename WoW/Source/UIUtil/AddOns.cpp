@@ -13,6 +13,7 @@
 #include "Engine/Source/FrameXML/LoadXML.h"
 #include "Engine/Source/Storm/Source/MD5.h"
 #include "Engine/Source/lua-5.1/src/lua.h"
+#include "WoW/Source/Awesome/Awesome.h"
 #include "WoW/Source/Client.h"
 #include "WoW/Source/UIUtil/BannedAddOns.h"
 #include "WoW/Source/Ui/AddOns.h"
@@ -1135,6 +1136,11 @@ void LoadAddOns(CStatus* status) {
 // OFFSET: 0x005F86A0
 static void LoadAddOnInfo(const char* name) {
     if (s_addons.Ptr(name)) {
+        return;
+    }
+
+    // MODIFIED: an AddOn the client has built in (AwesomeCVar, Flash) is neither listed nor loaded from the folder
+    if (AwesomeIsBuiltInAddOn(name)) {
         return;
     }
 

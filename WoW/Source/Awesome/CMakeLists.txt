@@ -1,7 +1,21 @@
 file(GLOB_RECURSE PRIVATE_SOURCES CONFIGURE_DEPENDS "*.cpp")
 
+# MODIFIED: built-in AwesomeCVar and Flash. The files under Interface/ become byte arrays in a generated source,
+# made again whenever one of them changes
+file(GLOB_RECURSE EMBEDDED_INTERFACE CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/Interface/*.toc" "${CMAKE_CURRENT_SOURCE_DIR}/Interface/*.lua" "${CMAKE_CURRENT_SOURCE_DIR}/Interface/*.xml")
+set(EMBEDDED_INTERFACE_SOURCE "${CMAKE_CURRENT_BINARY_DIR}/AwesomeEmbeddedUiFiles.cpp")
+
+add_custom_command(
+    OUTPUT "${EMBEDDED_INTERFACE_SOURCE}"
+    COMMAND ${CMAKE_COMMAND} "-DROOT=${CMAKE_CURRENT_SOURCE_DIR}/Interface" "-DOUT=${EMBEDDED_INTERFACE_SOURCE}" -P "${CMAKE_CURRENT_SOURCE_DIR}/EmbedInterface.cmake"
+    DEPENDS ${EMBEDDED_INTERFACE} "${CMAKE_CURRENT_SOURCE_DIR}/EmbedInterface.cmake"
+    COMMENT "Embedding the built-in interface files"
+    VERBATIM
+)
+
 add_library(Awesome STATIC
     ${PRIVATE_SOURCES}
+    "${EMBEDDED_INTERFACE_SOURCE}"
 )
 
 target_include_directories(Awesome

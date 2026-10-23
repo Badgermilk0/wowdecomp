@@ -117,6 +117,7 @@ void AwesomePerfRegisterScriptFunctions(lua_State* L);
 void AwesomePerfOnEnterWorld();
 
 void AwesomeDisplayRegisterCVars();
+void AwesomeEmbeddedUiRegisterCVars();
 void AwesomeDisplayRegisterScriptFunctions(lua_State* L);
 
 void AwesomeCameraRegisterCVars();

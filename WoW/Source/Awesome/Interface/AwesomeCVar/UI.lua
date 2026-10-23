@@ -833,19 +833,23 @@ function ACVar:CreateMainFrame()
         content:SetScript("OnUpdate", fitContentHeight)
     end
 
-    -- Waystone: the window is at least as wide as its row of tabs (they overlap by 16; the strip is inset 20 left and
-    -- 12 right), so a longer tab list or a longer translation never runs past the frame
-    local tabsWidth = 20 + 12 + 8
-    for i, tab in ipairs(tabs) do
-        tabsWidth = tabsWidth + tab:GetWidth() - (i > 1 and 16 or 0)
-    end
-    if tabsWidth > CONSTANTS.FRAME.MAIN_WIDTH then
-        CONSTANTS.FRAME.MAIN_WIDTH = math.ceil(tabsWidth)
-        frame:SetMinResize(CONSTANTS.FRAME.MAIN_WIDTH, CONSTANTS.FRAME.MAIN_HEIGHT)
-        if frame:GetWidth() < CONSTANTS.FRAME.MAIN_WIDTH then
+    -- Waystone: the window is at least as wide as its row of tabs, so a longer tab list or translation never runs past
+    -- the frame. The tab template sizes each tab again when it is shown (PanelTemplates_TabResize), so the row is
+    -- measured on the first frame drawn after the window opens, where the tabs really end
+    local function fitTabs(self)
+        self:SetScript("OnUpdate", nil)
+        local last = tabs[#tabs]
+        local right, frameRight = last and last:GetRight(), frame:GetRight()
+        if not right or not frameRight then return end
+        local over = right - (frameRight - 12)
+        if over > 0.5 then
+            CONSTANTS.FRAME.MAIN_WIDTH = math.ceil(frame:GetWidth() + over)
+            frame:SetMinResize(CONSTANTS.FRAME.MAIN_WIDTH, CONSTANTS.FRAME.MAIN_HEIGHT)
             frame:SetWidth(CONSTANTS.FRAME.MAIN_WIDTH)
         end
     end
+    tabStrip:SetScript("OnUpdate", fitTabs)
+    frame:HookScript("OnShow", function() tabStrip:SetScript("OnUpdate", fitTabs) end)
 
     self.TabsByName = {}
     for _, tab in ipairs(tabs) do

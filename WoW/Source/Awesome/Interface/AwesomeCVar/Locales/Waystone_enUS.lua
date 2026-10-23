@@ -308,7 +308,4 @@ do
     L.W_LABEL_ALL_CAST_BARS = "Cast Bars on All Nameplates"
     L.W_DESC_ALL_CAST_BARS = "Every unit's nameplate shows its cast bar; stock shows it only on your target's."
 
-    -- About
-    L.W_ABOUT_TITLE = "Waystone Client"
-    L.W_ABOUT_DESC = "This window is part of the Waystone client, which has awesome_wotlk built in. Every option here is a client setting: it takes effect at once (or after a restart where it says so) and is kept between sessions. The World, Display, Lighting, Sound and Performance tabs and the extra camera, screenshot and troubleshooting options are Waystone's own."
 end

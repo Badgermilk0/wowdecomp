@@ -474,6 +474,9 @@ static void TestTranslated(const std::string& folder) {
         { "vsLiquidWater.bls", "vsLiquidWater", true },
         { "psLiquidWater.bls", "psLiquidWater", false },
         { "psLiquidWaterNoSpec.bls", "psLiquidWaterNoSpec", false },
+        // the HD client's water (its LiquidType.dbc makes every world water material 3)
+        { "vsLiquidProcWater.bls", "vsLiquidProcWater", true },
+        { "psLiquidProcWater.bls", "psLiquidProcWater", false },
     };
 
     for (const Case& test : cases) {
@@ -544,7 +547,8 @@ static void TestTranslated(const std::string& folder) {
 
     // the other shaders are not touched
     CHECK(GxD3d11::FamilyForShader("psLiquidMagma", false) == GxD3d11::Family_None);
-    CHECK(GxD3d11::FamilyForShader("vsLiquidProcWater", true) == GxD3d11::Family_None);
+    CHECK(GxD3d11::FamilyForShader("vsLiquidProcWater", true) == GxD3d11::Family_WaterVertex);
+    CHECK(GxD3d11::FamilyForShader("psLiquidProcWater", false) == GxD3d11::Family_WaterPixel);
     CHECK(GxD3d11::FamilyForShader("Terrain", true) == GxD3d11::Family_Terrain);
 }
 
@@ -631,12 +635,16 @@ static bool Links(const std::vector<Signature>& writer, const std::vector<Signat
     return ok;
 }
 
-static void TestLinkage(const std::string& folder) {
+static void TestLinkage(const std::string& folder, const char* vsName, const char* psName) {
     std::vector<uint8_t> vs;
     std::vector<uint8_t> vsTess;
     std::vector<uint8_t> ps;
+    std::string vsFile = folder + "\\" + vsName + ".bls";
+    std::string psFile = folder + "\\" + psName + ".bls";
+    std::string vsKey = std::string(vsName) + ":0";
+    printf("  %s + %s\n", vsName, psName);
 
-    if (!TranslateFirst(folder + "\\vsLiquidWater.bls", "vsLiquidWater:0", true, 0, vs) || !TranslateFirst(folder + "\\vsLiquidWater.bls", "vsLiquidWater:0", true, GxD3d11::Variant_Tessellated, vsTess) || !TranslateFirst(folder + "\\psLiquidWater.bls", "psLiquidWater", false, 0, ps)) {
+    if (!TranslateFirst(vsFile, vsKey.c_str(), true, 0, vs) || !TranslateFirst(vsFile, vsKey.c_str(), true, GxD3d11::Variant_Tessellated, vsTess) || !TranslateFirst(psFile, psName, false, 0, ps)) {
         printf("SKIP the linkage: the stock water shaders are not in %s\n", folder.c_str());
         return;
     }
@@ -878,7 +886,8 @@ int main(int argc, char** argv) {
 
     if (argc > 1) {
         TestTranslated(argv[1]);
-        TestLinkage(argv[1]);
+        TestLinkage(argv[1], "vsLiquidWater", "psLiquidWater");
+        TestLinkage(argv[1], "vsLiquidProcWater", "psLiquidProcWater");
     }
 
     printf("%d checks, %d failed\n", s_checks, s_failures);

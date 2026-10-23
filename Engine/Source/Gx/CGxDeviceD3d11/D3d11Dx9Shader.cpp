@@ -544,6 +544,7 @@ const char* const s_hlslWater =
     "    return lerp(gxWaterAmbient.rgb, c, gxWaterAmbient.w);\n"
     "}\n"
     "\n"
+    "#if WX_KIND == 1\n"
     "// the stock water texture's relief (its brightness as height) around uv, st apart\n"
     "float2 WxTexSlope(float2 uv, float2 st) {\n"
     "    float l = WxLum(T1.SampleGrad(S1, uv - float2(st.x, 0.0), st, st).rgb);\n"
@@ -552,6 +553,13 @@ const char* const s_hlslWater =
     "    float u = WxLum(T1.SampleGrad(S1, uv + float2(0.0, st.y), st, st).rgb);\n"
     "    return float2(r - l, u - d);\n"
     "}\n"
+    "#else\n"
+    "// psLiquidProcWater's normal maps: xy in the two channels it reads, z rebuilt\n"
+    "float3 WxNormalTap(float2 xy) {\n"
+    "    xy = xy * 2.0 - 1.0;\n"
+    "    return float3(xy, sqrt(saturate(1.0 - dot(xy, xy))));\n"
+    "}\n"
+    "#endif\n"
     "\n"
     "float4 GxWaterShade(GxVaryings i, float4 stock) {\n"
     "    if (gxWaterFlags.x == 0u || i.gxP.w < 0.5) {\n"
@@ -568,7 +576,9 @@ const char* const s_hlslWater =
     "    float2 pixel = i.pos.xy;\n"
     "    float time = gxWaterParams1.z;\n"
     "\n"
-    "    // the normal: the stock texture's relief at its own scale and, turned and larger, drifting across it; the ripples\n"
+    "#if WX_KIND == 1\n"
+    "    // psLiquidWater. The normal: the stock texture's relief at its own scale and, turned and larger, drifting across\n"
+    "    // it. The body colour: the depth texture (T0) lit by the vertex\n"
     "    float2 size;\n"
     "    T1.GetDimensions(size.x, size.y);\n"
     "    float2 uv = i.t1.xy;\n"
@@ -577,16 +587,30 @@ const char* const s_hlslWater =
     "    float2 st2 = max(1.0 / size, fwidth(uv2) * 0.75);\n"
     "    float2 slope = WxTexSlope(uv, st) + WxTexSlope(uv2, st2) * 0.6;\n"
     "    slope *= 1.2 * gxWaterParams0.w * lerp(1.0, 0.25, saturate((dist - 20.0) / 180.0));\n"
+    "    float4 tex = T1.Sample(S1, uv);\n"
+    "    float pattern = WxLum(T1.Sample(S1, uv * 2.3 + time * float2(0.02, 0.013)).rgb);\n"
+    "    float4 body4 = T0.Sample(S0, i.t0.xy);\n"
+    "    float3 lit = WxDec(i.c0.rgb);\n"
+    "#else\n"
+    "    // psLiquidProcWater (the HD client's water). The normal: its own two normal maps (T4, T5), two taps each, as it\n"
+    "    // reads them. The body colour: the depth texture (T2) lit by the sun it is given (C6 toward the sun, C7 ambient,\n"
+    "    // C8 diffuse). The animated ocean texture (T3) breaks up the foam\n"
+    "    float3 na = WxNormalTap(T4.Sample(S4, i.t0.xy).xy) + WxNormalTap(T4.Sample(S4, i.t0.wz).wz);\n"
+    "    float3 nb = WxNormalTap(T5.Sample(S5, i.t1.xy).xy) + WxNormalTap(T5.Sample(S5, i.t1.wz).wz);\n"
+    "    float3 nm = normalize(normalize(na) + normalize(nb));\n"
+    "    float2 slope = -nm.xy / max(nm.z, 0.2);\n"
+    "    slope *= gxWaterParams0.w * lerp(1.0, 0.35, saturate((dist - 20.0) / 180.0));\n"
+    "    float4 tex = 0.0;\n"
+    "    float pattern = WxLum(T3.Sample(S3, i.t2.zw * 2.3 + time * float2(0.02, 0.013)).rgb);\n"
+    "    float4 body4 = T2.Sample(S2, i.t2.xy);\n"
+    "    float3 lit = WxDec(saturate(C[7].rgb + C[8].rgb * saturate(C[6].z)));\n"
+    "#endif\n"
     "    float3 ripple = WxRipple(pw.xy);\n"
     "    slope += ripple.yz * (2.5 * gxWaterParams1.y);\n"
     "    float3 n = normalize(float3(-slope, 1.0));\n"
     "    // the slope in view space (a rotation: the inverse view's transpose), for the refraction's shift on screen\n"
     "    float3 bendView = mul((float3x3)gxWaterViewInv, float3(-slope, 0.0));\n"
     "\n"
-    "    float4 tex = T1.Sample(S1, uv);\n"
-    "    float pattern = WxLum(T1.Sample(S1, uv * 2.3 + time * float2(0.02, 0.013)).rgb);\n"
-    "    float4 body4 = T0.Sample(S0, i.t0.xy);\n"
-    "    float3 lit = WxDec(i.c0.rgb);\n"
     "    // the water's own colour (Light.dbc's shallow and deep colours by depth, through the depth texture), lit\n"
     "    float3 body = WxDec(body4.rgb) * lit;\n"
     "\n"
@@ -1904,7 +1928,11 @@ bool Writer::Run(std::string& out, std::string& error) {
     bool litPixel = LitPixel(litColor0, litColor1);
     // MODIFIED: modern water: a water pixel shader that samples the depth texture (s0) and the water texture (s1), 2D
     // and neither bound as a depth texture
-    bool water = !vertex && sh.m_family == Family_WaterPixel && (sh.m_samplerMask & 3u) == 3u && sh.m_samplerDim[0] == 2 && sh.m_samplerDim[1] == 2 && !(m_variant & 3u);
+    // psLiquidWater: s0 the depth texture and s1 the water texture, 2D. psLiquidProcWater: s0 / s1 cube reflection maps,
+    // s2 the depth texture, s3 the ocean texture, s4 / s5 normal maps, 2D. Neither with a depth-compare sampler
+    bool plainWater = (sh.m_samplerMask & 3u) == 3u && sh.m_samplerDim[0] == 2 && sh.m_samplerDim[1] == 2 && !(m_variant & 3u);
+    bool procWater = (sh.m_samplerMask & 0x3Fu) == 0x3Fu && sh.m_samplerDim[2] == 2 && sh.m_samplerDim[3] == 2 && sh.m_samplerDim[4] == 2 && sh.m_samplerDim[5] == 2 && !(m_variant & 0x3Cu);
+    bool water = !vertex && sh.m_family == Family_WaterPixel && (plainWater || procWater);
 
     out.clear();
     out.reserve(8192 + mainBody.size() + functions.size());
@@ -1965,6 +1993,7 @@ bool Writer::Run(std::string& out, std::string& error) {
     out += "\n";
 
     if (water) {
+        out += plainWater ? "#define WX_KIND 1\n" : "#define WX_KIND 2\n";
         out += s_hlslWaterConstants;
         out += s_hlslWater;
     }
@@ -2940,8 +2969,8 @@ uint32_t FamilyForShader(const char* name, bool vertex) {
     };
 
     if (vertex) {
-        // MODIFIED: modern water: vsLiquidWater, vsLiquidWaterNoSpec
-        if (starts("vsLiquidWater")) {
+        // MODIFIED: modern water: vsLiquidWater, vsLiquidWaterNoSpec, vsLiquidProcWater (the HD client's water)
+        if (starts("vsLiquidWater") || starts("vsLiquidProcWater")) {
             return Family_WaterVertex;
         }
 
@@ -2971,8 +3000,8 @@ uint32_t FamilyForShader(const char* name, bool vertex) {
         return Family_LitPixel;
     }
 
-    // MODIFIED: modern water: psLiquidWater, psLiquidWaterNoSpec
-    if (starts("psLiquidWater")) {
+    // MODIFIED: modern water: psLiquidWater, psLiquidWaterNoSpec, psLiquidProcWater
+    if (starts("psLiquidWater") || starts("psLiquidProcWater")) {
         return Family_WaterPixel;
     }
 

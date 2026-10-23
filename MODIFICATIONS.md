@@ -364,8 +364,8 @@ Ranges stay inside what each CVar's callback accepts, so a value set here is nev
 dropped from `Config.wtf`). One limit: clicking Okay in the stock Video options after moving one of its own sliders
 writes that slider's value back.
 
-Left out of the upstream AddOn, as they belong to a separately released mod: the About tab's links, and the version
-broadcast (an addon message to the group and guild comparing awesome_wotlk releases) with its "Updates" option.
+Left out of the upstream AddOn, as they belong to a separately released mod: the About tab (the mod, its version and
+links; the window opens on World instead), and the version broadcast (an addon message to the group and guild comparing awesome_wotlk releases) with its "Updates" option.
 A text CVar (`screenshotFormat`) is compared as text by the reset button (`UI.lua`, `UpdateResetButtonState`).
 
 Changes to the AddOns' own files: the `.toc` lists `Embedded.lua` first and has no `SavedVariables`; `Constants.lua`
@@ -377,7 +377,7 @@ Tested offline: the client builds and embeds 19 files. A Lua 5.1 run of the embe
 (toc order, `(name, table)` per file, then `ADDON_LOADED`), on a permissive WoW stub, checked these:
 - all 16 AwesomeCVar files and Flash run;
 - the addon initialises from the CVars' defaults and writes its settings back to them;
-- all eleven tabs are built and `/awesome` is registered;
+- all ten tabs are built and `/awesome` is registered;
 - every card's CVar is one the client registers, and every card has its text.
 
 The client also starts and exits cleanly with an old `AwesomeCVar` folder in `Interface\AddOns`.

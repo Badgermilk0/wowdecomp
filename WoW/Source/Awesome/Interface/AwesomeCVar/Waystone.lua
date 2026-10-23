@@ -264,36 +264,26 @@ for i, cvarDef in ipairs(nameplates) do
     end
 end
 
-local about = CVARS.About
+-- Tabs: the new ones at the end. Upstream's About tab (the mod, its version and links) is left out: this window is
+-- part of the client
+CVARS.About = nil
+ACVar.CATEGORY_NAMES.About = nil
 
-for i, cvarDef in ipairs(about) do
-    if cvarDef.name == "aboutMod" then
-        table.insert(about, i + 1, { name = "wAboutWaystone", label = L.W_ABOUT_TITLE, desc = L.W_ABOUT_DESC, type = "description" })
-        break
-    end
-end
-
-for i = #about, 1, -1 do
-    local cvarDef = about[i]
-
-    if cvarDef.type == "link" or cvarDef.name == "headerLinks" then
-        table.remove(about, i)
-    end
-end
-
--- Tabs: the new ones before About
 local order = ACVar.CATEGORY_ORDER
 
-for i, id in ipairs(order) do
-    if id == "About" then
-        table.insert(order, i, "World")
-        table.insert(order, i + 1, "Display")
-        table.insert(order, i + 2, "Lighting")
-        table.insert(order, i + 3, "Sound")
-        table.insert(order, i + 4, "Performance")
-        break
+for i = #order, 1, -1 do
+    if order[i] == "About" then
+        table.remove(order, i)
     end
 end
+
+table.insert(order, "World")
+table.insert(order, "Display")
+table.insert(order, "Lighting")
+table.insert(order, "Sound")
+table.insert(order, "Performance")
+
+ACVar.DEFAULT_CATEGORY = "World"
 
 ACVar.CATEGORY_NAMES.World = L.W_CATEGORY_WORLD
 ACVar.CATEGORY_NAMES.Display = L.W_CATEGORY_DISPLAY

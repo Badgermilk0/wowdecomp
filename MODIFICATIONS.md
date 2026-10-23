@@ -584,6 +584,8 @@ alpha by the vertex's water depth) times the per-vertex sun and ambient, plus th
 
 **Droplets that look like water** (after the first in-game look: flat blue-grey coins). A droplet is drawn as a small sphere of water: the scene copy behind it turned over through its middle (a lens), the sky at its rim by Fresnel, a sun glint, a crisp edge; it streaks along its motion over about a 30th of a second with its light spread over the streak, and one smaller than a pixel is drawn a pixel wide and fainter. Most droplets are tiny (radius 0.01 + 0.03 k^2 yd). A third kind, sheets, are the torn crown of a jump: thin strips stretched along their flight that live a quarter to half a second. Mist is faint (alpha 0.04). A jump throws 36 sheets, 260 droplets, a column of 70 and 8 mist puffs, up to about 3 yards; walking in 10 sheets and 70 droplets; walking out 40; spray 12 + 40 x pace / 7 a second. The water itself: the sun's glint widens and dims where the normal changes within a pixel (no sparkle), and a reflection hit fades as the ray leaves the surface it met (no jagged lines at object edges). `WaterTests --render <rgba> <w> <h> <out> [seconds]` draws a jump's splash over a background with the real shaders on WARP, to look at.
 
+The droplets' lens first sampled the copy taken before the liquids, which holds the lake bottom, so droplets over water showed dark. `AfterLiquids` copies the frame again (resolved under MSAA) before drawing them: they carry the water's own colour and reflections. Droplet radius 0.005 + 0.017 k^2 yd, sheets 0.035-0.07 yd.
+
 Settings: the Lighting tab of the built-in settings window has Water and Sky sections.
 
 Tested offline (`Tools/WaterTests`, `ctest -R WaterSky`; with the folder of the stock `vsLiquidWater.bls`,

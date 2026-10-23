@@ -47,6 +47,11 @@ void (*CM2Model::s_transformVertices[5])(CM2Model*, M2SkinSection*, uint8_t*, in
 // MODIFIED: modern lighting (M2Model.h)
 void (*CM2Model::s_particlesAnimatedCallback)(CM2Model* model) = nullptr;
 
+// MODIFIED: loot sparkle tuning (M2Model.h)
+float CM2Model::s_lootSparkleRate = 1.0f;
+float CM2Model::s_lootSparkleAlpha = 1.0f;
+float CM2Model::s_lootSparkleSize = 1.0f;
+
 // STATIC: 0x00D411A0
 TSGrowableArray<C3Vector> CM2Model::s_collisionPositions;
 
@@ -5746,6 +5751,12 @@ void CM2Model::AnimateParticleST(float deltaTime, uint32_t index) {
         rate = particle->m_emissionRateTrack.m_currentValue;
     }
 
+    // MODIFIED: loot sparkle tuning
+    if (this->m_lootSparkle) {
+        rate *= CM2Model::s_lootSparkleRate;
+        emitter->m_sizeScale = CM2Model::s_lootSparkleSize;
+    }
+
     emitter->SetEmissionRate(rate);
 
     if (particle->m_visibilityTrack.m_currentValue || !this->m_uint90) {
@@ -5809,6 +5820,11 @@ void CM2Model::AnimateParticleST(float deltaTime, uint32_t index) {
             alpha = 0.0f;
         } else if (alpha >= 1.0f) {
             alpha = 1.0f;
+        }
+
+        // MODIFIED: loot sparkle tuning; above 1 lifts the faded part of each particle's life (the colour writes clamp)
+        if (this->m_lootSparkle) {
+            alpha *= CM2Model::s_lootSparkleAlpha;
         }
 
         emitter->m_alphaScale = alpha;

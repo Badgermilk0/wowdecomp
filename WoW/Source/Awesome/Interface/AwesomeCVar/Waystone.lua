@@ -124,6 +124,9 @@ CVARS.World = {
     { name = "wHeaderEffects", label = L.W_SECTION_EFFECTS, type = "header" },
     { name = "spellEffectLevel", label = L.W_LABEL_SPELL_EFFECTS, desc = L.W_DESC_SPELL_EFFECTS, perf = L.W_PERF_LOW, type = "slider", min = 0, max = 9, step = 1, default = 9 },
     { name = "particleDensity", label = L.W_LABEL_PARTICLES, desc = L.W_DESC_PARTICLES, perf = L.W_PERF_LOW, type = "slider", min = 0.1, max = 1, step = 0.05, default = 1 },
+    { name = "lootSparkleAmount", label = L.W_LABEL_SPARKLE_AMOUNT, desc = L.W_DESC_SPARKLE_AMOUNT, perf = L.PERF_NEGLIGIBLE, type = "slider", min = 0, max = 5, step = 0.1, default = 1 },
+    { name = "lootSparkleBrightness", label = L.W_LABEL_SPARKLE_BRIGHTNESS, desc = L.W_DESC_SPARKLE_BRIGHTNESS, perf = L.PERF_NONE, type = "slider", min = 0, max = 3, step = 0.1, default = 1 },
+    { name = "lootSparkleSize", label = L.W_LABEL_SPARKLE_SIZE, desc = L.W_DESC_SPARKLE_SIZE, perf = L.PERF_NONE, type = "slider", min = 0.25, max = 3, step = 0.05, default = 1 },
     { name = "weatherDensity", label = L.W_LABEL_WEATHER, desc = L.W_DESC_WEATHER, perf = L.W_PERF_LOW, type = "mode", default = 2, modes = {
         { value = 0, label = L.MODE_DISABLED },
         { value = 1, label = L.W_MODE_LOW },

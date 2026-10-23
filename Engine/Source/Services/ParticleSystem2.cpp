@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -654,12 +655,13 @@ void CParticleEmitter2::InterpolateAllTracksSimple(const CParticle2& particle, C
         t = t / this->m_params.m_simpleMidTime;
     }
 
-    color->a = static_cast<uint8_t>(CMath::fint_((t * key->m_deltaA + key->m_color.a) * this->m_alphaScale));
+    // MODIFIED: loot sparkle tuning; m_alphaScale above 1 must not wrap the byte
+    color->a = static_cast<uint8_t>((std::min)(CMath::fint_((t * key->m_deltaA + key->m_color.a) * this->m_alphaScale), 255));
     color->r = static_cast<uint8_t>(CMath::fint_(key->m_deltaR * t + key->m_color.r));
     color->g = static_cast<uint8_t>(CMath::fint_(key->m_deltaG * t + key->m_color.g));
     color->b = static_cast<uint8_t>(CMath::fint_(key->m_deltaB * t + key->m_color.b));
 
-    float size = key->m_deltaScale * t + key->m_scale;
+    float size = (key->m_deltaScale * t + key->m_scale) * this->m_sizeScale;
     scale->x = size;
     scale->y = size;
 
@@ -680,8 +682,11 @@ void CParticleEmitter2::InterpolateAllTracks(const CParticle2& particle, CImVect
     CRndSeed seed(particle.m_randomSeed);
 
     *color = this->InterpolateColorTrack(t);
-    color->a = static_cast<uint8_t>(CMath::fint_(PartTrackSample(*this->m_params.m_alphaTrack, t) * this->m_alphaScale * 255.0f));
+    // MODIFIED: loot sparkle tuning; clamp m_alphaScale above 1, scale the size
+    color->a = static_cast<uint8_t>((std::min)(CMath::fint_(PartTrackSample(*this->m_params.m_alphaTrack, t) * this->m_alphaScale * 255.0f), 255));
     *scale = PartTrackSample(*this->m_params.m_scaleTrack, t);
+    scale->x = scale->x * this->m_sizeScale;
+    scale->y = scale->y * this->m_sizeScale;
 
     *headCell = 0;
     *tailCell = 0;
@@ -903,8 +908,11 @@ int32_t CParticleEmitter2::RenderParticle(CParticle2_Model& particle, const C44M
     float t = particle.m_age / life;
     CImVector color = this->InterpolateColorTrack(t);
     float alpha = PartTrackSample(*this->m_params.m_alphaTrack, t) * this->m_alphaScale * 255.0f;
-    uint8_t alphaByte = static_cast<uint8_t>(CMath::fint_(alpha));
+    // MODIFIED: loot sparkle tuning; clamp m_alphaScale above 1, scale the size
+    uint8_t alphaByte = static_cast<uint8_t>((std::min)(CMath::fint_(alpha), 255));
     C2Vector scale = PartTrackSample(*this->m_params.m_scaleTrack, t);
+    scale.x = scale.x * this->m_sizeScale;
+    scale.y = scale.y * this->m_sizeScale;
 
     float twinkleScale = CParticleEmitter2::s_rndTable[twinkle] * this->m_twinkleScaleSpan + this->m_twinkleScaleBase;
     scale.x = scale.x * twinkleScale;
@@ -2575,6 +2583,8 @@ CParticleEmitter2::CParticleEmitter2(const CParticleEmitter2& source, int32_t co
     this->m_textureCols = source.m_textureCols;
     this->unused_012C = source.unused_012C;
     this->m_alphaScale = source.m_alphaScale;
+    // MODIFIED: loot sparkle tuning
+    this->m_sizeScale = source.m_sizeScale;
     this->m_flags = source.m_flags;
     this->m_twinkleFPS = source.m_twinkleFPS;
     this->m_twinkleOnOff = source.m_twinkleOnOff;

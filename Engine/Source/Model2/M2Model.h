@@ -236,6 +236,12 @@ class CM2Model {
     float m_cameraFadeAlpha = 0.0f;
     uint32_t m_cameraFadeGrace = 0;
     uint32_t m_cameraFadePhase = 0;
+    // MODIFIED: loot sparkle tuning; set on the loot effect models (corpses, units, objects), whose emitters then take
+    // s_lootSparkleRate/Alpha/Size (lootSparkle* CVars, AwesomeMisc.cpp) in AnimateParticleST
+    bool m_lootSparkle = false;
+    static float s_lootSparkleRate;
+    static float s_lootSparkleAlpha;
+    static float s_lootSparkleSize;
 
     static void (*s_transformVertices[5])(CM2Model*, M2SkinSection*, uint8_t*, int32_t);
     static TSGrowableArray<M2ModelCallback> s_sequenceCallbacks;

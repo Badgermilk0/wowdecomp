@@ -218,6 +218,10 @@ class CParticleEmitter2 {
     /* 0218 */ CAaBox m_worldBounds;
     /* 0230 */ uint32_t unused_0230;
 
+    // MODIFIED: loot sparkle tuning; scales every particle's size (CM2Model::AnimateParticleST sets it per frame).
+    // m_alphaScale may now exceed 1 too, the colour writes clamp it
+    float m_sizeScale = 1.0f;
+
     virtual void Sync();
     virtual void CreateParticle(CParticle2& particle, float time, const C44Matrix& transform);
     virtual void CreateParticle(CParticle2_Model& particle, float time, const C44Matrix& transform);

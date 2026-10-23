@@ -1460,6 +1460,8 @@ void CGGameObject_C::ShowLootEffect() {
         return;
     }
 
+    // MODIFIED: loot sparkle tuning (CM2Model::m_lootSparkle)
+    this->m_lootEffect->m_lootSparkle = true;
     this->m_lootEffect->AttachToParent(this->m_worldModel, 19, nullptr, 1);
 
     float scale = fclamp(this->GetScale() * this->m_height * 1.15f, 1.0f, 5.0f);

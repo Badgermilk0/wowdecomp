@@ -6675,31 +6675,24 @@ int32_t CGGameUI::MessageHandler(void* param, NETMESSAGE msgId, uint32_t time, C
         }
 
         case SMSG_WEATHER: {
-            float transition = 1.0f;
-            uint32_t type = 0;
-            int32_t soundKitId = 0;
             uint32_t weatherId;
             float intensity;
             uint8_t abrupt;
             msg->Get(weatherId);
             msg->Get(intensity);
             msg->Get(abrupt);
-            WeatherRec* rec = g_weatherDB.GetRecord(weatherId);
 
-            if (rec) {
-                type = rec->m_effectType;
-                transition = rec->m_transitionSkyBox;
-                soundKitId = rec->m_ambienceID;
+            // MODIFIED: weather overhaul. The optional extension block a server may append (WeatherModel.h); then
+            // AwesomeWeather applies the weather as stock did here (Weather::SetType, SI2::SetWeatherKitID), unless
+            // a /weather override is active
+            uint8_t extra[5 + 5 * 32];
+            uint32_t extraSize = 0;
+
+            while (msg->m_read < msg->m_size && extraSize < sizeof(extra)) {
+                msg->Get(extra[extraSize++]);
             }
 
-            World::s_weather->SetType(type, intensity, rec, abrupt == 0, transition);
-
-            if (soundKitId <= 0) {
-                soundKitId = -1;
-            }
-
-            SI2::SetWeatherKitID(soundKitId);
-            ConsolePrintf("Weather changed to %d, intensity %f\n", type, intensity);
+            AwesomeWeatherOnPacket(weatherId, intensity, abrupt, extra, extraSize);
             return 1;
         }
 

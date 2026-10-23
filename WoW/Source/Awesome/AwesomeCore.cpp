@@ -259,6 +259,7 @@ void AwesomeRegisterCVars() {
     AwesomePerfRegisterCVars();
     AwesomeStreamingRegisterCVars();
     AwesomeAudioRegisterCVars();
+    AwesomeWeatherRegisterCVars();
 }
 
 void AwesomeRegisterScriptFunctions() {
@@ -281,6 +282,7 @@ void AwesomeRegisterScriptFunctions() {
     AwesomeDisplayRegisterScriptFunctions(L);
     AwesomeStreamingRegisterScriptFunctions(L);
     AwesomeAudioRegisterScriptFunctions(L);
+    AwesomeWeatherRegisterScriptFunctions(L);
     AwesomeLightingRegisterScriptFunctions(L);
 }
 
@@ -292,6 +294,7 @@ void AwesomeOnEnterWorld() {
     AwesomeFrameCaptureOnEnterWorld();
     AwesomePerfOnEnterWorld();
     AwesomeAudioOnEnterWorld();
+    AwesomeWeatherOnEnterWorld();
     AwesomeLightingOnEnterWorld();
 }
 
@@ -300,6 +303,7 @@ void AwesomeOnLeaveWorld() {
     AwesomeMiscOnLeaveWorld();
     AwesomeVoiceChatOnLeaveWorld();
     AwesomeFrameCaptureOnLeaveWorld();
+    AwesomeWeatherOnLeaveWorld();
 }
 
 void AwesomeOnPaint() {

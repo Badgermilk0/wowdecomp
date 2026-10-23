@@ -173,6 +173,10 @@ class Weather {
 extern float s_weatherDensity;
 extern uint8_t s_weatherTypeForced;
 extern CVar* s_useShaders;
+// MODIFIED: weather overhaul; the weatherDensity level (0.1 / 0.33 / 0.66 / 1). s_weatherDensity, which the effects
+// read, is this times AwesomeWeatherDensityScale(); Weather_RefreshDensity recomputes it and rebuilds the rates
+extern float s_weatherDensityBase;
+void Weather_RefreshDensity();
 
 bool CVarHandler_weatherDensity(CVar* var, const char* oldValue, const char* value, void* arg);
 

@@ -1,3 +1,4 @@
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <new>
@@ -102,6 +103,37 @@ void SI2::SetPlayerInside(bool inside) {
 void SI2::SetWeatherKitID(int32_t soundKitId) {
     s_zoneSounds[8].m_ambience[AMB_DAY] = soundKitId;
     s_zoneSounds[8].m_ambience[AMB_NIGHT] = soundKitId;
+}
+
+// MODIFIED: weather overhaul. The zone ambience is ducked while weather plays over it (AwesomeWeather's sound layer):
+// its kit volume is read when a new loop starts, and the loop is kept at that times the scale
+static float s_zoneAmbienceScale = 1.0f;
+static uint32_t s_zoneAmbienceSoundId;
+static float s_zoneAmbienceBase = 1.0f;
+
+void SI2::SetZoneAmbienceScale(float scale) {
+    s_zoneAmbienceScale = scale < 0.0f ? 0.0f : (scale > 1.0f ? 1.0f : scale);
+}
+
+static void ApplyZoneAmbienceScale() {
+    SESound& sound = s_zoneAmbience.m_sounds[s_zoneAmbience.m_current].m_object.m_sound;
+    SESoundInternal* internal = sound.m_internal;
+
+    if (!internal) {
+        s_zoneAmbienceSoundId = 0;
+        return;
+    }
+
+    if (internal->m_id != s_zoneAmbienceSoundId) {
+        s_zoneAmbienceSoundId = internal->m_id;
+        s_zoneAmbienceBase = internal->m_volume;
+    }
+
+    float volume = s_zoneAmbienceBase * s_zoneAmbienceScale;
+
+    if (fabsf(internal->m_volume - volume) > 0.001f) {
+        sound.SetVolume(volume);
+    }
 }
 
 // VERIFY: 92518c26 auto
@@ -610,6 +642,9 @@ int32_t SI2::ZoneSoundsUpdate(const void* data, void* param) {
 
         s_zoneAmbience.Transition(ambienceKitId, type, &properties, immediate, 5.0f);
     }
+
+    // MODIFIED: weather overhaul
+    ApplyZoneAmbienceScale();
 
     type = 13;
     int32_t silenceMin = 0;

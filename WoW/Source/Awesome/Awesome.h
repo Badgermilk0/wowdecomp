@@ -9,6 +9,10 @@
 #include <cstdint>
 #include "WoW/Source/Object/WGUID.h"
 
+namespace FMOD {
+class Channel;
+}
+
 class C2Vector;
 struct FMOD_REVERB_PROPERTIES;
 class C3Vector;
@@ -58,6 +62,32 @@ void AwesomeLightingEndWorld();
 // CSimpleModelFFX::Render around the login screen's model, for lightingGlueTest (off by default)
 void AwesomeLightingGlueBegin();
 void AwesomeLightingGlueEnd();
+
+// AwesomeWeather.cpp, the weather overhaul (WorldClient/WeatherModel.h holds the arithmetic).
+// CGGameUI::MessageHandler SMSG_WEATHER: the stock fields and the bytes after them (an optional extension block)
+void AwesomeWeatherOnPacket(uint32_t weatherId, float grade, uint8_t abrupt, const uint8_t* extra, uint32_t extraSize);
+// Weather::SetStormIntensity: the particle intensity 0..1 for the displayed grade (stock (grade - 0.25) / 0.75)
+float AwesomeWeatherParticleIntensity(float grade);
+// the grade at and below which nothing falls (weatherParticleStart, stock 0.25)
+float AwesomeWeatherParticleStart();
+// Weather::SetType: the fog target (storm sky / 4, 0..0.25) for a grade; *stock is set false when it differs from
+// the stock min(grade, 0.25)
+float AwesomeWeatherSkyTarget(uint32_t type, float grade, bool* stock);
+// Weather::SetStormIntensity: seconds a change of delta takes (stock |delta| * 10)
+float AwesomeWeatherTransitionSeconds(float delta);
+// Weather::SetType: weatherFixes (the sandstorm restart and the sticky rain texture)
+bool AwesomeWeatherFixes();
+// Weather_RefreshDensity: weatherDensityScale times the server's density
+float AwesomeWeatherDensityScale();
+// end of Weather::Update, once per world frame: lightning, thunder, the weather sound layer
+void AwesomeWeatherUpdate();
+// Weather::Reset (world load, teleport, logout)
+void AwesomeWeatherOnReset();
+// SI2::DSP_AttachCustomDspChain for a chain SoundFilter.dbc does not have: the thunder layers ("AwesomeThunder...")
+// get their filter chain and pitch here, as their channel is set up
+void AwesomeWeatherAttachDspChain(FMOD::Channel* channel, const char* name);
+// SI2::DSP_ShutDown: release the thunder chains with the sound system
+void AwesomeWeatherSoundShutdown();
 
 // AwesomeEmbeddedUi.cpp, the AwesomeCVar settings window and the Flash helper built into the client:
 // CGGameUI::InitializeFrameXML, after the FrameXML files and before LoadAddOns, runs them as FrameXML

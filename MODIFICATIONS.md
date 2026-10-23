@@ -485,6 +485,75 @@ and the test lights; the D3D11 debug layer reports nothing new. **Not seen in th
 (checked only by the GPU test above), the MOLT lights, liquids and transparent passes over the HDR scene, the sky, real
 fog values, and how any of it looks. The strengths are starting points to tune in game.
 
+### Weather overhaul (branch `feature/weather-overhaul`)
+
+The stock weather (`WorldClient/MapWeather.cpp`, the SMSG_WEATHER case in `Ui/GameUI.cpp`) takes a Weather.dbc row
+and a grade. Particles are `(grade - 0.25) / 0.75`, so nothing falls at or below 0.25. The storm sky is `4 * min(grade,
+0.25)`, fully stormy from 0.25. A change takes 10 s per 1.0 grade. The row's sound loop *replaces* the zone ambience
+and is silent indoors. There is no lightning. Two bugs: a sandstorm restarts its effect on every packet (it has no
+default texture, so `SetType` always sees a texture change), and a rain row's own texture (red, black) stays on
+later rain rows without one. Snow does not restart; `GetType` tests all three effects (checked against the 12340 exe
+at `0x783B60`). This overhaul works with any server and changes nothing a stock server relies on unless a CVar says so.
+It also gives a server finer control through an optional extension of the packet.
+
+| Part | Where | CVars (**default**) | What it does |
+|---|---|---|---|
+| Model | `WorldClient/WeatherModel.*` | — | The arithmetic, free of the engine: grade curves, the extension parser, the texture choice, the lightning scheduler, the flash envelope and the thunder. Unit-tested by `Tools/WeatherTests`. |
+| Stock fixes | `Weather::SetType` → `WeatherModel::ChoosePrecipTexture` | `weatherFixes` (**1**; 0 = stock logic) | A sandstorm keeps running across packets. Rain without its own texture goes back to the default drop. |
+| Particle curve | `Weather::SetStormIntensity`, the fade in `Weather::Update` | `weatherParticleStart` (**0.25** = stock) | The grade at and below which nothing falls; particles rise linearly from there to 1. |
+| Sky curve | `Weather::SetType` (the fog target is storm sky / 4) | `weatherSkyCurve` (**0** = stock), `weatherSkyMin` (**0.5**) | Curve 1 grades the sky under precipitation: `weatherSkyMin` at the first drop, full storm at grade 1. Sky-only rows (fog, id 0) keep the stock ramp, so a server's 0..0.25 sky states look the same. Left at stock by default because mod_weather_vibe is tuned to it; with curve 1 its overcast-to-light-rain step brightens the sky. |
+| Density | `MapWeather_CVar.cpp` (`s_weatherDensityBase`, `Weather_RefreshDensity`) | `weatherDensityScale` (**1**, 0.1-2) | The particle rate is the `weatherDensity` level × this × the server's density. |
+| Lightning | `AwesomeWeather.cpp` (`UpdateLightning`, `FireStrike`) through `DayNight::SetFlashColor` | `weatherLightning` (**1**: the thunderstorm row 86 and servers that ask; 2: also rain at `weatherLightningGrade` **0.85**+; 0 off), `weatherLightningRate` (**6**/min at grade 1), `weatherLightningBrightness` (**0.8**), `weatherLightningDistance` (**200** yd, nearest strike), `weatherLightningBurst` (**0.15**, chance of restrikes) | Strikes come as a Poisson process (at least 1.5 s apart), 200-3000 yd away, most of them far. Each is 1-4 return strokes, and a strike may be followed by up to three restrikes nearby within about two seconds. The flash uses the hook Eclipse uses, which tints the sky dome, fog, ambient and sun light toward bluish white, brighter when near and a third as strong indoors. |
+| Thunder | same, `PlayThunder`; `WeatherModel::ThunderParts`; the chains in `Awesome/AwesomeThunderDsp.*`, attached from `SI2::DSP_AttachCustomDspChain` (a name SoundFilter.dbc does not have) and released in `SI2::DSP_ShutDown` | `weatherThunder` (**1**), `weatherThunderVolume` (**1**), `weatherThunderNearKit` (**8439** Blasted Lands bolt), `weatherThunderFarKit` (**13006** Shaman_Thunder), `weatherThunderLayers` (**1**; 0 = one sound a strike), `weatherThunderBass` (**3**, 1 = flat, 3 the most), `weatherThunderBoost` (**10** dB, up to 24; the crack takes 1 dB less) | Plays after the flash, delayed by distance / 375 yd/s. A strike is built from layers. Under 600 yd: the crack (near kit), a body (far kit pitched down to 0.55-0.67) at the same moment, and a roll (far kit at 0.75-0.85, at 70%) 0.45-0.95 s later. To 1500 yd: body and roll. Beyond: a distant roll at 0.62-0.77, low-passed at 650 Hz. Each layer plays at its own level rather than the kit's SoundEntries volume, through an FMOD channel group with two bass bands (50 and 110 Hz), a 3 kHz presence band on the crack, a lowpass on the others (2600 / 1400 / 650 Hz), and a compressor whose make-up gain goes past the channel volume cap of 1. Its threshold keeps peaks about 1 dB under full scale. The defaults were picked by ear in game (bass 1.8 / boost 6 first, then 2.2 / 8, then the user's 3 / 10 for a strike at 150 yd). With them a test clap comes out about 20 dB louder with about 24 dB more bass, and short peaks reach full scale on 0.1% (crack) to 0.7% (distant roll) of samples (`WeatherAudioTests`). Lower `weatherThunderBoost` if that grit is unwanted. It plays on the ambience channel, so the ambience slider and `Sound_EnableAmbience` apply. Thunder is quieter indoors. |
+| Sound layer | `AwesomeWeather.cpp` (`UpdateLoops`, `DriveLoop`), `SI2::SetZoneAmbienceScale` in `SoundInterface2ZoneSounds.cpp` | `weatherSoundLayer` (**1**; 0 = stock replace), `weatherSoundIndoor` (**0.35**), `weatherAmbienceDuck` (**0.6**), `weatherRumbleKit` (**4994**, DarkPortal), `weatherRumbleVolume` (**0.5**) | The row's loop plays on its own pair over the zone ambience and crossfades over 4 s. Its volume runs from 45% at the first drop to 100% at full particles, muffled indoors instead of cut. The zone ambience is ducked by up to `weatherAmbienceDuck` as the particles rise. While lightning runs under any row other than the thunderstorm (whose loop is the rumble already), a second loop, the distant-thunder bed, plays at a level that follows the strike rate. |
+| Server extension | `GameUI.cpp` SMSG_WEATHER → `AwesomeWeatherOnPacket`, `WeatherModel::ParseExt` | — | After the stock `uint32 id, float grade, uint8 abrupt`: `uint32 'WVX1'` (bytes `57 56 58 31`), `uint8 count` (at most 32), then `count × {uint8 key, float value}`. Out-of-range values are clamped, NaN and unknown keys are skipped, and a block that is cut short is ignored. Every packet replaces the previous block, so a server sends every field it wants each time. The net layer skips unread bytes, so a stock client ignores the block. The keys are listed below. |
+| Override and tests | `AwesomeWeather.cpp` | — | `/weather` (`/wx`) draws any weather locally until `/weather off`. The server's packets keep arriving underneath and are applied again then. Lua: `GetWeatherInfo()` (a table), `SetWeatherOverride(id, grade[, abrupt])`, `SetWeatherOverrideField(name, value|nil)`, `ClearWeatherOverride()`, `TriggerLightning([yards])`, `GetWeatherRows()`, `GetWeatherFields()`. |
+
+Extension keys. The name is the one `/weather <name> <value>` and `SetWeatherOverrideField` take. "Default" is what the
+client does when the key is absent.
+
+| Key | Name | Range | Meaning | Default |
+|---|---|---|---|---|
+| 1 | `sky` | 0-1 | storm sky blend | from the grade (`weatherSkyCurve`) |
+| 2 | `particles` | 0-1 | particle intensity, whatever the grade | from the grade (`weatherParticleStart`) |
+| 3 | `density` | 0-2 | particle count multiplier | 1 |
+| 4 | `lightning` | 0-60 | strikes per minute at full weather (0 = none, even for row 86) | `intensity`, else automatic |
+| 5 | `transition` | 0-600 | seconds to reach the new grade, sky and particles (0 = at once) | 10 s per 1.0 grade |
+| 6 | `volume` | 0-1 | weather loop volume | 1 |
+| 7 | `strikedistance` | 0-3000 | nearest strike, yards | `weatherLightningDistance` |
+| 8 | `strikemaxdistance` | 50-3000 | farthest strike, yards | 3000 |
+| 9 | `flash` | 0-2 | flash brightness multiplier | 1 |
+| 10 | `thunder` | 0-2 | thunder volume multiplier (above 1 lifts the quieter layers and far strikes up to full) | 1 |
+| 11 | `nearchance` | 0-1 | share of strikes within 600 yd (the crack, the bright flash) | from `intensity`, else about 1 in 8 |
+| 12 | `burst` | 0-1 | chance of each of up to three restrikes | from `intensity`, else `weatherLightningBurst` |
+| 13 | `intensity` | 0-1 | the storm: lightning rate (× `weatherLightningRate`), near chance (0.05 + 0.3 × it), bursts (0.35 × it) and rumble volume when those keys are absent; the grade stays the precipitation | none |
+| 14 | `soundkit` | id | the weather loop in place of the row's (0 = silent) | the row's |
+| 15 | `rumblekit` | id | a second loop under the weather (0 = none) | 4994 while lightning runs |
+| 16 | `rumble` | 0-1 | its volume | `intensity`, else 1 |
+| 17 | `nearkit` | id | the crack of near strikes | `weatherThunderNearKit` |
+| 18 | `farkit` | id | body and roll of every strike | `weatherThunderFarKit` |
+| 19 | `duck` | 0-1 | zone ambience turned down under full weather | `weatherAmbienceDuck` |
+| 20 | `indoor` | 0-1 | weather loop volume indoors | `weatherSoundIndoor` |
+| 21 | `flashcolor` | 0-0xFFFFFF | flash colour as `0xRRGGBB` in the float (exact up to 2^24) | `0xC8D7FF` |
+
+A server wanting a thunderstorm on heavy rain sends, for example, id 5, grade 0.9 and `{13: 0.8}`. A dry lightning storm
+under an overcast sky is id 1, grade 0.25 and `{4: 10, 11: 0.3}`.
+
+`/weather` commands: no argument for the status; a preset (`clear fog overcast drizzle lightrain rain heavyrain storm
+lightsnow snow heavysnow blizzard lightsand sand sandstorm blackrain redrain mist`) with an optional grade and `now`
+(abrupt); `id <weatherId> [grade] [now]`; `grade <g>`; `<field> <value|off>` with any field above; `fields` (the list
+with ranges); `strike [yards]`; `list` (every Weather.dbc row); `off`.
+
+Tested: `WeatherTests` (curves against the stock formulas, the extension block round trip, malformed blocks and a block
+with every key, the stock and fixed texture logic, ten simulated minutes of the scheduler, 2,000 strikes' envelopes,
+strike placement by near chance, bursts, the thunder layers, flash colours) and `WeatherAudioTests`, which renders the
+thunder chains through the client's own FMOD Ex offline (`WAVWRITER_NRT`) on a synthetic clap and measures the loudness
+gain, the bass gain, the pitch-down's longer tail, a flat chain leaving the low end alone, and clipping. Both run with
+`ctest -R Weather`. The client builds. **Not yet seen or heard in the world**, apart from the user's first listen to
+the first version: the flashes and the row 86 rumble worked, and the single-sound thunder was too weak, which led to
+the layers and chains. The flash's strength, the layered thunder's loudness, the loop and duck levels, and the
+override commands are starting points to tune in game.
+
 ## Upstream syncs
 
 - **2026-10-23**, SatyPardus `main` at `20f9120e` (187 commits, PR #1 on Badgermilk0/wowdecomp). Upstream replaced

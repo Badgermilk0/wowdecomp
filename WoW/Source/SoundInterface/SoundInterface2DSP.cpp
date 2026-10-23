@@ -2,6 +2,7 @@
 #include <cstdint>
 #include <new>
 #include "WoW/Source/SoundInterface/SoundInterface2DSP.h"
+#include "WoW/Source/Awesome/Awesome.h"
 #include "Engine/Source/ConsoleBase/ConsoleVar.h"
 #include "Engine/Source/SoundEngine/SoundEngine.h"
 #include "Engine/Source/Storm/H/storm.h"
@@ -71,6 +72,9 @@ void SI2::DSP_MakeDSPsExpire(float elapsed) {
 // VERIFY: 427289d5 manual
 // OFFSET: 0x004CDD40
 void SI2::DSP_ShutDown() {
+    // MODIFIED: weather overhaul; the thunder chains go with the sound system
+    AwesomeWeatherSoundShutdown();
+
     for (DSP_CHAIN_HEAD_LOOKUP* head = s_dspChains.m_fulllist.Head(); head; head = s_dspChains.m_fulllist.Next(head)) {
         for (SI2DspNode* node = head->m_chain.m_nodes.Head(); node; node = head->m_chain.m_nodes.Next(node)) {
             SE2::DspDestroy(node->m_dsp);
@@ -164,6 +168,8 @@ void SI2::DSP_AttachCustomDspChain(FMOD::Channel* channel, char* name) {
     DSP_CHAIN_HEAD_LOOKUP* head = s_dspChains.Ptr(name);
 
     if (!head) {
+        // MODIFIED: weather overhaul; the thunder layers' filter chains (not SoundFilter.dbc ones)
+        AwesomeWeatherAttachDspChain(channel, name);
         return;
     }
 

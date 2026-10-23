@@ -18,6 +18,8 @@
 #include "WoW/Source/WorldClient/DayNight.h"
 #include "WoW/Source/WorldClient/DayNight__DNInfo.h"
 #include "Engine/Source/Os/Time.h"
+#include "WoW/Source/Awesome/Awesome.h"
+#include "WoW/Source/WorldClient/WeatherModel.h"
 
 // STATIC: 0x00ADF1F8
 float s_weatherDensity = 0.66f;
@@ -374,7 +376,8 @@ void Snow::SetStormIntensity(float intensity) {
 void Weather::SetStormIntensity(float target, float current) {
     uint32_t now = OsGetAsyncTimeMs();
     float delta = current - target;
-    float t = (now - this->m_intensityStartTime) * 0.001f / (fabs(delta + 0.001f) * 10.0f);
+    // MODIFIED: weather overhaul; the server's transition time (extension block) instead of 10 s per 1.0 grade
+    float t = (now - this->m_intensityStartTime) * 0.001f / AwesomeWeatherTransitionSeconds(delta);
 
     if (t < 0.0f) {
         t = 0.0f;
@@ -383,11 +386,9 @@ void Weather::SetStormIntensity(float target, float current) {
     }
 
     this->m_intensity = target + delta * t;
-    float intensity = (this->m_intensity - 0.25f) * 1.3333334f;
-
-    if (intensity < 0.0f) {
-        intensity = 0.0f;
-    }
+    // MODIFIED: weather overhaul; stock (m_intensity - 0.25) * 1.3333334, now weatherParticleStart or the server's
+    // particle intensity
+    float intensity = AwesomeWeatherParticleIntensity(this->m_intensity);
 
     if (this->m_rain) {
         this->m_rain->SetStormIntensity(intensity);
@@ -402,7 +403,8 @@ void Weather::SetStormIntensity(float target, float current) {
     }
 
     float elapsed = (now - this->m_fogStartTime) * 0.001f;
-    float fade = elapsed / (fabs((this->m_targetFogIntensity - this->m_startFogIntensity) * 4.0f + 0.001f) * 10.0f);
+    // MODIFIED: weather overhaul; the fog (storm sky) follows the same transition time
+    float fade = elapsed / AwesomeWeatherTransitionSeconds((this->m_targetFogIntensity - this->m_startFogIntensity) * 4.0f);
 
     if (fade < 0.0f) {
         fade = 0.0f;
@@ -522,6 +524,9 @@ void Weather::Clear() {
 // VERIFY: 8429a026 auto
 // OFFSET: 0x0078D130
 void Weather::Reset() {
+    // MODIFIED: weather overhaul; forget the zone's weather, stop lightning and the weather loop
+    AwesomeWeatherOnReset();
+
     if (s_weatherTypeForced) {
         return;
     }
@@ -638,7 +643,9 @@ void Weather::Update() {
         }
 
         if (active > 0 && this->m_immediate) {
-            this->SetStormIntensity(this->m_startIntensity, this->m_targetIntensity < 0.25f ? this->m_targetIntensity : 0.25f);
+            // MODIFIED: weather overhaul; fade to where the particles stop (stock 0.25)
+            float start = AwesomeWeatherParticleStart();
+            this->SetStormIntensity(this->m_startIntensity, this->m_targetIntensity < start ? this->m_targetIntensity : start);
             stormUpdated = true;
 
             if (this->m_snow) {
@@ -695,6 +702,9 @@ void Weather::Update() {
     }
 
     this->m_hasUpdated = 1;
+
+    // MODIFIED: weather overhaul; lightning, thunder and the weather sound layer
+    AwesomeWeatherUpdate();
 }
 
 // VERIFY: f7fa9fb7 manual
@@ -723,31 +733,19 @@ void Weather::SetType(uint32_t type, float intensity, const WeatherRec* rec, boo
     }
 
     this->m_immediate = immediate;
-    bool unchanged = true;
-
-    if (this->GetType() != type) {
-        this->m_precipTexture[0] = '\0';
-        unchanged = false;
-    }
-
-    bool copied = false;
 
     if (rec) {
         this->m_color.Set(1.0f, rec->m_effectColor[0], rec->m_effectColor[1], rec->m_effectColor[2]);
-
-        if (SStrLen(rec->m_effectTexture) > 0 && SStrCmpI(this->m_precipTexture, rec->m_effectTexture, STORM_MAX_STR)) {
-            unchanged = false;
-            SStrCopy(this->m_precipTexture, rec->m_effectTexture, STORM_MAX_STR);
-            copied = true;
-        }
     }
 
-    if (SStrLen(this->m_precipTexture) <= 0 && !copied) {
-        this->FillInDefaultPrecipTexturePath(type);
-        unchanged = false;
-    }
+    // MODIFIED: weather overhaul; the texture choice moved to WeatherModel. With weatherFixes 1 a sandstorm (no
+    // default texture) no longer restarts on every packet, and rain without a texture of its own goes back to the
+    // default drop instead of keeping the last row's (red, black). weatherFixes 0 is the stock logic
+    char texture[sizeof(this->m_precipTexture)];
+    bool restart = WeatherModel::ChoosePrecipTexture(type, rec ? rec->m_effectTexture : nullptr, this->m_precipTexture, this->GetType() == type, AwesomeWeatherFixes(), texture, sizeof(texture));
+    SStrCopy(this->m_precipTexture, texture, sizeof(this->m_precipTexture));
 
-    if (this->GetType() != type || !unchanged) {
+    if (this->GetType() != type || restart) {
         this->m_pendingType = type;
     }
 
@@ -777,8 +775,18 @@ void Weather::SetType(uint32_t type, float intensity, const WeatherRec* rec, boo
         this->m_densityBlend = time;
     }
 
-    this->m_targetFogIntensity = density < 0.0f ? 0.0f : (density >= 0.25f ? 0.25f : density);
-    this->m_startFogIntensity = this->m_startIntensity < 0.0f ? 0.0f : (this->m_startIntensity >= 0.25f ? 0.25f : this->m_startIntensity);
+    // MODIFIED: weather overhaul; the storm sky is m_fogIntensity * 4. Stock: min(grade, 0.25), fully stormy from 0.25.
+    // weatherSkyCurve 1 grades it for precipitation, and the server can send the sky itself (extension block); those
+    // start from the sky shown now, so a change mid-transition does not jump
+    bool stockSky = true;
+    float skyTarget = AwesomeWeatherSkyTarget(type, density, &stockSky);
+    this->m_targetFogIntensity = skyTarget;
+
+    if (stockSky) {
+        this->m_startFogIntensity = this->m_startIntensity < 0.0f ? 0.0f : (this->m_startIntensity >= 0.25f ? 0.25f : this->m_startIntensity);
+    } else {
+        this->m_startFogIntensity = immediate ? this->m_fogIntensity : skyTarget;
+    }
 
     uint32_t now = OsGetAsyncTimeMs();
     this->m_intensityStartTime = now;

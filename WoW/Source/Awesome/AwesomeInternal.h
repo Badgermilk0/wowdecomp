@@ -107,6 +107,12 @@ void AwesomeAudioRegisterCVars();
 void AwesomeAudioRegisterScriptFunctions(lua_State* L);
 void AwesomeAudioOnEnterWorld();
 
+// AwesomeWeather.cpp
+void AwesomeWeatherRegisterCVars();
+void AwesomeWeatherRegisterScriptFunctions(lua_State* L);
+void AwesomeWeatherOnEnterWorld();
+void AwesomeWeatherOnLeaveWorld();
+
 // AwesomeStreaming.cpp
 void AwesomeStreamingRegisterCVars();
 void AwesomeStreamingRegisterScriptFunctions(lua_State* L);

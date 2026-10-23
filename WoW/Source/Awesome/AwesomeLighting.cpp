@@ -499,6 +499,8 @@ static void BuildParams(GxLightingParams& p, const C3Vector& camera) {
     p.m_bloomIntensity = s_cvBloom.m_floatValue;
     p.m_bloomThreshold = s_cvBloomThreshold.m_floatValue;
     p.m_sharpen = s_cvSharpen.m_floatValue;
+    // MODIFIED: skyDither (AwesomeSky.cpp)
+    p.m_dither = AwesomeSkyDither();
     p.m_ssaoIntensity = s_cvSsao.m_floatValue;
     p.m_ssaoRadius = s_cvSsaoRadius.m_floatValue;
     p.m_ssaoDistance = s_cvSsaoDistance.m_floatValue;

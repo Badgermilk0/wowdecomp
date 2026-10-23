@@ -156,6 +156,8 @@ endif ()
 # MODIFIED: weather overhaul; unit tests of the weather model (ctest -R Weather)
 enable_testing()
 add_subdirectory(Tools/WeatherTests)
+# MODIFIED: modern water and the smoother sky (ctest -R WaterSky)
+add_subdirectory(Tools/WaterTests)
 
 add_dependencies(Glue WaystoneVersion)
 add_dependencies(Ui WaystoneVersion)

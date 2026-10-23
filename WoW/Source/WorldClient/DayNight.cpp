@@ -1,4 +1,5 @@
 #include "WoW/Source/WorldClient/DayNight__DNInfo.h"
+#include "WoW/Source/Awesome/Awesome.h"
 #include <cmath>
 #include <new>
 #include <typeinfo>
@@ -2715,6 +2716,8 @@ void DayNight::SetColors() {
         info.m_bands.m_waterShallowAlpha = 0.5f;
     }
 
+    // MODIFIED: smoother sky (Awesome.h): the light eases toward its new value
+    AwesomeSkySmoothBands(&info.m_bands, liquidStatus);
     DayNight::SetLightColors();
 
     if (liquidStatus && liquid && liquid->m_maxDarkenDepth > 0.0f) {

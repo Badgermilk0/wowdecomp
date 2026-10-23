@@ -13,6 +13,11 @@ namespace FMOD {
 class Channel;
 }
 
+namespace DayNight {
+class CurrentLight;
+struct DNSky;
+}
+
 class C2Vector;
 struct FMOD_REVERB_PROPERTIES;
 class C3Vector;
@@ -62,6 +67,24 @@ void AwesomeLightingEndWorld();
 // CSimpleModelFFX::Render around the login screen's model, for lightingGlueTest (off by default)
 void AwesomeLightingGlueBegin();
 void AwesomeLightingGlueEnd();
+
+// AwesomeWater.cpp, modern water on the D3D11 device (Engine/Source/Gx/GxWater.h): CGWorldFrame::OnWorldRender after
+// AwesomeLightingBeginWorld (the ripple height field steps); CWorldScene::RenderLiquidPass before the transparent
+// liquids (the scene is copied for them); with AwesomeLightingEndWorld
+void AwesomeWaterBeginWorld();
+void AwesomeWaterBeforeLiquids();
+void AwesomeWaterEndWorld();
+// CGUnit_C::CreateRipple, every frame a unit is in liquid shallow enough to touch the surface (before the stock
+// ripple's rate limit): id tells units apart, surface is the unit's position at the liquid's height, motion the
+// movement flags, event 201 a crossing of the surface (a splash), speed the current movement speed
+void AwesomeWaterOnUnitInLiquid(uintptr_t id, const C3Vector& surface, float depth, float maxDepth, uint32_t motion, uint32_t event, float speed);
+
+// AwesomeSky.cpp, the smoother sky (WorldClient/SkyModel.h holds the arithmetic). DayNight::DNSky::Render: draws the
+// dome from the stock colours and returns true, or false for the stock draw (skySmooth off)
+bool AwesomeSkyDraw(const DayNight::DNSky* sky);
+// DayNight::SetColors once the zone's light is known, before the light colours are set from it: eases it toward the
+// new value (skyTransition)
+void AwesomeSkySmoothBands(DayNight::CurrentLight* bands, int32_t liquidStatus);
 
 // AwesomeWeather.cpp, the weather overhaul (WorldClient/WeatherModel.h holds the arithmetic).
 // CGGameUI::MessageHandler SMSG_WEATHER: the stock fields and the bytes after them (an optional extension block)

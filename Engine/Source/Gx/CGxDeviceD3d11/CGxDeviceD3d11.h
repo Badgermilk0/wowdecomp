@@ -31,6 +31,7 @@
 #include "Engine/Source/Gx/CGxDeviceD3d11/D3d11FixedFunction.h"
 #include "Engine/Source/Gx/CGxDeviceD3d11/D3d11GpuTimer.h"
 #include "Engine/Source/Gx/CGxDeviceD3d11/D3d11Lighting.h"
+#include "Engine/Source/Gx/CGxDeviceD3d11/D3d11Water.h"
 #include "Engine/Source/Gx/CGxTex.h"
 
 class CGxDeviceD3d11 : public CGxDevice {
@@ -222,6 +223,8 @@ class CGxDeviceD3d11 : public CGxDevice {
     // MODIFIED: modern lighting (D3d11Lighting.h): the passes and the HDR scene; the frame's depth as a texture for
     // them; whether the lighting constants and buffers are bound since the last invalidation
     D3d11Lighting* m_lighting = nullptr;
+    // MODIFIED: modern water (D3d11Water.h): the ripple height field, the copies for the liquids, the water constants
+    D3d11Water* m_water = nullptr;
     ID3D11ShaderResourceView* m_frameDepthSrv = nullptr;
     bool m_lightingBound = false;
 

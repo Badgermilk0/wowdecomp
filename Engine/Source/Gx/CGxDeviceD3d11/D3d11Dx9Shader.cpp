@@ -337,6 +337,313 @@ const char* const s_hlslLighting =
     "}\n"
     "\n";
 
+// MODIFIED: modern water (D3d11Water.h). Follows the water pixel shader's own declarations (T0 / S0 the depth texture
+// with Light.dbc's water colours, T1 / S1 the animated water texture, C[4] the fog colour). GxWaterShade takes the stock
+// colour and, while gxWaterFlags.x is set, shades the surface instead: the copies of the opaque scene give the water's
+// thickness, what is seen through it (bent by the surface) and the screen-space reflections; the normal comes from the
+// stock texture's relief at two scales and from the ripple height field. The arithmetic is in linear light
+const char* const s_hlslWater =
+    "cbuffer GxWater : register(b5) {\n"
+    "    uint4 gxWaterFlags;                 // x features (0 = the stock colour), y debug, z reflection steps\n"
+    "    row_major float4x4 gxWaterViewInv;  // view to world (relative to the render origin)\n"
+    "    row_major float4x4 gxWaterProj;\n"
+    "    row_major float4x4 gxWaterProjInv;\n"
+    "    float4 gxWaterViewport;             // the world viewport: x left, y top, z width, w height (pixels)\n"
+    "    float4 gxWaterDepthRange;           // x min, y max\n"
+    "    float4 gxWaterTarget;               // the copies: xy 1 / size, zw size\n"
+    "    float4 gxWaterSunDir;               // xyz toward the sun (world), w how far above the horizon\n"
+    "    float4 gxWaterSunColor;             // linear\n"
+    "    float4 gxWaterSky[6];               // linear: top, middle, band 1, band 2, smog, horizon\n"
+    "    float4 gxWaterAmbient;              // linear; w the sky's visibility (0 indoors)\n"
+    "    float4 gxWaterParams0;              // x refraction, y clarity, z reflection, w detail\n"
+    "    float4 gxWaterParams1;              // x foam, y ripple normal, z time (seconds)\n"
+    "    float4 gxWaterField;                // the height field: xy its corner (world), z 1 / size (yards), w 1 / texels\n"
+    "    float4 gxWaterFieldExtra;           // x texel (yards), y 1 = valid\n"
+    "};\n"
+    "\n"
+    "Texture2D gxWaterScene : register(t18);\n"
+    "Texture2D<float> gxWaterDepth : register(t19);   // clip w of the opaque scene; 0 = the sky\n"
+    "Texture2D<float2> gxWaterHeight : register(t20); // x the height now (yards)\n"
+    "SamplerState gxWaterLinear : register(s15);\n"
+    "\n"
+    "float3 WxDec(float3 c) {\n"
+    "    return pow(max(c, 0.0), 2.2);\n"
+    "}\n"
+    "\n"
+    "float3 WxEnc(float3 c) {\n"
+    "    return pow(max(c, 0.0), 1.0 / 2.2);\n"
+    "}\n"
+    "\n"
+    "float WxLum(float3 c) {\n"
+    "    return dot(c, float3(0.299, 0.587, 0.114));\n"
+    "}\n"
+    "\n"
+    "float WxClipW(float3 v) {\n"
+    "    return mul(float4(v, 1.0), gxWaterProj).w;\n"
+    "}\n"
+    "\n"
+    "// the pixel (SV_Position) a view-space point lands on; D3D9's half-pixel offset as in GxFinishVertex\n"
+    "float2 WxPixel(float3 v) {\n"
+    "    float4 h = mul(float4(v, 1.0), gxWaterProj);\n"
+    "    float2 ndc = h.xy / h.w;\n"
+    "    return gxWaterViewport.xy + float2(ndc.x * 0.5 + 0.5, 0.5 - ndc.y * 0.5) * gxWaterViewport.zw + 0.5;\n"
+    "}\n"
+    "\n"
+    "bool WxOnScreen(float2 p) {\n"
+    "    return all(p >= gxWaterViewport.xy) && all(p < gxWaterViewport.xy + gxWaterViewport.zw);\n"
+    "}\n"
+    "\n"
+    "float WxSceneW(float2 p) {\n"
+    "    int2 q = int2(clamp(p, gxWaterViewport.xy, gxWaterViewport.xy + gxWaterViewport.zw - 1.0));\n"
+    "    return gxWaterDepth.Load(int3(q, 0));\n"
+    "}\n"
+    "\n"
+    "float3 WxScene(float2 p) {\n"
+    "    float2 q = clamp(p, gxWaterViewport.xy + 0.5, gxWaterViewport.xy + gxWaterViewport.zw - 0.5);\n"
+    "    return WxDec(gxWaterScene.SampleLevel(gxWaterLinear, q * gxWaterTarget.xy, 0.0).rgb);\n"
+    "}\n"
+    "\n"
+    "// the sky dome's colour toward a world direction. DayNight's dome is a unit sphere lowered by cos 45 degrees, its\n"
+    "// bands at theta / pi = 0, 0.17, 0.2, 0.23, 0.24 and 0.25 (the horizon)\n"
+    "float3 WxSky(float3 d) {\n"
+    "    const float lower = 0.70710678;\n"
+    "    float dc = -lower * d.z;\n"
+    "    float t = dc + sqrt(max(dc * dc - lower * lower + 1.0, 0.0));\n"
+    "    float s = acos(clamp(t * d.z + lower, -1.0, 1.0)) / 3.14159265;\n"
+    "    float3 c;\n"
+    "\n"
+    "    if (s < 0.17) {\n"
+    "        c = lerp(gxWaterSky[0].rgb, gxWaterSky[1].rgb, smoothstep(0.0, 0.17, s));\n"
+    "    } else if (s < 0.2) {\n"
+    "        c = lerp(gxWaterSky[1].rgb, gxWaterSky[2].rgb, smoothstep(0.17, 0.2, s));\n"
+    "    } else if (s < 0.23) {\n"
+    "        c = lerp(gxWaterSky[2].rgb, gxWaterSky[3].rgb, smoothstep(0.2, 0.23, s));\n"
+    "    } else if (s < 0.24) {\n"
+    "        c = lerp(gxWaterSky[3].rgb, gxWaterSky[4].rgb, smoothstep(0.23, 0.24, s));\n"
+    "    } else {\n"
+    "        c = lerp(gxWaterSky[4].rgb, gxWaterSky[5].rgb, smoothstep(0.24, 0.25, s));\n"
+    "    }\n"
+    "\n"
+    "    c += gxWaterSunColor.rgb * (pow(saturate(dot(d, gxWaterSunDir.xyz)), 12.0) * gxWaterSunDir.w * 0.25);\n"
+    "    return lerp(gxWaterAmbient.rgb, c, gxWaterAmbient.w);\n"
+    "}\n"
+    "\n"
+    "// the height field at a world position: x the height (yards), yz its slope\n"
+    "float3 WxRipple(float2 w) {\n"
+    "    if (gxWaterFieldExtra.y <= 0.0) {\n"
+    "        return 0.0;\n"
+    "    }\n"
+    "\n"
+    "    float2 uv = (w - gxWaterField.xy) * gxWaterField.z;\n"
+    "    float edge = min(min(uv.x, uv.y), min(1.0 - uv.x, 1.0 - uv.y));\n"
+    "\n"
+    "    if (edge <= 0.0) {\n"
+    "        return 0.0;\n"
+    "    }\n"
+    "\n"
+    "    float e = gxWaterField.w;\n"
+    "    float h = gxWaterHeight.SampleLevel(gxWaterLinear, uv, 0.0).x;\n"
+    "    float hx = gxWaterHeight.SampleLevel(gxWaterLinear, uv + float2(e, 0.0), 0.0).x - gxWaterHeight.SampleLevel(gxWaterLinear, uv - float2(e, 0.0), 0.0).x;\n"
+    "    float hy = gxWaterHeight.SampleLevel(gxWaterLinear, uv + float2(0.0, e), 0.0).x - gxWaterHeight.SampleLevel(gxWaterLinear, uv - float2(0.0, e), 0.0).x;\n"
+    "    float k = 0.5 / gxWaterFieldExtra.x;\n"
+    "    // the border absorbs the waves; fade out before it\n"
+    "    return float3(h, hx * k, hy * k) * saturate(edge * 12.0);\n"
+    "}\n"
+    "\n"
+    "// the stock water texture's relief (its brightness as height) around uv, st apart\n"
+    "float2 WxTexSlope(float2 uv, float2 st) {\n"
+    "    float l = WxLum(T1.SampleGrad(S1, uv - float2(st.x, 0.0), st, st).rgb);\n"
+    "    float r = WxLum(T1.SampleGrad(S1, uv + float2(st.x, 0.0), st, st).rgb);\n"
+    "    float d = WxLum(T1.SampleGrad(S1, uv - float2(0.0, st.y), st, st).rgb);\n"
+    "    float u = WxLum(T1.SampleGrad(S1, uv + float2(0.0, st.y), st, st).rgb);\n"
+    "    return float2(r - l, u - d);\n"
+    "}\n"
+    "\n"
+    "float4 GxWaterShade(GxVaryings i, float4 stock) {\n"
+    "    if (gxWaterFlags.x == 0u || i.gxP.w < 0.5) {\n"
+    "        return stock;\n"
+    "    }\n"
+    "\n"
+    "    float3 p = i.gxP.xyz;\n"
+    "    float3 pw = mul(float4(p, 1.0), gxWaterViewInv).xyz;\n"
+    "    float3 eye = gxWaterViewInv[3].xyz;\n"
+    "    float3 v = eye - pw;\n"
+    "    float dist = length(v);\n"
+    "    v /= max(dist, 0.0001);\n"
+    "    float waterW = max(WxClipW(p), 0.0001);\n"
+    "    float2 pixel = i.pos.xy;\n"
+    "    float time = gxWaterParams1.z;\n"
+    "\n"
+    "    // the normal: the stock texture's relief at its own scale and, turned and larger, drifting across it; the ripples\n"
+    "    float2 size;\n"
+    "    T1.GetDimensions(size.x, size.y);\n"
+    "    float2 uv = i.t1.xy;\n"
+    "    float2 uv2 = float2(uv.y, -uv.x) * 0.37 + time * float2(0.011, -0.007);\n"
+    "    float2 st = max(1.0 / size, fwidth(uv) * 0.75);\n"
+    "    float2 st2 = max(1.0 / size, fwidth(uv2) * 0.75);\n"
+    "    float2 slope = WxTexSlope(uv, st) + WxTexSlope(uv2, st2) * 0.6;\n"
+    "    slope *= 2.5 * gxWaterParams0.w * lerp(1.0, 0.25, saturate((dist - 20.0) / 180.0));\n"
+    "    float3 ripple = WxRipple(pw.xy);\n"
+    "    slope += ripple.yz * gxWaterParams1.y;\n"
+    "    float3 n = normalize(float3(-slope, 1.0));\n"
+    "    // the slope in view space (a rotation: the inverse view's transpose), for the refraction's shift on screen\n"
+    "    float3 bendView = mul((float3x3)gxWaterViewInv, float3(-slope, 0.0));\n"
+    "\n"
+    "    float4 tex = T1.Sample(S1, uv);\n"
+    "    float pattern = WxLum(T1.Sample(S1, uv * 2.3 + time * float2(0.02, 0.013)).rgb);\n"
+    "    float4 body4 = T0.Sample(S0, i.t0.xy);\n"
+    "    float3 lit = WxDec(i.c0.rgb);\n"
+    "    // the water's own colour (Light.dbc's shallow and deep colours by depth, through the depth texture), lit\n"
+    "    float3 body = WxDec(body4.rgb) * lit;\n"
+    "\n"
+    "    // the opaque scene behind: how much water the eye looks through\n"
+    "    float sceneW = WxSceneW(pixel);\n"
+    "    float behindW = sceneW > 0.0 ? sceneW : 100000.0;\n"
+    "    float thickness = max(behindW - waterW, 0.0) * dist / waterW;\n"
+    "    float depth = thickness * abs(v.z);\n"
+    "\n"
+    "    // what is seen through it, shifted by the bent surface, more as the water deepens; not something above it\n"
+    "    float2 shift = bendView.xy * float2(1.0, -1.0) * (gxWaterParams0.x * gxWaterViewport.w * 0.035 * saturate(depth * 0.5) / max(1.0, waterW * 0.05));\n"
+    "    float2 refrPixel = pixel + shift;\n"
+    "    float refrW = WxSceneW(refrPixel);\n"
+    "\n"
+    "    if (refrW > 0.0 && refrW < waterW) {\n"
+    "        refrPixel = pixel;\n"
+    "    }\n"
+    "\n"
+    "    float3 behind = WxScene(refrPixel);\n"
+    "\n"
+    "    // absorbed by the water on the way (the colours the body lacks go first), scattered toward the body's colour\n"
+    "    float3 tint = saturate(body4.rgb / max(max(body4.r, max(body4.g, body4.b)), 0.001));\n"
+    "    float3 k = gxWaterParams0.y * (0.06 + 0.4 * (1.0 - tint)) * (0.5 + body4.a);\n"
+    "    float3 tr = exp(-k * thickness);\n"
+    "    float3 water = behind * tr + body * (1.0 - tr);\n"
+    "    // the stock texture's own light on the surface, as the stock shader adds it\n"
+    "    water += WxDec(tex.rgb) * lit * (0.3 * gxWaterParams0.w);\n"
+    "\n"
+    "    float3 color;\n"
+    "    float hit = 0.0;\n"
+    "    float drawnSky = 0.0;\n"
+    "\n"
+    "    if (eye.z < pw.z - 0.05) {\n"
+    "        // from below: the sky and the world above through Snell's window, the water's own colour outside it\n"
+    "        float window = smoothstep(0.6, 0.72, dot(-n, v));\n"
+    "        color = lerp(body * 0.6, behind, window * 0.85);\n"
+    "    } else {\n"
+    "        float3 r = reflect(-v, n);\n"
+    "        r.z = abs(r.z);\n"
+    "        float3 reflection = WxSky(r);\n"
+    "        float3 rv = mul((float3x3)gxWaterViewInv, r);\n"
+    "\n"
+    "        if (gxWaterFlags.x & 2u) {\n"
+    "            // the sky as drawn (its clouds) where the reflected direction meets it on screen\n"
+    "            float3 far = p + rv * 2000.0;\n"
+    "            float2 farPixel = WxPixel(far);\n"
+    "\n"
+    "            if (WxClipW(far) > 0.0 && WxOnScreen(farPixel) && WxSceneW(farPixel) <= 0.0) {\n"
+    "                drawnSky = gxWaterAmbient.w;\n"
+    "                reflection = lerp(reflection, WxScene(farPixel), drawnSky);\n"
+    "            }\n"
+    "\n"
+    "            // the world, marched along the reflected ray through the depth copy\n"
+    "            float3 o = p;\n"
+    "            float3 last = p;\n"
+    "            float stepLength = max(0.25, waterW * 0.015);\n"
+    "            uint steps = gxWaterFlags.z;\n"
+    "\n"
+    "            [loop] for (uint s = 0; s < steps; s++) {\n"
+    "                last = o;\n"
+    "                o += rv * stepLength;\n"
+    "                stepLength *= 1.18;\n"
+    "                float w = WxClipW(o);\n"
+    "\n"
+    "                if (w < 0.05) {\n"
+    "                    break;\n"
+    "                }\n"
+    "\n"
+    "                float2 q = WxPixel(o);\n"
+    "\n"
+    "                if (!WxOnScreen(q)) {\n"
+    "                    break;\n"
+    "                }\n"
+    "\n"
+    "                float sw = WxSceneW(q);\n"
+    "\n"
+    "                if (sw > 0.0 && w > sw + 0.02) {\n"
+    "                    // behind the scene: halve the last step until the crossing is found\n"
+    "                    float3 a = last;\n"
+    "                    float3 b = o;\n"
+    "\n"
+    "                    [unroll] for (uint h = 0; h < 5; h++) {\n"
+    "                        float3 m = (a + b) * 0.5;\n"
+    "                        float mw = WxSceneW(WxPixel(m));\n"
+    "\n"
+    "                        if (mw > 0.0 && WxClipW(m) > mw) {\n"
+    "                            b = m;\n"
+    "                        } else {\n"
+    "                            a = m;\n"
+    "                        }\n"
+    "                    }\n"
+    "\n"
+    "                    float2 hitPixel = WxPixel(b);\n"
+    "\n"
+    "                    // far behind a thin object the ray passed it: not a hit\n"
+    "                    if (WxClipW(b) - WxSceneW(hitPixel) < max(stepLength * 2.0, 1.0)) {\n"
+    "                        float2 e = min(hitPixel - gxWaterViewport.xy, gxWaterViewport.xy + gxWaterViewport.zw - hitPixel) / (gxWaterViewport.zw * 0.08);\n"
+    "                        hit = saturate(min(e.x, e.y)) * saturate((1.0 - (float)s / max((float)steps, 1.0)) * 3.0);\n"
+    "                        reflection = lerp(reflection, WxScene(hitPixel), hit);\n"
+    "                    }\n"
+    "\n"
+    "                    break;\n"
+    "                }\n"
+    "            }\n"
+    "        }\n"
+    "\n"
+    "        float fresnel = saturate((0.02 + 0.98 * pow(1.0 - saturate(dot(n, v)), 5.0)) * gxWaterParams0.z);\n"
+    "        color = lerp(water, reflection, fresnel);\n"
+    "\n"
+    "        // the sun on the water: a sharp glint and a broad sheen\n"
+    "        float3 hv = normalize(gxWaterSunDir.xyz + v);\n"
+    "        float nh = saturate(dot(n, hv));\n"
+    "        float glint = (pow(nh, 900.0) * 25.0 + pow(nh, 80.0) * 0.4) * (0.02 + 0.98 * pow(1.0 - saturate(dot(hv, v)), 5.0));\n"
+    "        color += gxWaterSunColor.rgb * (glint * gxWaterSunDir.w * gxWaterAmbient.w * gxWaterParams0.z);\n"
+    "    }\n"
+    "\n"
+    "    if (gxWaterParams1.x > 0.0) {\n"
+    "        // foam where the water is shallow at the shore and where it is disturbed, broken up by the stock texture\n"
+    "        float shore = sceneW > 0.0 ? saturate(1.0 - depth / 0.7) : 0.0;\n"
+    "        float churn = saturate(abs(ripple.x) * 8.0 - 0.1) + saturate(length(ripple.yz) * 1.5 - 0.15);\n"
+    "        float foam = saturate((shore * 0.8 + churn) * smoothstep(0.25, 0.75, pattern + 0.2 * churn)) * gxWaterParams1.x;\n"
+    "        color = lerp(color, lit * 0.85, saturate(foam * 0.7));\n"
+    "    }\n"
+    "\n"
+    "    // no hard line where the water meets the ground\n"
+    "    color = lerp(WxScene(pixel), color, saturate(depth * 6.0));\n"
+    "    float3 encoded = WxEnc(color);\n"
+    "\n"
+    "    switch (gxWaterFlags.y) {\n"
+    "        case 1u:\n"
+    "            encoded = n * 0.5 + 0.5;\n"
+    "            break;\n"
+    "        case 2u:\n"
+    "            encoded = saturate(depth / 10.0).xxx;\n"
+    "            break;\n"
+    "        case 3u:\n"
+    "            encoded = float3(saturate(0.5 + ripple.x * 10.0), saturate(length(ripple.yz)), saturate(0.5 - ripple.x * 10.0));\n"
+    "            break;\n"
+    "        case 4u:\n"
+    "            encoded = float3(0.0, hit, drawnSky);\n"
+    "            break;\n"
+    "        default:\n"
+    "            // the stock fog, as the stock shader blends it\n"
+    "            encoded = lerp(C[4].rgb, encoded, saturate(i.fog));\n"
+    "            break;\n"
+    "    }\n"
+    "\n"
+    "    return float4(encoded, 1.0);\n"
+    "}\n"
+    "\n";
+
 namespace {
 
 enum {
@@ -595,7 +902,7 @@ std::string Writer::SurfaceOutputs() const {
     const Dx9Shader& sh = m_shader;
     uint32_t family = sh.m_family;
 
-    if (!sh.m_vertex || family == Family_None || family == Family_LitPixel) {
+    if (!sh.m_vertex || family == Family_None || family == Family_LitPixel || family == Family_WaterPixel) {
         return std::string();
     }
 
@@ -630,6 +937,24 @@ std::string Writer::SurfaceOutputs() const {
 
     if (pos < 0) {
         return std::string();
+    }
+
+    if (family == Family_WaterVertex) {
+        // MODIFIED: modern water: C5-C8 the liquid's world-view matrix (Liquid::VSConstants::m_modelView), always
+        // handed over: the water pixel shader decides by its own constants
+        if (!reads(5, 8)) {
+            return std::string();
+        }
+
+        std::string w = "    // MODIFIED: modern water: the view-space surface, for the water pixel shader (s_hlslWater)\n";
+        Appendf(w, "    o.gxP = float4((C[5] * v%d.x + C[6] * v%d.y + C[7] * v%d.z + C[8]).xyz, 1.0);\n", pos, pos, pos);
+
+        if (normal >= 0) {
+            Appendf(w, "    o.gxN = float4(normalize(C[5].xyz * v%d.x + C[6].xyz * v%d.y + C[7].xyz * v%d.z + 1e-12), 0.0);\n", normal, normal, normal);
+        }
+
+        w += "    o.gxF = float4(1024.0, 0.0, 0.0, 0.0);\n";
+        return w;
     }
 
     std::string s = "    // MODIFIED: modern lighting: the surface, for the pixel shader's lighting (s_hlslLighting)\n";
@@ -1483,6 +1808,9 @@ bool Writer::Run(std::string& out, std::string& error) {
     int32_t litColor0 = -1;
     int32_t litColor1 = -1;
     bool litPixel = LitPixel(litColor0, litColor1);
+    // MODIFIED: modern water: a water pixel shader that samples the depth texture (s0) and the water texture (s1), 2D
+    // and neither bound as a depth texture
+    bool water = !vertex && sh.m_family == Family_WaterPixel && (sh.m_samplerMask & 3u) == 3u && sh.m_samplerDim[0] == 2 && sh.m_samplerDim[1] == 2 && !(m_variant & 3u);
 
     out.clear();
     out.reserve(8192 + mainBody.size() + functions.size());
@@ -1534,6 +1862,10 @@ bool Writer::Run(std::string& out, std::string& error) {
     }
 
     out += "\n";
+
+    if (water) {
+        out += s_hlslWater;
+    }
 
     // the registers, as globals so the subroutines share them
     for (uint32_t r = 0; r < 64; r++) {
@@ -1835,11 +2167,16 @@ bool Writer::Run(std::string& out, std::string& error) {
             out += "    o.c0.rgb = any(gxSpecular > 0.0) ? GxEnc(GxDec(o.c0.rgb) + gxSpecular) : o.c0.rgb;\n";
         }
 
+        if (water) {
+            out += "    // MODIFIED: modern water (s_hlslWater)\n";
+            out += "    o.c0 = GxWaterShade(i, o.c0);\n";
+        }
+
         // MODIFIED: modern lighting: into the HDR scene (gxOutput.x > 0; 0 = no clamp, as on any other target) a draw
         // is clamped as an 8-bit target clamps it, so layers stack as before; a lit family keeps light above 1 up to
         // the device's limit
         out += "    if (gxOutput.x > 0.0) {\n";
-        Appendf(out, "        o.c0 = float4(clamp(o.c0.rgb, 0.0, %s), saturate(o.c0.a));\n", litPixel ? "gxOutput.x" : "min(gxOutput.x, 1.0)");
+        Appendf(out, "        o.c0 = float4(clamp(o.c0.rgb, 0.0, %s), saturate(o.c0.a));\n", litPixel || water ? "gxOutput.x" : "min(gxOutput.x, 1.0)");
         out += "    }\n";
         out += "    GxAlphaTest(o.c0.a);\n";
 
@@ -2501,6 +2838,11 @@ uint32_t FamilyForShader(const char* name, bool vertex) {
     };
 
     if (vertex) {
+        // MODIFIED: modern water: vsLiquidWater, vsLiquidWaterNoSpec
+        if (starts("vsLiquidWater")) {
+            return Family_WaterVertex;
+        }
+
         if (base == "Terrain") {
             return Family_Terrain;
         }
@@ -2525,6 +2867,11 @@ uint32_t FamilyForShader(const char* name, bool vertex) {
 
     if (starts("Combiners_") || starts("MapObj") || (starts("Terrain") && base != "TerrainSM" && !starts("Terrain1w"))) {
         return Family_LitPixel;
+    }
+
+    // MODIFIED: modern water: psLiquidWater, psLiquidWaterNoSpec
+    if (starts("psLiquidWater")) {
+        return Family_WaterPixel;
     }
 
     return Family_None;

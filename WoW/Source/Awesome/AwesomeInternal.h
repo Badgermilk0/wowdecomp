@@ -102,6 +102,16 @@ void AwesomeLightingRegisterCVars();
 void AwesomeLightingRegisterScriptFunctions(lua_State* L);
 void AwesomeLightingOnEnterWorld();
 
+// AwesomeWater.cpp
+void AwesomeWaterRegisterCVars();
+void AwesomeWaterOnEnterWorld();
+
+// AwesomeSky.cpp
+void AwesomeSkyRegisterCVars();
+void AwesomeSkyOnEnterWorld();
+// skyDither, for the HDR tonemap (8-bit steps of noise)
+float AwesomeSkyDither();
+
 // AwesomeAudio.cpp
 void AwesomeAudioRegisterCVars();
 void AwesomeAudioRegisterScriptFunctions(lua_State* L);

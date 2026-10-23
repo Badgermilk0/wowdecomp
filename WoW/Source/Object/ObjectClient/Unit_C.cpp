@@ -2009,6 +2009,12 @@ void CGUnit_C::CreateRipple(uint32_t a2) {
         return;
     }
 
+    // MODIFIED: modern water (Awesome.h): every frame in the water disturbs its height field, not only the stock
+    // ripple's moments
+    C3Vector surface = this->GetPosition();
+    surface.z = liquidHeight;
+    AwesomeWaterOnUnitInLiquid(reinterpret_cast<uintptr_t>(this), surface, depth, maxDepth, this->m_movement->m_flags, a2, this->m_movement->m_currentSpeed);
+
     uint32_t time = FrameTime::s_curTimeMs;
 
     if (this->m_nextRippleTime && static_cast<int32_t>(time - this->m_nextRippleTime) < 0) {

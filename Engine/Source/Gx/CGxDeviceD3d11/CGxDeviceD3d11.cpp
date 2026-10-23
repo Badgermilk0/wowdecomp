@@ -457,6 +457,13 @@ int32_t CGxDeviceD3d11::ICreateD3d11Device(const CGxFormat& format) {
 
     g_gxLighting = this->m_lighting;
 
+    // MODIFIED: modern water (D3d11Water.h): the game drives it through g_gxWater
+    if (!this->m_water) {
+        this->m_water = new D3d11Water(this);
+    }
+
+    g_gxWater = this->m_water;
+
     return 1;
 }
 
@@ -530,6 +537,11 @@ int32_t CGxDeviceD3d11::ICreateFrame() {
         this->m_lighting->ReleaseTargets();
     }
 
+    // MODIFIED: modern water: the copies follow the frame's size
+    if (this->m_water) {
+        this->m_water->ReleaseTargets();
+    }
+
     this->m_frameResolvedValid = false;
     this->IBindTargets();
     return 1;
@@ -557,6 +569,11 @@ void CGxDeviceD3d11::IReleaseFrame() {
     // MODIFIED: modern lighting: the HDR scene and the passes' targets follow the frame's size
     if (this->m_lighting) {
         this->m_lighting->ReleaseTargets();
+    }
+
+    // MODIFIED: modern water: the copies follow the frame's size
+    if (this->m_water) {
+        this->m_water->ReleaseTargets();
     }
     SafeRelease(this->m_backBufferRtv);
     SafeRelease(this->m_backBuffer);
@@ -829,6 +846,11 @@ void CGxDeviceD3d11::IReleaseD3d11Resources(int32_t freeAll) {
         this->m_lighting->ReleaseAll();
     }
 
+    // MODIFIED: modern water: likewise
+    if (this->m_water) {
+        this->m_water->ReleaseAll();
+    }
+
     this->IReleasePrograms();
     this->IReleaseStateObjects();
 
@@ -866,6 +888,16 @@ void CGxDeviceD3d11::IDestroyD3d11() {
 
         delete this->m_lighting;
         this->m_lighting = nullptr;
+    }
+
+    // MODIFIED: modern water
+    if (this->m_water) {
+        if (g_gxWater == this->m_water) {
+            g_gxWater = nullptr;
+        }
+
+        delete this->m_water;
+        this->m_water = nullptr;
     }
 
     this->ICursorDestroy();

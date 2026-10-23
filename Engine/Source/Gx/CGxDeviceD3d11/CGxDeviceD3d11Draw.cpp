@@ -1317,6 +1317,11 @@ bool CGxDeviceD3d11::IStateSync(EGxPrim primType) {
         }
     }
 
+    // MODIFIED: modern water (D3d11Water.h): the water constants (b5), the copies (t18-t20) and their sampler (s15)
+    if (this->m_water && psEntry && psEntry->m_dx9.m_family == Family_WaterPixel) {
+        this->m_water->BindForDraw();
+    }
+
     // bind what changed
     if (rebind || this->m_boundVs != vsProgram->m_vs) {
         this->m_ctx->VSSetShader(vsProgram->m_vs, nullptr, 0);

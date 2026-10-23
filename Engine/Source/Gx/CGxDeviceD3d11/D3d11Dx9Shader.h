@@ -54,6 +54,10 @@ enum EFamily : uint32_t {
     Family_LitPixel = 6,      // pixel
     Family_WmoComposite = 7,  // vertex, MapObjU*: the vertex colour added to the lit material, not multiplied
     Family_WmoCompositeSpecular = 8,
+    // MODIFIED: modern water (D3d11Water.h): vsLiquidWater* hand their view-space position to psLiquidWater*, which
+    // shade the surface (s_hlslWater)
+    Family_WaterVertex = 9,
+    Family_WaterPixel = 10,
 };
 
 // the family of an engine shader, by its name ("Diffuse_T1:13", the permutation after the colon)
@@ -63,6 +67,8 @@ uint32_t FamilyForShader(const char* name, bool vertex);
 extern const char* const s_hlslCommon;
 // MODIFIED: modern lighting: the surface outputs and the lighting functions of a lit family (after s_hlslCommon)
 extern const char* const s_hlslLighting;
+// MODIFIED: modern water: the water pixel shader's shading (after its sampler declarations)
+extern const char* const s_hlslWater;
 
 // D3D9 names a varying by usage and usage index; -1 when there is no slot for it
 int32_t VaryingForUsage(uint32_t usage, uint32_t index);

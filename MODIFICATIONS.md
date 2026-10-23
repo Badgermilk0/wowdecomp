@@ -555,6 +555,37 @@ the first version: the flashes and the row 86 rumble worked, and the single-soun
 the layers and chains. The flash's strength, the layered thunder's loudness, the loop and duck levels, and the
 override commands are starting points to tune in game.
 
+### Modern water and a smoother sky (branch `feature/water-sky`)
+
+No new assets: the stock water textures, the stock depth textures (which carry Light.dbc's shallow and deep water
+colours) and the zone's sky colours, shaded in a modern way. The water is D3D11 only (the D3D9 devices keep the stock
+water); the sky smoothing works on every device. `/water [on|off]` prints what the water did last frame.
+
+What the stock client does (read from the source): every world liquid but magma and slime is material 1,
+`CMaterialWater` (`vsLiquidWater` / `psLiquidWater`). The pixel shader is 11 instructions: the depth texture (colour and
+alpha by the vertex's water depth) times the per-vertex sun and ambient, plus the animated water texture (`lake_a`,
+`ocean_h`, `fast_a`), plus a per-vertex sun highlight, alpha blended, no depth write. The splash and wake decals
+(`WaterRipple.cpp`, `XTextures\splash`) are textures projected on the water for a moment; nothing moves the surface.
+
+| Part | Where | CVars (**default**) | What it does |
+|---|---|---|---|
+| Water shading | `D3d11Dx9Shader.cpp` (`Family_WaterVertex` / `Family_WaterPixel`, `s_hlslWater`), `D3d11Water.*` | `waterModern` (**1**), `waterRefraction` (**1**), `waterClarity` (**1**), `waterReflection` (**1**: screen-space; 0 the sky alone), `waterReflectionStrength` (**1**), `waterDetail` (**1**), `waterFoam` (**1**), `waterDebug` (**0**; 1 normals, 2 depth, 3 height field, 4 reflection hits) | The translated `vsLiquidWater*` hand their view-space position on; the translated `psLiquidWater*` still compute the stock colour, then, while the water constants (b5) are on, shade the surface from it. Before the transparent liquids (`CWorldScene::RenderLiquidPass`) the opaque scene's colour is copied (resolved under MSAA; the HDR scene with `hdr`) and its depth turned into clip w (R32F). From them: the water's thickness along the ray, what lies under it shifted by the bent surface (not where something above the water would show), absorbed with depth toward the body colour (the colours the body lacks go first), reflections by Schlick's Fresnel of the world (24 growing steps through the depth copy and a 5-step refinement, faded at the screen's edge), of the sky as drawn where the reflected direction meets it on screen (clouds included), else of Light.dbc's six sky bands on the dome's geometry (the ambient indoors); the sun's glint (sharp and broad lobes, faded at the horizon), foam at the shore and on disturbed water broken up by the stock texture, the stock fog on top. The normal comes from the stock animated texture's brightness taken as height, at its scale and turned and 2.7 times larger drifting across it, faded with distance, plus the height field. From below the surface: Snell's window. |
+| Interactive ripples | `D3d11Water.*` (`IStep`, `s_hlslWaterPasses` in `D3d11WaterHlsl.cpp`), `Awesome/AwesomeWater.cpp`, `CGUnit_C::CreateRipple` | `waterRipples` (**1**), `waterRippleStrength` (**1**), `waterInteraction` (**1**), `waterRain` (**1**) | A height field of 512 × 512 R16G16F texels (now, a step ago), 0.25 yd each, 128 yd around the player, scrolled by whole texels as the player moves (absolute texel indices, so it stays put in the world). 60 steps a second of the damped wave equation (5-point Laplacian, 3 yd/s, amplitude e-folding 1.7 s, an absorbing border of 24 texels). `CGUnit_C::CreateRipple` runs every frame for every visible unit in liquid shallow enough to touch it; before the stock decal's rate limit it now reports the unit: a moving one pushes a Gaussian dip (its size from its collision height) as it goes and leaves a wake, one swimming in place bobs and sends out rings, crossing the surface (the stock splash event 201) splashes; units standing in shallow water do nothing. In rain (`Weather::GetType` 1) up to 3 drops a square yard and second by particle intensity, none indoors, each hashed from its world texel and step. The stock decals stay. |
+| Smooth sky | `Awesome/AwesomeSky.cpp`, `WorldClient/SkyModel.*`, `DayNight::DNSky::Render` | `skySmooth` (**1**) | The stock dome is 6 rings × 24 colours, Gouraud shaded: each band a straight ramp with a kink at every ring, and the rings near the horizon are a few degrees apart, so they show as stripes. The same colours (`DNSky::SetColors`: highlight, lightning flash) are drawn on 96 columns × 51 rows, a monotone cubic (Fritsch-Butland tangents, no overshoot) across the rings and a clamped periodic Catmull-Rom around them; recoloured only when the colours change. |
+| Light transitions | `AwesomeSkySmoothBands`, from `DayNight::SetColors` before `SetLightColors` | `skyTransition` (**1.5** s; 0 = stock) | The zone's `CurrentLight` (18 colours: ambient, sun, shadow, sky, sun and cloud, water; the fog distances and rates, cloud density, water alphas) eases toward each new value with this time constant, so light boundaries, area lights and overrides do not snap. Snaps on a map change, a camera jump over 80 yd, entering or leaving liquid, a hitch over 1 s, and a map with no lights. The lightning flash is outside it and stays instant. |
+| Dither | `TonemapPs` in `D3d11Lighting.cpp` (`gxExtra`) | `skyDither` (**1**, in 8-bit steps; needs `hdr`) | Triangular noise before the frame quantizes, so the sky and fog gradients of the 16-bit scene do not band in the 8-bit frame. |
+
+Settings: the Lighting tab of the built-in settings window has Water and Sky sections.
+
+Tested offline (`Tools/WaterTests`, `ctest -R WaterSky`; with the folder of the stock `vsLiquidWater.bls`,
+`psLiquidWater.bls`, `psLiquidWaterNoSpec.bls` as argument it also translates them): the sky interpolation passes
+through the stock colours and stays monotone and in range, the dome rows include every stock ring and match
+`GenSphere`'s vertices, the easing is frame-rate independent; the passes compile (MSAA and not); the height field run
+on a WARP device spreads a splash's front 6.1 yd in 2 s (6 expected at 3 yd/s), symmetric, decays to under a fifth in
+12 s, and stays finite and bounded (0.1 yd) through a minute of heavy rain; all 4 `vsLiquidWater` and both water pixel
+shader records of the HD client translate with the water family and compile. The client builds. **Not seen in the
+world yet**: how any of it looks, the impulse strengths, and the cost at 4K are starting points to tune in game.
+
 ## Upstream syncs
 
 - **2026-10-23**, SatyPardus `main` at `20f9120e` (187 commits, PR #1 on Badgermilk0/wowdecomp). Upstream replaced

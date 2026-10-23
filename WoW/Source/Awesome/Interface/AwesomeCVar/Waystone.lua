@@ -1,16 +1,14 @@
--- Waystone: the settings the Waystone client (https://github.com/Badgermilk0/wowdecomp) adds beyond awesome_wotlk.
--- Loaded after Constants.lua and before UI.lua. Kept in its own file, with its strings in Locales/Waystone_enUS.lua,
--- so merges from upstream awesome_wotlk touch as little as possible.
+-- Waystone: the client's settings window beyond awesome_wotlk's own. The window is built into the client
+-- (Awesome/AwesomeEmbeddedUi.cpp), so every setting here is a CVar the client keeps in Config.wtf (or, for the
+-- account settings, in its account data): changed here, it stays changed. Loaded after Constants.lua and before UI.lua;
+-- its strings are in Locales/Waystone_enUS.lua. The tabs and sections below hold the settings that the stock options
+-- panels leave out or cap (view distance, camera speeds, screenshots, ...), and the ones the Waystone client adds.
 local _, ACVar = ...
 local L = ACVar.L
 
 local CVARS = ACVar.CVARS
 
-ACVar.URLS.GITHUB = "https://github.com/Badgermilk0/awesome_wotlk"
-ACVar.URLS.RELEASES = "https://github.com/Badgermilk0/wowdecomp"
-ACVar.URLS.DOCS = "https://github.com/Badgermilk0/wowdecomp/blob/main/MODIFICATIONS.md"
-
--- four more tabs
+-- five more tabs
 ACVar.CONSTANTS.FRAME.MAIN_WIDTH = 980
 
 local REQUIRES = {
@@ -110,8 +108,56 @@ CVARS.Lighting = {
     { name = "shadowSoftness", label = L.W_LABEL_SHADOW_SOFTNESS, desc = L.W_DESC_SHADOW_SOFTNESS, perf = L.PERF_NONE, type = "slider", min = 0.25, max = 4, step = 0.05, default = 1 },
     { name = "shadowStable", label = L.W_LABEL_SHADOW_STABLE, desc = L.W_DESC_SHADOW_STABLE, perf = L.PERF_NONE, type = "toggle", min = 0, max = 1, default = 1 },
     { name = "shadowCascadeReuse", label = L.W_LABEL_SHADOW_REUSE, desc = L.W_DESC_SHADOW_REUSE, perf = L.W_PERF_SAVES, type = "toggle", min = 0, max = 1, default = 1 },
+}
+
+-- The world as drawn: view distance and detail beyond the stock Video options' sliders (the client takes the HD
+-- client's limits: farclip 10000, groundEffectDist 3166), effects, textures and the frame rate caps
+CVARS.World = {
+    { name = "wNoteWorld", label = L.W_LABEL_WORLD_NOTE, desc = L.W_DESC_WORLD_NOTE, type = "description" },
+    { name = "wHeaderDistance", label = L.W_SECTION_DISTANCE, type = "header" },
+    { name = "farclip", label = L.W_LABEL_FARCLIP, desc = L.W_DESC_FARCLIP, perf = L.W_PERF_FARCLIP, type = "slider", min = 177, max = 5000, step = 25, default = 350 },
+    { name = "horizonFarclipScale", label = L.W_LABEL_HORIZON, desc = L.W_DESC_HORIZON, perf = L.W_PERF_LOW, type = "slider", min = 3, max = 12, step = 0.5, default = 4 },
+    { name = "environmentDetail", label = L.W_LABEL_ENV_DETAIL, desc = L.W_DESC_ENV_DETAIL, perf = L.W_PERF_MEDIUM, type = "slider", min = 0.5, max = 3, step = 0.05, default = 1 },
+    { name = "groundEffectDist", label = L.W_LABEL_GRASS_DIST, desc = L.W_DESC_GRASS_DIST, perf = L.W_PERF_MEDIUM, type = "slider", min = 0, max = 600, step = 10, default = 70 },
+    { name = "groundEffectDensity", label = L.W_LABEL_GRASS_DENSITY, desc = L.W_DESC_GRASS_DENSITY, perf = L.W_PERF_MEDIUM, type = "slider", min = 16, max = 256, step = 8, default = 16 },
+    { name = "objectFade", label = L.W_LABEL_OBJECT_FADE, desc = L.W_DESC_OBJECT_FADE, perf = L.PERF_NONE, type = "toggle", min = 0, max = 1, default = 1 },
+    { name = "wHeaderEffects", label = L.W_SECTION_EFFECTS, type = "header" },
+    { name = "spellEffectLevel", label = L.W_LABEL_SPELL_EFFECTS, desc = L.W_DESC_SPELL_EFFECTS, perf = L.W_PERF_LOW, type = "slider", min = 0, max = 9, step = 1, default = 9 },
+    { name = "particleDensity", label = L.W_LABEL_PARTICLES, desc = L.W_DESC_PARTICLES, perf = L.W_PERF_LOW, type = "slider", min = 0.1, max = 1, step = 0.05, default = 1 },
+    { name = "weatherDensity", label = L.W_LABEL_WEATHER, desc = L.W_DESC_WEATHER, perf = L.W_PERF_LOW, type = "mode", default = 2, modes = {
+        { value = 0, label = L.MODE_DISABLED },
+        { value = 1, label = L.W_MODE_LOW },
+        { value = 2, label = L.W_MODE_MEDIUM },
+        { value = 3, label = L.W_MODE_HIGH },
+    }},
+    { name = "SkyCloudLOD", label = L.W_LABEL_CLOUDS, desc = L.W_DESC_CLOUDS, perf = L.W_PERF_LOW, type = "slider", min = 0, max = 3, step = 1, default = 0 },
+    { name = "showfootprints", label = L.W_LABEL_FOOTPRINTS, desc = L.W_DESC_FOOTPRINTS, perf = L.PERF_NEGLIGIBLE, type = "toggle", min = 0, max = 1, default = 1 },
+    { name = "showfootprintparticles", label = L.W_LABEL_FOOTPRINT_DUST, desc = L.W_DESC_FOOTPRINT_DUST, perf = L.PERF_NEGLIGIBLE, type = "toggle", min = 0, max = 1, default = 1 },
+    { name = "ffxGlow", label = L.W_LABEL_FFX_GLOW, desc = L.W_DESC_FFX_GLOW, perf = L.W_PERF_LOW, type = "toggle", min = 0, max = 1, default = 1 },
+    { name = "ffxDeath", label = L.W_LABEL_FFX_DEATH, desc = L.W_DESC_FFX_DEATH, perf = L.PERF_NONE, type = "toggle", min = 0, max = 1, default = 1 },
+    { name = "ffxNetherWorld", label = L.W_LABEL_FFX_NETHER, desc = L.W_DESC_FFX_NETHER, perf = L.PERF_NONE, type = "toggle", min = 0, max = 1, default = 1 },
     { name = "wHeaderTextures", label = L.W_SECTION_TEXTURES, type = "header" },
+    { name = "textureFilteringMode", label = L.W_LABEL_FILTERING, desc = L.W_DESC_FILTERING, perf = L.W_PERF_LOW, type = "mode", default = 1, modes = {
+        { value = 0, label = L.W_MODE_BILINEAR },
+        { value = 1, label = L.W_MODE_TRILINEAR },
+        { value = 2, label = "2x" },
+        { value = 3, label = "4x" },
+        { value = 4, label = "8x" },
+        { value = 5, label = "16x" },
+    }},
     { name = "texLodBias", label = L.W_LABEL_TEX_LOD_BIAS, desc = L.W_DESC_TEX_LOD_BIAS, perf = L.PERF_NEGLIGIBLE, type = "slider", min = -1, max = 1, step = 0.05, default = 0, requires = REQUIRES.d3d11 },
+    { name = "baseMip", label = L.W_LABEL_BASE_MIP, desc = L.W_DESC_BASE_MIP, perf = L.W_PERF_MEMORY, type = "mode", default = 0, modes = {
+        { value = 0, label = L.W_MODE_HIGH },
+        { value = 1, label = L.W_MODE_LOW },
+    }},
+    { name = "componentTextureLevel", label = L.W_LABEL_CHAR_TEXTURES, desc = L.W_DESC_CHAR_TEXTURES, perf = L.W_PERF_MEMORY, type = "mode", default = 8, modes = {
+        { value = 8, label = L.W_MODE_NORMAL },
+        { value = 9, label = L.W_MODE_HIGH },
+    }},
+    { name = "projectedTextures", label = L.W_LABEL_PROJECTED, desc = L.W_DESC_PROJECTED, perf = L.W_PERF_LOW, type = "toggle", min = 0, max = 1, default = 0 },
+    { name = "wHeaderFrameRate", label = L.W_SECTION_FRAME_RATE, type = "header" },
+    { name = "maxFPS", label = L.W_LABEL_MAX_FPS, desc = L.W_DESC_MAX_FPS, perf = L.PERF_NONE, type = "slider", min = 0, max = 360, step = 5, default = 200 },
+    { name = "maxFPSBk", label = L.W_LABEL_MAX_FPS_BK, desc = L.W_DESC_MAX_FPS_BK, perf = L.PERF_NONE, type = "slider", min = 0, max = 240, step = 5, default = 30 },
 }
 
 CVARS.Sound = {
@@ -129,6 +175,11 @@ CVARS.Sound = {
     { name = "wHeaderVoices", label = L.W_SECTION_VOICES, type = "header" },
     { name = "Sound_NumChannels", label = L.W_LABEL_NUM_CHANNELS, desc = L.W_DESC_NUM_CHANNELS, perf = L.W_PERF_LOW, type = "slider", min = 32, max = 256, step = 8, default = 64 },
     { name = "Sound_KeepVirtualLoops", label = L.W_LABEL_VIRTUAL_LOOPS, desc = L.W_DESC_VIRTUAL_LOOPS, perf = L.PERF_NONE, type = "toggle", min = 0, max = 1, default = 1 },
+    { name = "wHeaderSoundMore", label = L.W_SECTION_SOUND_MORE, type = "header" },
+    { name = "Sound_ZoneMusicNoDelay", label = L.W_LABEL_MUSIC_NO_DELAY, desc = L.W_DESC_MUSIC_NO_DELAY, perf = L.PERF_NONE, type = "toggle", min = 0, max = 1, default = 0 },
+    { name = "Sound_EnableArmorFoleySoundForSelf", label = L.W_LABEL_FOLEY_SELF, desc = L.W_DESC_FOLEY, perf = L.PERF_NONE, type = "toggle", min = 0, max = 1, default = 1 },
+    { name = "Sound_EnableArmorFoleySoundForOthers", label = L.W_LABEL_FOLEY_OTHERS, desc = L.W_DESC_FOLEY, perf = L.PERF_NONE, type = "toggle", min = 0, max = 1, default = 1 },
+    { name = "Sound_ListenerAtCharacter", label = L.W_LABEL_LISTENER, desc = L.W_DESC_LISTENER, perf = L.PERF_NONE, type = "toggle", min = 0, max = 1, default = 1 },
 }
 
 CVARS.Performance = {
@@ -154,6 +205,55 @@ for _, cvarDef in ipairs(CVARS.Rendering) do
     end
 end
 
+local CAMERA = {
+    { name = "cameraDistanceMaxFactor", label = L.W_LABEL_CAMERA_FACTOR, desc = L.W_DESC_CAMERA_FACTOR, perf = L.PERF_NONE, type = "slider", min = 1, max = 4, step = 0.1, default = 1 },
+    { name = "cameraYawMoveSpeed", label = L.W_LABEL_CAMERA_YAW, desc = L.W_DESC_CAMERA_YAW, perf = L.PERF_NONE, type = "slider", min = 30, max = 360, step = 5, default = 180 },
+    { name = "cameraPitchMoveSpeed", label = L.W_LABEL_CAMERA_PITCH, desc = L.W_DESC_CAMERA_PITCH, perf = L.PERF_NONE, type = "slider", min = 30, max = 360, step = 5, default = 90 },
+    { name = "cameraDistanceMoveSpeed", label = L.W_LABEL_CAMERA_ZOOM, desc = L.W_DESC_CAMERA_ZOOM, perf = L.PERF_NONE, type = "slider", min = 1, max = 50, step = 0.5, default = 8.33 },
+    { name = "cameraWaterCollision", label = L.W_LABEL_CAMERA_WATER, desc = L.W_DESC_CAMERA_WATER, perf = L.PERF_NONE, type = "toggle", min = 0, max = 1, default = 1 },
+    { name = "cameraPivot", label = L.W_LABEL_CAMERA_PIVOT, desc = L.W_DESC_CAMERA_PIVOT, perf = L.PERF_NONE, type = "toggle", min = 0, max = 1, default = 1 },
+    { name = "cameraDive", label = L.W_LABEL_CAMERA_DIVE, desc = L.W_DESC_CAMERA_DIVE, perf = L.PERF_NONE, type = "toggle", min = 0, max = 1, default = 1 },
+    { name = "cameraBobbing", label = L.W_LABEL_CAMERA_BOBBING, desc = L.W_DESC_CAMERA_BOBBING, perf = L.PERF_NONE, type = "toggle", min = 0, max = 1, default = 0 },
+}
+
+for i, cvarDef in ipairs(CVARS.Rendering) do
+    if cvarDef.name == "showPlayer" then
+        for j, camera in ipairs(CAMERA) do
+            table.insert(CVARS.Rendering, i + j, camera)
+        end
+
+        break
+    end
+end
+
+-- screenshots and troubleshooting, in Other
+local OTHER_SCREENSHOTS = {
+    { name = "screenshotFormat", label = L.W_LABEL_SCREENSHOT_FORMAT, desc = L.W_DESC_SCREENSHOT_FORMAT, perf = L.PERF_NONE, type = "mode", default = "jpeg", modes = {
+        { value = "jpeg", label = "JPEG" },
+        { value = "tga", label = L.W_MODE_TGA },
+    }},
+    { name = "screenshotQuality", label = L.W_LABEL_SCREENSHOT_QUALITY, desc = L.W_DESC_SCREENSHOT_QUALITY, perf = L.PERF_NONE, type = "slider", min = 1, max = 10, step = 1, default = 3 },
+}
+
+for i, cvarDef in ipairs(CVARS.Other) do
+    if cvarDef.name == "headerScreenshots" then
+        for j, entry in ipairs(OTHER_SCREENSHOTS) do
+            table.insert(CVARS.Other, i + j, entry)
+        end
+
+        break
+    end
+end
+
+table.insert(CVARS.Other, { name = "wHeaderTroubleshooting", label = L.W_SECTION_TROUBLESHOOTING, type = "header" })
+table.insert(CVARS.Other, { name = "scriptErrors", label = L.W_LABEL_SCRIPT_ERRORS, desc = L.W_DESC_SCRIPT_ERRORS, perf = L.PERF_NONE, type = "toggle", min = 0, max = 1, default = 0 })
+table.insert(CVARS.Other, { name = "taintLog", label = L.W_LABEL_TAINT_LOG, desc = L.W_DESC_TAINT_LOG, perf = L.W_PERF_LOW, type = "mode", default = 0, modes = {
+    { value = 0, label = L.MODE_DISABLED },
+    { value = 1, label = L.W_MODE_TAINT_BLOCKED },
+    { value = 2, label = L.W_MODE_TAINT_ALL },
+}})
+table.insert(CVARS.Other, { name = "awesomeBuiltInAddOns", label = L.W_LABEL_BUILT_IN, desc = L.W_DESC_BUILT_IN, perf = L.PERF_NONE, type = "toggle", min = 0, max = 1, default = 1 })
+
 local nameplates = CVARS.Nameplates
 
 for i, cvarDef in ipairs(nameplates) do
@@ -173,12 +273,11 @@ for i, cvarDef in ipairs(about) do
     end
 end
 
-for _, cvarDef in ipairs(about) do
-    if cvarDef.name == "linkReleases" then
-        cvarDef.label = L.W_LINK_CLIENT
-        cvarDef.desc = L.W_LINK_CLIENT_DESC
-    elseif cvarDef.name == "linkDocs" then
-        cvarDef.desc = L.W_LINK_DOCS_DESC
+for i = #about, 1, -1 do
+    local cvarDef = about[i]
+
+    if cvarDef.type == "link" or cvarDef.name == "headerLinks" then
+        table.remove(about, i)
     end
 end
 
@@ -187,14 +286,16 @@ local order = ACVar.CATEGORY_ORDER
 
 for i, id in ipairs(order) do
     if id == "About" then
-        table.insert(order, i, "Display")
-        table.insert(order, i + 1, "Lighting")
-        table.insert(order, i + 2, "Sound")
-        table.insert(order, i + 3, "Performance")
+        table.insert(order, i, "World")
+        table.insert(order, i + 1, "Display")
+        table.insert(order, i + 2, "Lighting")
+        table.insert(order, i + 3, "Sound")
+        table.insert(order, i + 4, "Performance")
         break
     end
 end
 
+ACVar.CATEGORY_NAMES.World = L.W_CATEGORY_WORLD
 ACVar.CATEGORY_NAMES.Display = L.W_CATEGORY_DISPLAY
 ACVar.CATEGORY_NAMES.Lighting = L.W_CATEGORY_LIGHTING
 ACVar.CATEGORY_NAMES.Sound = L.W_CATEGORY_SOUND
@@ -202,7 +303,7 @@ ACVar.CATEGORY_NAMES.Performance = L.W_CATEGORY_PERFORMANCE
 
 -- A setting the running client does not have is left out, so the addon also works on a client without them (stock
 -- awesome_wotlk, or an older Waystone build); headers, notes and links stay
-local WAYSTONE_TABS = { Display = true, Lighting = true, Sound = true, Performance = true }
+local WAYSTONE_TABS = { World = true, Display = true, Lighting = true, Sound = true, Performance = true }
 -- texLodBias is a stock CVar that only Waystone applies, so its tab needs the client itself
 local isWaystone = GetCVar("uiLiveResize") ~= nil
 

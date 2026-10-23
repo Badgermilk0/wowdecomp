@@ -146,7 +146,14 @@ end
 function ACVar:UpdateResetButtonState(cvarDef, currentValue)
     local resetButton = _G[getFrameName(cvarDef.name, "ResetButton")]
     if resetButton then
-        if self.FormatNumber(currentValue, cvarDef.step) ~= self.FormatNumber(cvarDef.default, cvarDef.step) then
+        -- Waystone: a setting may hold text (screenshotFormat), which is compared as it is
+        local differs
+        if type(currentValue) == "number" and type(cvarDef.default) == "number" then
+            differs = self.FormatNumber(currentValue, cvarDef.step) ~= self.FormatNumber(cvarDef.default, cvarDef.step)
+        else
+            differs = tostring(currentValue) ~= tostring(cvarDef.default)
+        end
+        if differs then
             resetButton:Enable()
         else
             resetButton:Disable()
@@ -263,9 +270,6 @@ function ACVar:ShowFrame(tabName)
         end
         if _G["AwesomeCVarChatMessagesCheck"] then
             _G["AwesomeCVarChatMessagesCheck"]:SetChecked(self.DB.showChatMessages)
-        end
-        if _G["AwesomeCVarVersionAlertsCheck"] then
-            _G["AwesomeCVarVersionAlertsCheck"]:SetChecked(self.DB.showVersionAlerts)
         end
 
         local category = self.ResolveCategory(tabName)
@@ -904,8 +908,6 @@ function ACVar:CreateMainFrame()
         end)
     createOptionCheck("AwesomeCVarChatMessagesCheck", L.CHAT_MESSAGES, L.CHAT_MESSAGES_DESC, ACVar.DB.showChatMessages,
         function(checked) ACVar.DB.showChatMessages = checked end)
-    createOptionCheck("AwesomeCVarVersionAlertsCheck", L.VERSION_ALERTS, L.VERSION_ALERTS_DESC, ACVar.DB.showVersionAlerts,
-        function(checked) ACVar.DB.showVersionAlerts = checked end)
 
     -- Refit on show too: the ElvUI skin resizes the boxes after creation.
     local function fitOptionLabels()

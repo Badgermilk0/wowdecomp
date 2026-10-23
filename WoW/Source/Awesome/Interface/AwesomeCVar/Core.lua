@@ -212,91 +212,8 @@ function ACVar:OnLoad()
     self.isLoaded = true
 end
 
--- Version broadcast to group and guild; a newer version from anyone is reported once per session.
--- The payload is a leading integer and the rest is ignored, so fields can be appended later.
-do
-    local PREFIX = "AwesomeWotlk"
-    local BROADCAST_DELAY = 10
-
-    -- The newer of the two, so a half-updated install still relays the newest release it knows of.
-    local function knownVersion()
-        return math_max(ACVar.MOD_VERSION, tonumber(_G.AwesomeWotlk) or 0)
-    end
-
-    local function groupChannel()
-        if GetNumRaidMembers() > 1 then
-            local _, instanceType = IsInInstance()
-            return instanceType == "pvp" and "BATTLEGROUND" or "RAID"
-        elseif GetNumPartyMembers() > 0 then
-            return "PARTY"
-        end
-    end
-
-    local function groupSize()
-        local raid = GetNumRaidMembers()
-        return raid > 0 and raid or GetNumPartyMembers() + 1
-    end
-
-    local frame = CreateFrame("Frame")
-    frame:Hide()
-    local waited, sendGroup, sendGuild = 0, false, false
-    local lastGroupSize, notified = 0, false
-
-    -- Requests within BROADCAST_DELAY collapse into one send.
-    local function schedule(group, guild)
-        sendGroup = sendGroup or group
-        sendGuild = sendGuild or guild
-        if not frame:IsShown() then
-            waited = 0
-            frame:Show()
-        end
-    end
-
-    local function send(group, guild)
-        local message = tostring(knownVersion())
-        local channel = group and groupChannel()
-        if channel then SendAddonMessage(PREFIX, message, channel) end
-        if guild and IsInGuild() then SendAddonMessage(PREFIX, message, "GUILD") end
-    end
-
-    local function receive(message)
-        if notified or (ACVar.DB and not ACVar.DB.showVersionAlerts) then return end
-        local digits = message and match(message, "^(%d+)")
-        local version = digits and #digits <= 6 and tonumber(digits)
-        if version and version > knownVersion() then
-            notified = true
-            ACVar:PrintMessage(L.VERSION_NEWER_SEEN, version, ACVar.URLS.RELEASES)
-        end
-    end
-
-    frame:SetScript("OnUpdate", function(self, elapsed)
-        waited = waited + elapsed
-        if waited < BROADCAST_DELAY then return end
-        self:Hide()
-        send(sendGroup, sendGuild)
-        sendGroup, sendGuild = false, false
-    end)
-
-    frame:RegisterEvent("CHAT_MSG_ADDON")
-    frame:RegisterEvent("PARTY_MEMBERS_CHANGED")
-    frame:RegisterEvent("RAID_ROSTER_UPDATE")
-    frame:RegisterEvent("PLAYER_ENTERING_WORLD")
-    frame:SetScript("OnEvent", function(self, event, prefix, message, _, sender)
-        if event == "CHAT_MSG_ADDON" then
-            if prefix == PREFIX and sender ~= UnitName("player") then receive(message) end
-        elseif event == "PLAYER_ENTERING_WORLD" then
-            -- Fires on every loading screen; broadcast once per login or /reload.
-            self:UnregisterEvent(event)
-            lastGroupSize = groupSize()
-            schedule(true, true)
-        else
-            -- Only newcomers need our version.
-            local size = groupSize()
-            if size > 1 and size > lastGroupSize then schedule(true, false) end
-            lastGroupSize = size
-        end
-    end)
-end
+-- Waystone: upstream's version broadcast (group and guild addon messages comparing awesome_wotlk releases) is left out;
+-- this window is part of the client, which has no separate releases
 
 local eventFrame = CreateFrame("Frame")
 eventFrame:RegisterEvent("ADDON_LOADED")
@@ -311,7 +228,6 @@ eventFrame:SetScript("OnEvent", function(self, event, arg)
             if db.minimap.minimapPos == nil then db.minimap.minimapPos = 220 end
             if db.showGameMenuButton == nil then db.showGameMenuButton = true end
             if db.showChatMessages == nil then db.showChatMessages = true end
-            if db.showVersionAlerts == nil then db.showVersionAlerts = true end
 
             ACVar.DB = db
             ACVar:OnLoad()

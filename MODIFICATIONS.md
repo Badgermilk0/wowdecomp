@@ -345,18 +345,40 @@ The client now carries both itself; nothing has to be installed in `Interface\Ad
 | Embedding | `Awesome/EmbedInterface.cmake`, `Awesome/CMakeLists.txt` | — | At build time every `.toc`/`.lua`/`.xml` under `Interface/` becomes a byte array in a generated `AwesomeEmbeddedUiFiles.cpp` (build folder), made again when a file changes. About 350 KB. |
 | Loading | `Awesome/AwesomeEmbeddedUi.cpp`, called from `CGGameUI::InitializeFrameXML` before `LoadAddOns` | `awesomeBuiltInAddOns` (**1**) | Each AddOn runs as FrameXML does, untainted, so its game menu button is secure: its `.toc`'s Lua files in order, each with the arguments an AddOn file gets (the name and a table shared by its files), then `ADDON_LOADED` with its name. A UTF-8 byte order mark is skipped, as the FrameXML loader does; a Lua error is written to `Logs\FrameXML.log` and the next file still runs. `awesomeBuiltInAddOns 0` turns this off (after a UI reload or relog). |
 | AddOns of the same name | `LoadAddOnInfo` (`UIUtil/AddOns.cpp`) | — | `Interface\AddOns\AwesomeCVar` and `\Flash` are neither listed nor loaded while the built-in ones are on, so an old copy cannot load a second settings window or menu button. |
-| Settings | `Interface/AwesomeCVar/Embedded.lua` | `awesomeGameMenuButton` (**1**), `awesomeChatMessages` (**1**), `awesomeVersionAlerts` (**1**), `awesomeMinimapHide` (**0**), `awesomeMinimapPos` (**220**), `awesomeFrameWidth` / `awesomeFrameHeight` (**empty** = the default size) | An AddOn keeps these in SavedVariables (`AwesomeCVarDB`), which only AddOns get. Here `AwesomeCVarDB` is a table that reads and writes these CVars, so they are kept in `Config.wtf`. The old `AwesomeCVar.lua` SavedVariables are not read: these start at their defaults once. |
+| Settings | `Interface/AwesomeCVar/Embedded.lua` | `awesomeGameMenuButton` (**1**), `awesomeChatMessages` (**1**), `awesomeMinimapHide` (**0**), `awesomeMinimapPos` (**220**), `awesomeFrameWidth` / `awesomeFrameHeight` (**empty** = the default size) | An AddOn keeps these in SavedVariables (`AwesomeCVarDB`), which only AddOns get. Here `AwesomeCVarDB` is a table that reads and writes these CVars, so they are kept in `Config.wtf`. The old `AwesomeCVar.lua` SavedVariables are not read: these start at their defaults once. |
 
-Changes to the AddOns' own files: the `.toc` lists `Embedded.lua` first and has no `SavedVariables`, and `Constants.lua`
-shows `ACVar.ADDON_VERSION` ("3.0-waystone (built in)") where `GetAddOnMetadata` has no version. To take a newer
-AddOn from the fork, copy its `addons/AwesomeCVar` and `addons/Flash` over these folders and keep those two edits and
-`Embedded.lua`.
+**The client's settings window.** Every option in it is a CVar, so a change takes effect at once (or after a restart
+where the card says so) and is kept between sessions: in `Config.wtf`, or for the account settings (camera, Lua
+errors) in the client's account data. Nothing has to be edited outside the game. Besides awesome's own tabs and the
+Waystone tabs (Display, Lighting, Sound, Performance), it now holds the stock settings that the stock option panels
+leave out or cap:
+
+| Where | Settings |
+|---|---|
+| **World** tab | View distance `farclip` (177-5000; the stock slider stops at 1277, the client takes 10000), `horizonFarclipScale`, `environmentDetail` (0.5-3), `groundEffectDist` (0-600) and `groundEffectDensity`, `objectFade`. Effects: `spellEffectLevel`, `particleDensity`, `weatherDensity`, `SkyCloudLOD`, footprints and footstep dust, `ffxGlow`, `ffxDeath`, `ffxNetherWorld`. Textures: `textureFilteringMode` (restart), `texLodBias` (moved here from Lighting), `baseMip`, `componentTextureLevel` (restart), `projectedTextures`. Frame rate: `maxFPS`, `maxFPSBk` (0 = no limit). |
+| Rendering tab, Camera | `cameraDistanceMaxFactor` (1-4; the Interface option stops at 2), turn, pitch and zoom speeds, `cameraWaterCollision`, `cameraPivot`, `cameraDive`, `cameraBobbing`. |
+| Sound tab, More | `Sound_ZoneMusicNoDelay`, armour sounds for yourself and others, `Sound_ListenerAtCharacter`. |
+| Other tab | `screenshotFormat` (JPEG or TGA) and `screenshotQuality`; Troubleshooting: `scriptErrors`, `taintLog`, and `awesomeBuiltInAddOns`. |
+
+Ranges stay inside what each CVar's callback accepts, so a value set here is never refused (a refused value is
+dropped from `Config.wtf`). One limit: clicking Okay in the stock Video options after moving one of its own sliders
+writes that slider's value back.
+
+Left out of the upstream AddOn, as they belong to a separately released mod: the About tab's links, and the version
+broadcast (an addon message to the group and guild comparing awesome_wotlk releases) with its "Updates" option.
+A text CVar (`screenshotFormat`) is compared as text by the reset button (`UI.lua`, `UpdateResetButtonState`).
+
+Changes to the AddOns' own files: the `.toc` lists `Embedded.lua` first and has no `SavedVariables`; `Constants.lua`
+shows `ACVar.ADDON_VERSION` ("3.0-waystone (built in)") where `GetAddOnMetadata` has no version; `Core.lua` has no
+version broadcast; `UI.lua` has no Updates option and compares text values as text. These files are now the
+client's own copy. To take something newer from the fork's `addons/`, merge it into them rather than copying over.
 
 Tested offline: the client builds and embeds 19 files. A Lua 5.1 run of the embedded files the way the loader runs them
 (toc order, `(name, table)` per file, then `ADDON_LOADED`), on a permissive WoW stub, checked these:
 - all 16 AwesomeCVar files and Flash run;
 - the addon initialises from the CVars' defaults and writes its settings back to them;
-- all ten tabs are built and `/awesome` is registered.
+- all eleven tabs are built and `/awesome` is registered;
+- every card's CVar is one the client registers, and every card has its text.
 
 The client also starts and exits cleanly with an old `AwesomeCVar` folder in `Interface\AddOns`.
 **Not seen in the world**, where the UI loads: the window, the Esc menu and minimap buttons, and Flash.

@@ -30,7 +30,6 @@ struct PreferenceCVar {
 static const PreferenceCVar s_preferenceCVars[] = {
     { "awesomeGameMenuButton", "AwesomeCVar: its button in the game menu (Esc)", "1" },
     { "awesomeChatMessages", "AwesomeCVar: setting changes and the load message in chat", "1" },
-    { "awesomeVersionAlerts", "AwesomeCVar: report a newer awesome_wotlk release seen in the group or guild", "1" },
     { "awesomeMinimapHide", "AwesomeCVar: hide its minimap button", "0" },
     { "awesomeMinimapPos", "AwesomeCVar: its minimap button's angle around the minimap", "220" },
     { "awesomeFrameWidth", "AwesomeCVar: its window's width (empty = the default)", "" },

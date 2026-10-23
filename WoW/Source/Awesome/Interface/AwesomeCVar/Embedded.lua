@@ -9,7 +9,6 @@ ACVar.ADDON_VERSION = "3.0-waystone (built in)"
 local FIELDS = {
     showGameMenuButton = { "awesomeGameMenuButton", true },
     showChatMessages = { "awesomeChatMessages", true },
-    showVersionAlerts = { "awesomeVersionAlerts", true },
     frameWidth = { "awesomeFrameWidth", false },
     frameHeight = { "awesomeFrameHeight", false },
 }

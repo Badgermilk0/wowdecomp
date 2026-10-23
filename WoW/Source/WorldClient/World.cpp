@@ -1940,6 +1940,9 @@ void CWorldScene::RenderLiquidPass() {
         CWorldScene::s_liquidRenderer->Flush(CWorldScene::s_activeWorldView, 1);
     }
 
+    // MODIFIED: modern water (Awesome.h): splash droplets and mist over the water
+    AwesomeWaterAfterLiquids();
+
     CMap::RenderWaterRipples();
 }
 

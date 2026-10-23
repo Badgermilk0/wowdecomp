@@ -46,6 +46,7 @@ struct PassConstants {
     float m_viewport[4];
     float m_depthRange[4];
     float m_projW[4];
+    float m_foam[4];            // x foam kept a step, y foam a yard of disturbance makes, z from fast crests, w yards an impact unit
 };
 
 struct ShaderDesc {
@@ -216,7 +217,8 @@ bool D3d11Water::IEnsureField() {
     desc.MipLevels = 1;
     desc.ArraySize = 1;
     // 32-bit: at 16 bits the difference of neighbouring heights came in steps, and the slopes drew contour lines
-    desc.Format = DXGI_FORMAT_R32G32_FLOAT;
+    // x the height now, y a step ago, z foam
+    desc.Format = DXGI_FORMAT_R32G32B32A32_FLOAT;
     desc.SampleDesc.Count = 1;
     desc.Usage = D3D11_USAGE_DEFAULT;
     desc.BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
@@ -310,6 +312,7 @@ void D3d11Water::ReleaseAll() {
     SafeRelease(this->m_hullShader);
     SafeRelease(this->m_domainShader);
     this->m_tessFailed = false;
+    this->IReleaseParticles();
 
     SafeRelease(this->m_blendOpaque);
     SafeRelease(this->m_sampler);
@@ -400,6 +403,11 @@ void D3d11Water::IStep(int32_t shiftX, int32_t shiftY, bool impulses) {
     c.m_count[0] = static_cast<int32_t>(count);
     c.m_count[1] = this->m_originX;
     c.m_count[2] = this->m_originY;
+    // foam: about 3 s to fade to a third; a 0.1-yard disturbance whitens fully
+    c.m_foam[0] = expf(-0.35f * dt);
+    c.m_foam[1] = 10.0f;
+    c.m_foam[2] = 60.0f;
+    c.m_foam[3] = 1.0f / 1000000.0f;
 
     D3D11_MAPPED_SUBRESOURCE mapped;
 
@@ -410,15 +418,21 @@ void D3d11Water::IStep(int32_t shiftX, int32_t shiftY, bool impulses) {
 
     uint32_t next = this->m_current ^ 1u;
     D3D11_VIEWPORT vp = { 0.0f, 0.0f, static_cast<float>(s_fieldSize), static_cast<float>(s_fieldSize), 0.0f, 1.0f };
+    // the droplets that fell back at t2 (the draw binds t0 and t1)
+    ID3D11ShaderResourceView* impact = impulses ? this->m_impactSrv : nullptr;
+    ctx->PSSetShaderResources(2, 1, &impact);
     this->IDrawFullscreen(Shader_SimPs, this->m_fieldRtv[next], vp, this->m_fieldSrv[this->m_current]);
+    ID3D11ShaderResourceView* none = nullptr;
+    ctx->PSSetShaderResources(2, 1, &none);
     this->m_current = next;
     this->m_statsImpulses += count;
 }
 
-void D3d11Water::Update(const GxWaterParams& params, const GxWaterImpulse* impulses, uint32_t count) {
+void D3d11Water::Update(const GxWaterParams& params, const GxWaterImpulse* impulses, uint32_t count, const GxWaterSplash* splashes, uint32_t splashCount) {
     CGxDeviceD3d11* dev = this->m_device;
     this->m_params = params;
     this->m_worldActive = true;
+    this->m_statsParticles = 0;
     this->m_captured = false;
     this->m_capturedRtv = nullptr;
     this->m_statsDraws = this->m_drawsThisFrame;
@@ -449,9 +463,15 @@ void D3d11Water::Update(const GxWaterParams& params, const GxWaterImpulse* impul
         }
     }
 
+    // the splashes wait for the particles' step, as the disturbances for the field's
+    for (uint32_t i = 0; i < splashCount && this->m_splashCount < s_maxSplashes; i++) {
+        this->m_splashes[this->m_splashCount++] = splashes[i];
+    }
+
     if (!(params.m_features & GxWater_Ripples)) {
         this->m_fieldValid = false;
         this->m_impulseCount = 0;
+        this->m_splashCount = 0;
         return;
     }
 
@@ -495,12 +515,25 @@ void D3d11Water::Update(const GxWaterParams& params, const GxWaterImpulse* impul
 
     this->m_statsImpulses = 0;
 
+    // the splashes start and every particle moves; droplets falling back are impacts for the steps below
+    if (params.m_features & GxWater_Splashes) {
+        this->IRunParticles(dt);
+    } else {
+        this->m_splashCount = 0;
+    }
+
     for (uint32_t i = 0; i < steps; i++) {
         this->IStep(i == 0 ? shiftX : 0, i == 0 ? shiftY : 0, i == 0);
     }
 
     if (steps) {
         this->m_impulseCount = 0;
+
+        // the impacts are in the field now
+        if (this->m_impactUav) {
+            UINT zero[4] = {};
+            dev->m_ctx->ClearUnorderedAccessViewUint(this->m_impactUav, zero);
+        }
     }
 
     this->m_statsSteps = steps;
@@ -731,6 +764,7 @@ void D3d11Water::GetStats(GxWaterStats& stats) {
     stats.m_impulses = this->m_statsImpulses;
     stats.m_captured = this->m_lastCaptured;
     stats.m_waterDraws = this->m_statsDraws;
+    stats.m_particlesStarted = this->m_statsParticles;
     stats.m_fieldSize = s_fieldSize;
     stats.m_texel = s_texel;
 }

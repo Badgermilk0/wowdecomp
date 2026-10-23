@@ -220,6 +220,7 @@ struct PassConstants {
     float m_viewport[4];
     float m_depthRange[4];
     float m_projW[4];
+    float m_foam[4];
 };
 
 static void TestSimulation() {
@@ -249,7 +250,7 @@ static void TestSimulation() {
     desc.Height = n;
     desc.MipLevels = 1;
     desc.ArraySize = 1;
-    desc.Format = DXGI_FORMAT_R32G32_FLOAT;
+    desc.Format = DXGI_FORMAT_R32G32B32A32_FLOAT;
     desc.SampleDesc.Count = 1;
     desc.Usage = D3D11_USAGE_DEFAULT;
     desc.BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
@@ -284,7 +285,9 @@ static void TestSimulation() {
     D3D11_VIEWPORT vp = { 0.0f, 0.0f, static_cast<float>(n), static_cast<float>(n), 0.0f, 1.0f };
     uint32_t current = 0;
 
-    // the heights along the row through the centre, x the height now
+    // the heights along the row through the centre, x the height now; the foam of the field's middle
+    float middleFoam = 0.0f;
+
     auto readRow = [&](std::vector<float>& row, bool& finite) {
         ctx->CopyResource(staging, field[current]);
         D3D11_MAPPED_SUBRESOURCE mapped;
@@ -296,7 +299,11 @@ static void TestSimulation() {
             const float* line = reinterpret_cast<const float*>(static_cast<const uint8_t*>(mapped.pData) + y * mapped.RowPitch);
 
             for (uint32_t x = 0; x < n; x++) {
-                float h = line[x * 2];
+                float h = line[x * 4];
+
+                if (y == n / 2 && x == n / 2) {
+                    middleFoam = line[x * 4 + 2];
+                }
                 finite = finite && std::isfinite(h);
 
                 if (y == n / 2) {
@@ -318,6 +325,10 @@ static void TestSimulation() {
         c.m_wave[1] = expf(-0.6f * dt);
         c.m_wave[2] = rain * texel * texel * dt;
         c.m_wave[3] = 0.012f;
+        c.m_foam[0] = expf(-0.35f * dt);
+        c.m_foam[1] = 10.0f;
+        c.m_foam[2] = 60.0f;
+        c.m_foam[3] = 1.0f / 1000000.0f;
 
         if (impulse) {
             c.m_impulses[0][0] = n / 2.0f;
@@ -354,6 +365,8 @@ static void TestSimulation() {
     bool finite = false;
     readRow(row, finite);
     CHECK(finite);
+    printf("  foam where it splashed, after 2 s: %.3f\n", middleFoam);
+    CHECK(middleFoam > 0.05f && middleFoam <= 1.0f);
 
     // the ring: the largest displacement away from the centre, about speed * 2 s = 6 yards out (24 texels)
     uint32_t peak = 0;
@@ -402,7 +415,8 @@ static void TestSimulation() {
         late = fabsf(h) > late ? fabsf(h) : late;
     }
 
-    printf("  12 s after the splash: largest height %.5f yd\n", late);
+    printf("  12 s after the splash: largest height %.5f yd, foam %.4f\n", late, middleFoam);
+    CHECK(middleFoam < 0.05f);
     CHECK(finite);
     CHECK(late < peakValue * 0.2f);
 
@@ -868,6 +882,209 @@ static void TestTessellation() {
     device->Release();
 }
 
+// the GxWaterParticles cbuffer, as D3d11WaterParticles.cpp fills it
+struct ParticleConstants {
+    float m_offset[4];
+    float m_field[4];
+    float m_sim[4];
+    uint32_t m_emit[4];
+    uint32_t m_count[4];
+    float m_emitters[64][4];
+};
+
+struct Particle {
+    float m_pos[3];
+    float m_life;
+    float m_vel[3];
+    float m_size;
+    float m_waterZ;
+    float m_kind;
+    float m_age;
+    float m_maxLife;
+};
+
+// a splash of 100 droplets at the field's middle: they rise, fall back through the surface, and each leaves an impact
+static void TestParticles() {
+    ID3D11Device* device = nullptr;
+    ID3D11DeviceContext* ctx = nullptr;
+
+    if (FAILED(D3D11CreateDevice(nullptr, D3D_DRIVER_TYPE_WARP, nullptr, 0, nullptr, 0, D3D11_SDK_VERSION, &device, nullptr, &ctx))) {
+        printf("SKIP the particles: no WARP device\n");
+        return;
+    }
+
+    std::string source = std::string(GxD3d11::s_hlslWaterConstants) + GxD3d11::s_hlslWaterParticles;
+    std::vector<uint8_t> emitCode;
+    std::vector<uint8_t> updateCode;
+    std::string error;
+    bool compiled = Compile(source, "EmitCs", "cs_5_0", &emitCode, error) && Compile(source, "UpdateCs", "cs_5_0", &updateCode, error) && Compile(source, "ParticleVs", "vs_5_0", nullptr, error) && Compile(source, "ParticlePs", "ps_5_0", nullptr, error);
+    CHECK(compiled);
+
+    if (!compiled) {
+        printf("  %s\n", error.c_str());
+        return;
+    }
+
+    ID3D11ComputeShader* emitCs = nullptr;
+    ID3D11ComputeShader* updateCs = nullptr;
+    device->CreateComputeShader(emitCode.data(), emitCode.size(), nullptr, &emitCs);
+    device->CreateComputeShader(updateCode.data(), updateCode.size(), nullptr, &updateCs);
+
+    const uint32_t capacity = 8192;
+    D3D11_BUFFER_DESC desc = {};
+    desc.ByteWidth = sizeof(Particle) * capacity;
+    desc.Usage = D3D11_USAGE_DEFAULT;
+    desc.BindFlags = D3D11_BIND_UNORDERED_ACCESS;
+    desc.MiscFlags = D3D11_RESOURCE_MISC_BUFFER_STRUCTURED;
+    desc.StructureByteStride = sizeof(Particle);
+    ID3D11Buffer* particles = nullptr;
+    ID3D11UnorderedAccessView* particleUav = nullptr;
+    device->CreateBuffer(&desc, nullptr, &particles);
+    device->CreateUnorderedAccessView(particles, nullptr, &particleUav);
+    desc.Usage = D3D11_USAGE_STAGING;
+    desc.BindFlags = 0;
+    desc.MiscFlags = 0;
+    desc.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+    ID3D11Buffer* particleStaging = nullptr;
+    device->CreateBuffer(&desc, nullptr, &particleStaging);
+
+    D3D11_TEXTURE2D_DESC tex = {};
+    tex.Width = 512;
+    tex.Height = 512;
+    tex.MipLevels = 1;
+    tex.ArraySize = 1;
+    tex.Format = DXGI_FORMAT_R32_UINT;
+    tex.SampleDesc.Count = 1;
+    tex.Usage = D3D11_USAGE_DEFAULT;
+    tex.BindFlags = D3D11_BIND_UNORDERED_ACCESS;
+    ID3D11Texture2D* impact = nullptr;
+    ID3D11UnorderedAccessView* impactUav = nullptr;
+    device->CreateTexture2D(&tex, nullptr, &impact);
+    device->CreateUnorderedAccessView(impact, nullptr, &impactUav);
+    tex.Usage = D3D11_USAGE_STAGING;
+    tex.BindFlags = 0;
+    tex.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+    ID3D11Texture2D* impactStaging = nullptr;
+    device->CreateTexture2D(&tex, nullptr, &impactStaging);
+
+    UINT zero[4] = {};
+    ctx->ClearUnorderedAccessViewUint(particleUav, zero);
+    ctx->ClearUnorderedAccessViewUint(impactUav, zero);
+
+    desc.ByteWidth = (sizeof(ParticleConstants) + 15) & ~15u;
+    desc.Usage = D3D11_USAGE_DEFAULT;
+    desc.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
+    desc.CPUAccessFlags = 0;
+    desc.StructureByteStride = 0;
+    ID3D11Buffer* cb = nullptr;
+    device->CreateBuffer(&desc, nullptr, &cb);
+
+    // particle space: the field's corner at (-64, -64), the water at z 0, the splash at the origin
+    ParticleConstants c = {};
+    c.m_field[0] = -64.0f;
+    c.m_field[1] = -64.0f;
+    c.m_field[2] = 4.0f;
+    c.m_field[3] = 512.0f;
+    c.m_sim[0] = 15.0f;
+    c.m_sim[1] = 0.6f;
+    c.m_sim[2] = 1000000.0f;
+    c.m_sim[3] = 0.004f;
+    c.m_emit[1] = capacity;
+    c.m_emit[2] = 12345;
+    c.m_emit[3] = 100;
+    c.m_count[0] = 1;
+    c.m_count[1] = 1;
+    c.m_emitters[0][3] = 100.0f;
+    c.m_emitters[1][0] = 4.5f;
+    c.m_emitters[1][1] = 2.6f;
+    c.m_emitters[1][2] = 0.5f;
+    c.m_emitters[1][3] = 0.0f;
+    c.m_offset[3] = 1.0f / 60.0f;
+
+    ID3D11UnorderedAccessView* uavs[2] = { particleUav, impactUav };
+    ctx->CSSetUnorderedAccessViews(0, 2, uavs, nullptr);
+    ctx->CSSetConstantBuffers(6, 1, &cb);
+    ctx->UpdateSubresource(cb, 0, nullptr, &c, 0, 0);
+    ctx->CSSetShader(emitCs, nullptr, 0);
+    ctx->Dispatch(2, 1, 1);
+
+    auto readParticles = [&](uint32_t& alive, float& highest) {
+        ctx->CopyResource(particleStaging, particles);
+        D3D11_MAPPED_SUBRESOURCE mapped;
+        ctx->Map(particleStaging, 0, D3D11_MAP_READ, 0, &mapped);
+        const Particle* all = static_cast<const Particle*>(mapped.pData);
+        alive = 0;
+        highest = -1e9f;
+
+        for (uint32_t i = 0; i < capacity; i++) {
+            if (all[i].m_life > 0.0f) {
+                alive++;
+                highest = all[i].m_pos[2] > highest ? all[i].m_pos[2] : highest;
+            }
+        }
+
+        ctx->Unmap(particleStaging, 0);
+    };
+
+    uint32_t alive = 0;
+    float highest = 0.0f;
+    readParticles(alive, highest);
+    CHECK(alive == 100);
+
+    // a quarter of a second: in the air, risen
+    c.m_emit[3] = 0;
+    ctx->UpdateSubresource(cb, 0, nullptr, &c, 0, 0);
+    ctx->CSSetShader(updateCs, nullptr, 0);
+
+    for (int32_t i = 0; i < 15; i++) {
+        ctx->Dispatch(capacity / 64, 1, 1);
+    }
+
+    readParticles(alive, highest);
+    printf("  splash after 0.25 s: %u droplets in the air, the highest %.2f yd up\n", alive, highest);
+    CHECK(alive > 75);
+    CHECK(highest > 0.4f && highest < 2.0f);
+
+    // two seconds: all back in the water, each an impact
+    for (int32_t i = 0; i < 120; i++) {
+        ctx->Dispatch(capacity / 64, 1, 1);
+    }
+
+    readParticles(alive, highest);
+    ctx->CopyResource(impactStaging, impact);
+    D3D11_MAPPED_SUBRESOURCE mapped;
+    ctx->Map(impactStaging, 0, D3D11_MAP_READ, 0, &mapped);
+    uint64_t total = 0;
+    uint32_t texels = 0;
+
+    for (uint32_t y = 0; y < 512; y++) {
+        const uint32_t* line = reinterpret_cast<const uint32_t*>(static_cast<const uint8_t*>(mapped.pData) + y * mapped.RowPitch);
+
+        for (uint32_t x = 0; x < 512; x++) {
+            total += line[x];
+            texels += line[x] ? 1 : 0;
+        }
+    }
+
+    ctx->Unmap(impactStaging, 0);
+    printf("  after 2.25 s: %u in the air, impacts on %u texels, %.3f yards of push in all\n", alive, texels, total / 1000000.0);
+    CHECK(alive == 0);
+    CHECK(texels > 20);
+    CHECK(total > 100000 && total < 2000000);
+
+    cb->Release();
+    impactStaging->Release();
+    impactUav->Release();
+    impact->Release();
+    particleStaging->Release();
+    particleUav->Release();
+    particles->Release();
+    updateCs->Release();
+    emitCs->Release();
+    ctx->Release();
+    device->Release();
+}
+
 int main(int argc, char** argv) {
     TestMonotoneCubic();
     TestCatmullRom();
@@ -875,6 +1092,7 @@ int main(int argc, char** argv) {
     TestPassesCompile();
     TestSimulation();
     TestTessellation();
+    TestParticles();
 
     if (argc > 1) {
         TestTranslated(argv[1]);

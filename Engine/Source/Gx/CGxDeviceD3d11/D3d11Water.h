@@ -26,6 +26,8 @@ namespace GxD3d11 {
 extern const char* const s_hlslWaterPasses;
 // the tessellation stages WaterHs / WaterDs, after s_hlslCommon, s_hlslPatchPoint and s_hlslWaterConstants
 extern const char* const s_hlslWaterTessellation;
+// the splash particles EmitCs / UpdateCs / ParticleVs / ParticlePs, after s_hlslWaterConstants (D3d11WaterHlsl.cpp)
+extern const char* const s_hlslWaterParticles;
 }
 
 class D3d11Water : public IGxWater {
@@ -33,13 +35,16 @@ class D3d11Water : public IGxWater {
     static const uint32_t s_fieldSize = 512;
     static constexpr float s_texel = 0.25f;
     static const uint32_t s_maxImpulses = 64;
+    static const uint32_t s_maxParticles = 8192;
+    static const uint32_t s_maxSplashes = 32;
 
     explicit D3d11Water(CGxDeviceD3d11* device);
     virtual ~D3d11Water();
 
     // IGxWater
-    virtual void Update(const GxWaterParams& params, const GxWaterImpulse* impulses, uint32_t count);
+    virtual void Update(const GxWaterParams& params, const GxWaterImpulse* impulses, uint32_t count, const GxWaterSplash* splashes, uint32_t splashCount);
     virtual void BeforeLiquids(const C3Vector& origin);
+    virtual void AfterLiquids();
     virtual void EndWorld();
     virtual void GetStats(GxWaterStats& stats);
 
@@ -101,6 +106,30 @@ class D3d11Water : public IGxWater {
     ID3D11DomainShader* m_domainShader = nullptr;
     bool m_tessFailed = false;
 
+    // the splash particles (D3d11WaterParticles.cpp): a ring buffer, and the impacts of droplets falling back, in fixed
+    // point on the height field's texels, which the next step takes and clears
+    ID3D11Buffer* m_particles = nullptr;
+    ID3D11UnorderedAccessView* m_particleUav = nullptr;
+    ID3D11ShaderResourceView* m_particleSrv = nullptr;
+    ID3D11Texture2D* m_impact = nullptr;
+    ID3D11UnorderedAccessView* m_impactUav = nullptr;
+    ID3D11ShaderResourceView* m_impactSrv = nullptr;
+    ID3D11Buffer* m_particleConstants = nullptr;
+    ID3D11ComputeShader* m_emitCs = nullptr;
+    ID3D11ComputeShader* m_updateCs = nullptr;
+    ID3D11VertexShader* m_particleVs = nullptr;
+    ID3D11PixelShader* m_particlePs = nullptr;
+    ID3D11BlendState* m_blendParticles = nullptr;
+    bool m_particlesFailed = false;
+    bool m_particlesValid = false;
+    double m_particleOrigin[3] = {};
+    uint32_t m_nextSlot = 0;
+    uint32_t m_particleSeed = 0;
+    float m_particleQuiet = 1000.0f;   // seconds since the last splash: past the longest life, nothing is left to move
+    GxWaterSplash m_splashes[s_maxSplashes] = {};
+    uint32_t m_splashCount = 0;
+    uint32_t m_statsParticles = 0;
+
     // this frame
     bool m_worldActive = false;
     bool m_captured = false;
@@ -113,6 +142,11 @@ class D3d11Water : public IGxWater {
 
     bool ICreateShaders();
     bool ICreateTessellation();
+    bool ICreateParticles();
+    void IReleaseParticles();
+    // starts this frame's splashes and moves every particle a step; droplets falling back write impacts
+    void IRunParticles(float dt);
+    void IWriteParticleConstants(float dt, uint32_t emit, const float* emitters, uint32_t emitterCount);
     bool ICreateResources();
     bool IEnsureField();
     bool IEnsureCopies(DXGI_FORMAT format);

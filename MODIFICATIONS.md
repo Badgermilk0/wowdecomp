@@ -32,6 +32,7 @@ must not be used with this exe.** Addons see `AwesomeWotlk = 38`, the same as up
 | Object highlight | `AwesomeMisc.cpp` | `objectHighlightMode` (0) | — |
 | Per-session chat/combat log names | `AwesomeMisc.cpp` | `chatLogSessionKey` (1), `combatLogSessionKey` (1) | — |
 | Window / clipboard | `AwesomeMisc.cpp`, `Os/Win64/OsClipboard.cpp` (UTF-8 clipboard) | — | `FlashWindow`, `IsWindowFocused`, `FocusWindow`, `CopyToClipboard` |
+| Settings window and Flash (the AddOns awesome ships) | built in: see "Built-in AwesomeCVar and Flash" | `awesomeBuiltInAddOns` (1) | `/awesome`, Esc menu and minimap buttons |
 | Text-to-speech (SAPI) | `AwesomeVoiceChat.cpp` | `ttsVoice`, `ttsSpeed` (0), `ttsVolume` (100) | `C_VoiceChat.*`, `C_TTSSettings.*`, `VOICE_CHAT_TTS_*` events |
 | Nameplates: stacking, clamping, mouse freeze, occlusion, `nameplateN` tokens | `AwesomeNamePlates.*`, `Ui/NamePlateFrame.*`, `Object_C/Unit_C.cpp`, `Ui/GameUI.cpp` | the 29 `nameplate*` CVars (e.g. `nameplateDistance` 41, `nameplateStacking` 0, `nameplatePlacement` 0) | `C_NamePlate.*`, plate methods, `NAME_PLATE_*` events |
 | UI half-pixel fix | `Services/Camera.cpp` | `uiHalfPixelFix` (**1**) | — |
@@ -331,6 +332,34 @@ in-game live re-layout (FrameXML, addons, chat), `uiScaleDpi`, `uiMaxAspect` and
 Tested offline: the tonemap shader compiles (no errors in `gx.log`) and, on the login scene's model with
 `lightingGlueTest 3`, `sharpen 1` roughly doubles edge energy against the pass off, with no visible halos.
 **Not seen in the world**; the texLodBias change could not be isolated on the login screen.
+
+### Built-in AwesomeCVar and Flash (branch `feature/builtin-awesome-ui`)
+
+awesome_wotlk ships two AddOns next to its DLL: **AwesomeCVar**, the settings window (Esc menu button, minimap button,
+`/awesome`), and **Flash**, which flashes the taskbar on entering combat or on a whisper while the game is not focused.
+The client now carries both itself; nothing has to be installed in `Interface\AddOns`.
+
+| Part | Where | CVars (**default**) | What it does |
+|---|---|---|---|
+| The files | `WoW/Source/Awesome/Interface/AwesomeCVar`, `.../Flash` | — | The AddOns' sources, from `addons/` of the fork [Badgermilk0/awesome_wotlk](https://github.com/Badgermilk0/awesome_wotlk) (AwesomeCVar `3.0-waystone`, with the Waystone tabs), plus `Embedded.lua`. Edit them here; each `.toc` still gives the load order. |
+| Embedding | `Awesome/EmbedInterface.cmake`, `Awesome/CMakeLists.txt` | — | At build time every `.toc`/`.lua`/`.xml` under `Interface/` becomes a byte array in a generated `AwesomeEmbeddedUiFiles.cpp` (build folder), made again when a file changes. About 350 KB. |
+| Loading | `Awesome/AwesomeEmbeddedUi.cpp`, called from `CGGameUI::InitializeFrameXML` before `LoadAddOns` | `awesomeBuiltInAddOns` (**1**) | Each AddOn runs as FrameXML does, untainted, so its game menu button is secure: its `.toc`'s Lua files in order, each with the arguments an AddOn file gets (the name and a table shared by its files), then `ADDON_LOADED` with its name. A UTF-8 byte order mark is skipped, as the FrameXML loader does; a Lua error is written to `Logs\FrameXML.log` and the next file still runs. `awesomeBuiltInAddOns 0` turns this off (after a UI reload or relog). |
+| AddOns of the same name | `LoadAddOnInfo` (`UIUtil/AddOns.cpp`) | — | `Interface\AddOns\AwesomeCVar` and `\Flash` are neither listed nor loaded while the built-in ones are on, so an old copy cannot load a second settings window or menu button. |
+| Settings | `Interface/AwesomeCVar/Embedded.lua` | `awesomeGameMenuButton` (**1**), `awesomeChatMessages` (**1**), `awesomeVersionAlerts` (**1**), `awesomeMinimapHide` (**0**), `awesomeMinimapPos` (**220**), `awesomeFrameWidth` / `awesomeFrameHeight` (**empty** = the default size) | An AddOn keeps these in SavedVariables (`AwesomeCVarDB`), which only AddOns get. Here `AwesomeCVarDB` is a table that reads and writes these CVars, so they are kept in `Config.wtf`. The old `AwesomeCVar.lua` SavedVariables are not read: these start at their defaults once. |
+
+Changes to the AddOns' own files: the `.toc` lists `Embedded.lua` first and has no `SavedVariables`, and `Constants.lua`
+shows `ACVar.ADDON_VERSION` ("3.0-waystone (built in)") where `GetAddOnMetadata` has no version. To take a newer
+AddOn from the fork, copy its `addons/AwesomeCVar` and `addons/Flash` over these folders and keep those two edits and
+`Embedded.lua`.
+
+Tested offline: the client builds and embeds 19 files. A Lua 5.1 run of the embedded files the way the loader runs them
+(toc order, `(name, table)` per file, then `ADDON_LOADED`), on a permissive WoW stub, checked these:
+- all 16 AwesomeCVar files and Flash run;
+- the addon initialises from the CVars' defaults and writes its settings back to them;
+- all ten tabs are built and `/awesome` is registered.
+
+The client also starts and exits cleanly with an old `AwesomeCVar` folder in `Interface\AddOns`.
+**Not seen in the world**, where the UI loads: the window, the Esc menu and minimap buttons, and Flash.
 
 ### Audio engine upgrade (branch `feature/audio-engine`)
 

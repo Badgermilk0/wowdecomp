@@ -248,6 +248,7 @@ void AwesomeRegisterCVars() {
     AwesomeFontsRegisterCVars();
     AwesomeMsdfRegisterCVars();
     AwesomeDisplayRegisterCVars();
+    AwesomeEmbeddedUiRegisterCVars();
     AwesomeCameraRegisterCVars();
     AwesomeNamePlatesRegisterCVars();
     AwesomeMiscRegisterCVars();

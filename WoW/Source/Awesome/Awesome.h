@@ -18,6 +18,7 @@ class CGObject_C;
 class CGUnit_C;
 class CGWorldFrame;
 class CSimpleTop;
+class CStatus;
 struct CVar;
 
 // Version reported to addons as the AwesomeWotlk global, matching the upstream release this port follows
@@ -57,6 +58,13 @@ void AwesomeLightingEndWorld();
 // CSimpleModelFFX::Render around the login screen's model, for lightingGlueTest (off by default)
 void AwesomeLightingGlueBegin();
 void AwesomeLightingGlueEnd();
+
+// AwesomeEmbeddedUi.cpp, the AwesomeCVar settings window and the Flash helper built into the client:
+// CGGameUI::InitializeFrameXML, after the FrameXML files and before LoadAddOns, runs them as FrameXML
+void AwesomeLoadBuiltInAddOns(CStatus* status);
+// LoadAddOnInfo: true for an AddOn the client has built in (and awesomeBuiltInAddOns on), which is then not listed or
+// loaded from Interface\AddOns
+bool AwesomeIsBuiltInAddOn(const char* name);
 
 // AwesomeDisplay.cpp, display management. CGGameUI::Idle and CGlueMgr::Idle, once per frame outside the frame's
 // rendering: Alt+Enter, the remembered window, DPI and gxMonitor changes

@@ -1,0 +1,31 @@
+## Interface: 30300
+## Title: Awesome CVar Manager
+## Notes: Settings window for the Awesome WotLK client mod
+## Author: Widget, Crum
+## Version: 3.0-waystone
+# Waystone: built into the client (Awesome/AwesomeEmbeddedUi.cpp), which reads this list for the load order; no SavedVariables, the settings are CVars (Embedded.lua)
+
+# Waystone: the CVar-backed AwesomeCVarDB, before anything reads it
+Embedded.lua
+
+# Locales: enUS first, it is the fallback for missing keys
+Locales\enUS.lua
+Locales\deDE.lua
+Locales\esMX.lua
+Locales\frFR.lua
+Locales\koKR.lua
+Locales\ptBR.lua
+Locales\ruRU.lua
+Locales\zhCN.lua
+Locales\zhTW.lua
+# Waystone client settings (English; every locale falls back to it)
+Locales\Waystone_enUS.lua
+
+# Skins
+Skins\ElvUI.lua
+
+# Core
+Constants.lua
+Waystone.lua
+UI.lua
+Core.lua

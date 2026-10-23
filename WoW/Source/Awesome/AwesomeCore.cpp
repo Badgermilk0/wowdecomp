@@ -247,6 +247,7 @@ void AwesomeRegisterCVars() {
     AwesomeUiFixesRegisterCVars();
     AwesomeFontsRegisterCVars();
     AwesomeMsdfRegisterCVars();
+    AwesomeDisplayRegisterCVars();
     AwesomeCameraRegisterCVars();
     AwesomeNamePlatesRegisterCVars();
     AwesomeMiscRegisterCVars();
@@ -276,6 +277,7 @@ void AwesomeRegisterScriptFunctions() {
     AwesomeVoiceChatRegisterScriptFunctions(L);
     AwesomeFrameCaptureRegisterScriptFunctions(L);
     AwesomePerfRegisterScriptFunctions(L);
+    AwesomeDisplayRegisterScriptFunctions(L);
     AwesomeStreamingRegisterScriptFunctions(L);
     AwesomeAudioRegisterScriptFunctions(L);
     AwesomeLightingRegisterScriptFunctions(L);

@@ -55,6 +55,8 @@ void OsQueuePut(OSINPUT id, int32_t param0, int32_t param1, int32_t param2, int3
 int32_t OsInputIsKeyDown(KEY key);
 int32_t OsInputIsMouseButtonDown(MOUSEBUTTON button);
 void OsInputSetWindowResizeLock(int32_t resizeLock);
+// MODIFIED: display management. Nonzero once after Alt+Enter was pressed in the game window
+int32_t OsInputConsumeFullscreenToggle();
 float OsInputGetMouseSpeed();
 void OsInputInitialize();
 void OsInputDestroy();

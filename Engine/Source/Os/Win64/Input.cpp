@@ -801,6 +801,15 @@ static void SaveMouse(HWND hwnd, const POINT& point) {
     s_mousePos.y = point.y;
 }
 
+// MODIFIED: display management. Alt+Enter, taken by the game outside the window procedure (AwesomeDisplay.cpp)
+static int32_t s_fullscreenToggle;
+
+int32_t OsInputConsumeFullscreenToggle() {
+    int32_t toggle = s_fullscreenToggle;
+    s_fullscreenToggle = 0;
+    return toggle;
+}
+
 // OFFSET: 0x00869620
 void OsInputSetWindowResizeLock(int32_t resizeLock) {
     s_WindowResizeLock = resizeLock;
@@ -1437,10 +1446,27 @@ intptr_t OsWindowProc(void* window, uint32_t message, uintptr_t wparam, intptr_t
             return 0;
         }
 
+        // MODIFIED: display management. Alt+Enter switches between a window and full screen, as in other Windows
+        // games; it does not reach the bindings, and the Alt+Enter character is swallowed, which also stops the beep
+        case WM_SYSCHAR:
+            if (wparam == VK_RETURN) {
+                return 0;
+            }
+
+            break;
+
         case WM_KEYDOWN:
         case WM_KEYUP:
         case WM_SYSKEYDOWN:
         case WM_SYSKEYUP: {
+            if ((message == WM_SYSKEYDOWN || message == WM_SYSKEYUP) && wparam == VK_RETURN && (lparam & (1 << 29))) {
+                if (message == WM_SYSKEYDOWN && !(lparam & (1 << 30))) {
+                    s_fullscreenToggle = 1;
+                }
+
+                return 0;
+            }
+
             int32_t down = message == WM_KEYDOWN || message == WM_SYSKEYDOWN;
             uint32_t vkey = static_cast<uint32_t>(wparam);
 

@@ -811,6 +811,11 @@ static void SaveMouse(HWND hwnd, const POINT& point) {
     s_mousePos.y = point.y;
 }
 
+// MODIFIED: display management. Alt+Enter is only caught by the 64-bit window procedure
+int32_t OsInputConsumeFullscreenToggle() {
+    return 0;
+}
+
 // VERIFY: c77eb699 auto
 // OFFSET: 0x00869620
 void OsInputSetWindowResizeLock(int32_t resizeLock) {

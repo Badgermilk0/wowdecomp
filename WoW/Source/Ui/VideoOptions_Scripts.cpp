@@ -18,6 +18,7 @@
 #include "Engine/Source/Storm/H/storm.h"
 #include "Engine/Source/Tempest/C2iVector.h"
 #include "Engine/Source/Tempest/C3iVector.h"
+#include "Engine/Source/Tempest/CRect.h"
 #include "Engine/Source/lua-5.1/src/lauxlib.h"
 #include "Engine/Source/lua-5.1/src/lua.h"
 #include "Engine/Source/Base/Coordinate.h"
@@ -299,10 +300,84 @@ static void SetupMultisampleFormats() {
     }
 }
 
+// MODIFIED: display management. The one entry that is not a display mode: the window's own size, kept in the list's
+// order by area. Returns its index
+static int32_t s_customResolution = -1;
+
+static uint32_t SetCustomResolution(int32_t width, int32_t height) {
+    if (s_customResolution >= 0) {
+        for (uint32_t i = s_customResolution; i + 1 < s_resolutions.Count(); i++) {
+            s_resolutions[i] = s_resolutions[i + 1];
+        }
+
+        s_resolutions.SetCount(s_resolutions.Count() - 1);
+    }
+
+    uint32_t index = 0;
+
+    while (index < s_resolutions.Count() && s_resolutions[index].x * s_resolutions[index].y <= width * height) {
+        index++;
+    }
+
+    s_resolutions.SetCount(s_resolutions.Count() + 1);
+
+    for (uint32_t i = s_resolutions.Count() - 1; i > index; i--) {
+        s_resolutions[i] = s_resolutions[i - 1];
+    }
+
+    s_resolutions[index].x = width;
+    s_resolutions[index].y = height;
+    s_customResolution = static_cast<int32_t>(index);
+    return index;
+}
+
+// MODIFIED: display management. The size the game has: gxResolution, or the window's for full screen and maximized
+// windows, which cover their monitor whatever gxResolution says (CGxDeviceD3d11::ICreateWindow). A size that is no
+// display mode (a resized or remembered window) is listed, instead of the first entry being shown, which Okay would
+// then apply
+static void SyncCurrentResolution(int32_t& width, int32_t& height) {
+    CVar* gxResolution = CVar::Lookup("gxResolution");
+    char separator;
+    width = 0;
+    height = 0;
+
+    if (gxResolution && gxResolution->m_stringValue.m_str) {
+        sscanf(gxResolution->m_stringValue.m_str, "%d%c%d", &width, &separator, &height);
+    }
+
+    if (g_theGxDevicePtr && (!g_theGxDevicePtr->m_format.m_window || g_theGxDevicePtr->m_format.m_maximize == 1)) {
+        CRect rect = { 0.0f, 0.0f, 0.0f, 0.0f };
+        g_theGxDevicePtr->CapsWindowSize(rect);
+
+        if (rect.maxX - rect.minX >= 1.0f && rect.maxY - rect.minY >= 1.0f) {
+            width = static_cast<int32_t>(rect.maxX - rect.minX);
+            height = static_cast<int32_t>(rect.maxY - rect.minY);
+        }
+    }
+
+    if (width <= 0 || height <= 0) {
+        return;
+    }
+
+    for (uint32_t i = 0; i < s_resolutions.Count(); i++) {
+        if (width == s_resolutions[i].x && height == s_resolutions[i].y) {
+            return;
+        }
+    }
+
+    SetCustomResolution(width, height);
+}
+
 // VERIFY: eea3ee86 auto
 // OFFSET: 0x0054F430
 static int32_t Script_GetScreenResolutions(lua_State* L) {
     SetupFormats();
+
+    // MODIFIED: display management. The game's own size is in the list whichever of this and GetCurrentResolution the
+    // options panel asks first
+    int32_t width;
+    int32_t height;
+    SyncCurrentResolution(width, height);
     lua_checkstack(L, s_resolutions.Count());
 
     for (uint32_t i = 0; i < s_resolutions.Count(); i++) {
@@ -322,10 +397,10 @@ static int32_t Script_GetCurrentResolution(lua_State* L) {
     CVar* gxResolution = CVar::Lookup("gxResolution");
 
     if (gxResolution && gxResolution->m_stringValue.m_str) {
+        // MODIFIED: display management (SyncCurrentResolution)
         int32_t width = 0;
         int32_t height = 0;
-        char separator;
-        sscanf(gxResolution->m_stringValue.m_str, "%d%c%d", &width, &separator, &height);
+        SyncCurrentResolution(width, height);
 
         for (uint32_t i = 0; i < s_resolutions.Count(); i++) {
             if (width == s_resolutions[i].x && height == s_resolutions[i].y) {
@@ -369,6 +444,11 @@ static int32_t Script_GetRefreshRates(lua_State* L) {
 
     if (numRates) {
         qsort(rates, numRates, sizeof(int32_t), CompareRefreshRates);
+    } else {
+        // MODIFIED: display management. A window's own size has no display mode: offer the current refresh rate
+        CVar* refresh = CVar::Lookup("gxRefresh");
+        rates = static_cast<int32_t*>(alloca(sizeof(int32_t)));
+        rates[numRates++] = refresh && refresh->m_intValue > 0 ? refresh->m_intValue : 60;
     }
 
     int32_t results = 0;

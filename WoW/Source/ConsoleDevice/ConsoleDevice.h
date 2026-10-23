@@ -46,5 +46,9 @@ bool SetGxCVars(const CGxFormat& format);
 void __fastcall StereoChangedCallback();
 bool UpdateGxCVars();
 void ValidateFormatMonitor(CGxFormat& format);
+// MODIFIED: display management (ConsoleDevice_CVar.cpp)
+void ConsoleDeviceRememberWindow(int32_t x, int32_t y, int32_t width, int32_t height, bool resized);
+void ConsoleDeviceRememberMonitor(const char* name);
+void ConsoleDeviceToggleFullscreen();
 
 #endif

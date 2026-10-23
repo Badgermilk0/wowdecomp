@@ -64,6 +64,9 @@ int32_t GxuFontStringSetGradient(CGxString* string, int32_t start, int32_t lengt
 const char* GxuFontStripEscapeCodes(const char* text, uint32_t textLength, uint32_t flags, char* buffer, uint32_t bufferSize);
 void GxuFontUpdate();
 void GxuFontWindowSizeChanged();
+// MODIFIED: live aspect changes. Rescales every string's horizontal NDC values by widthRatio (old / new screen width in
+// DDC) and lays it out again
+void GxuFontAspectChanged(float widthRatio);
 uint32_t GxuFontWrapText(CGxFont* face, const char* text, uint32_t textLength, float fontHeight, float blockWidth, uint32_t* lineStarts, uint32_t maxLines, float shadowWidth, float scale, float unused, uint32_t flags);
 
 #endif

@@ -13,11 +13,36 @@ static float s_ddcHeightScale = 0.6f;
 // STATIC: 0x00AC0CBC
 static float s_aspectCompensation = 1.0f;
 
+// MODIFIED: live aspect changes. Stock DDC spans the screen diagonal, so a UI unit's size in DDC depends on the aspect
+// and every frame's stored size goes stale when it changes (stock reloads the UI). With a fixed height, a UI unit is
+// always 0.6 / 768 DDC and only the screen's width in DDC follows the aspect; at 4:3 both are the stock values.
+// Chosen once, before the first aspect is set: switching later would leave the frames already laid out on the old scale.
+static bool s_fixedHeight = false;
+static bool s_aspectSet = false;
+
+void CoordinateSetFixedHeight(bool fixedHeight) {
+    if (!s_aspectSet) {
+        s_fixedHeight = fixedHeight;
+    }
+}
+
+bool CoordinateIsFixedHeight() {
+    return s_fixedHeight;
+}
+
 // VERIFY: a3f58d50 manual
 // OFFSET: 0x0047BF90
 void CoordinateSetAspectRatio(float aspect) {
+    s_aspectSet = true;
     s_aspectRatio = aspect;
     s_aspectCompensation = aspect * 0.75f;
+
+    if (s_fixedHeight) {
+        s_ddcHeightScale = 0.6f;
+        s_ddcWidthScale = aspect * 0.6f;
+        return;
+    }
+
     float scale = 1.0f / sqrt(aspect * aspect + 1.0f);
     s_ddcHeightScale = scale;
     s_ddcWidthScale = aspect * scale;

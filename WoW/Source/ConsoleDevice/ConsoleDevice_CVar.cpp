@@ -537,6 +537,41 @@ static bool CVVideoOptionsVersionCallback(CVar* var, const char* oldValue, const
     return true;
 }
 
+// MODIFIED: display management (CGxDevice::PickMonitor)
+static CVar* s_cvGxMonitor;
+static CVar* s_cvGxWindowPos;
+static CVar* s_cvGxMonitorName;
+// the client size of the window when last windowed, from gxWindowPos: Alt+Enter goes back to it, as gxResolution does
+// not keep it in full screen (the full-screen mode check there drops sizes that are not a display mode)
+static int32_t s_windowedSizeValid;
+static C2iVector s_windowedSize;
+
+static bool CVGxMonitorCallback(CVar* var, const char* oldValue, const char* value, void* arg) {
+    int32_t index = SStrToInt(value);
+    CGxDevice::s_monitorIndex = index > 0 ? index : 0;
+    return true;
+}
+
+static bool CVGxWindowPosCallback(CVar* var, const char* oldValue, const char* value, void* arg) {
+    int32_t x = 0;
+    int32_t y = 0;
+    int32_t width = 0;
+    int32_t height = 0;
+    int32_t count = value ? sscanf(value, "%d %d %d %d", &x, &y, &width, &height) : 0;
+    CGxDevice::s_windowPosValid = count >= 2;
+    CGxDevice::s_windowPos.x = x;
+    CGxDevice::s_windowPos.y = y;
+    s_windowedSizeValid = count == 4 && width > 0 && height > 0;
+    s_windowedSize.x = width;
+    s_windowedSize.y = height;
+    return true;
+}
+
+static bool CVGxMonitorNameCallback(CVar* var, const char* oldValue, const char* value, void* arg) {
+    SStrCopy(CGxDevice::s_monitorName, value ? value : "", sizeof(CGxDevice::s_monitorName));
+    return true;
+}
+
 // VERIFY: 62bcef94 auto
 // OFFSET: 0x00769C90
 void RegisterStereoCVars() {
@@ -569,7 +604,9 @@ void RegisterGxCVars() {
     s_cvGxTripleBuffer = CVar::Register("gxTripleBuffer", "triple buffer", 3, "0", CVGxTripleBufferCallback, CATEGORY_GRAPHICS, false, nullptr, false);
     s_cvGxApi = CVar::Register("gxApi", "graphics api", 3, g_gxApiNames[GxDefaultApi()], CVGxApiCallback, CATEGORY_GRAPHICS, false, nullptr, false);
     s_cvGxVSync = CVar::Register("gxVSync", "vsync on or off", 3, "1", CVGxVSyncCallback, CATEGORY_GRAPHICS, false, nullptr, false);
-    s_cvGxAspect = CVar::Register("gxAspect", "constrain window aspect", 3, "1", CVGxAspectCallback, CATEGORY_GRAPHICS, false, nullptr, false);
+    // MODIFIED: display management. A window resizes freely by default (stock "1" kept its aspect): the UI follows a
+    // new aspect live (uiLiveResize)
+    s_cvGxAspect = CVar::Register("gxAspect", "constrain window aspect", 3, "0", CVGxAspectCallback, CATEGORY_GRAPHICS, false, nullptr, false);
     s_cvGxCursor = CVar::Register("gxCursor", "toggle hardware cursor", 3, "1", CVGxCursorCallback, CATEGORY_GRAPHICS, false, nullptr, false);
 
     SStrPrintf(value, sizeof(value), "%d", s_hardware.m_videoHw->m_multisample);
@@ -589,4 +626,75 @@ void RegisterGxCVars() {
     s_cvVideoOptionsVersion = CVar::Register("videoOptionsVersion", "Video options version", 3, "0", CVVideoOptionsVersionCallback, CATEGORY_GRAPHICS, false, nullptr, false);
     s_cvWindowResizeLock = CVar::Register("windowResizeLock", "prevent resizing in windowed mode", 1, "0", CVGxWindowResizeLockCallback, CATEGORY_GRAPHICS, false, nullptr, false);
     s_cvFixedFunction = CVar::Register("fixedFunction", "Force fixed function rendering", 3, "0", nullptr, CATEGORY_GRAPHICS, false, nullptr, false);
+
+    // MODIFIED: display management (see ConsoleDeviceRememberWindow)
+    s_cvGxMonitor = CVar::Register("gxMonitor", "monitor for full screen and new windows: 0 = the one the window was last on, 1 = primary, 2.. = the others from left to right", 1, "0", CVGxMonitorCallback, CATEGORY_GRAPHICS, false, nullptr, false);
+    s_cvGxWindowPos = CVar::Register("gxWindowPos", "the window when last windowed: top-left and client size (\"x y width height\", empty = centred)", 1, "", CVGxWindowPosCallback, CATEGORY_GRAPHICS, false, nullptr, false);
+    s_cvGxMonitorName = CVar::Register("gxMonitorName", "device name of the monitor the window was last on", 1, "", CVGxMonitorNameCallback, CATEGORY_GRAPHICS, false, nullptr, false);
+}
+
+// MODIFIED: display management. The window's place is remembered across sessions: gxWindowPos and the windowed size
+// (gxResolution) while windowed, gxMonitorName in every mode. AwesomeDisplay.cpp calls these as the window moves; they
+// write the CVars' current values directly, as gx CVars are latched and a Set would only take at the next gxRestart
+void ConsoleDeviceRememberWindow(int32_t x, int32_t y, int32_t width, int32_t height, bool resized) {
+    char value[64];
+
+    if (resized && width > 0 && height > 0 && (width != s_requestedFormat.m_size.x || height != s_requestedFormat.m_size.y)) {
+        s_requestedFormat.m_size.x = width;
+        s_requestedFormat.m_size.y = height;
+        s_lastGoodFormat.m_size.x = width;
+        s_lastGoodFormat.m_size.y = height;
+        SStrPrintf(value, sizeof(value), "%dx%d", width, height);
+        s_cvGxResolution->InternalSet(value, true, false, false, true);
+    }
+
+    SStrPrintf(value, sizeof(value), "%d %d %d %d", x, y, width, height);
+
+    if (SStrCmpI(value, s_cvGxWindowPos->m_stringValue.m_str ? s_cvGxWindowPos->m_stringValue.m_str : "", STORM_MAX_STR)) {
+        s_cvGxWindowPos->Set(value, true, false, false, true);
+    }
+}
+
+void ConsoleDeviceRememberMonitor(const char* name) {
+    if (name && SStrCmpI(name, s_cvGxMonitorName->m_stringValue.m_str ? s_cvGxMonitorName->m_stringValue.m_str : "", STORM_MAX_STR)) {
+        s_cvGxMonitorName->Set(name, true, false, false, true);
+    }
+}
+
+// MODIFIED: display management. Alt+Enter: a window goes to the full-screen mode last used (gxWindow 0, or a maximized
+// borderless window, gxMaximize 1, which is the default), and full screen goes back to a window
+void ConsoleDeviceToggleFullscreen() {
+    static int32_t s_fullWindow = -1;
+    static int32_t s_fullMaximize = 1;
+
+    bool windowed = s_requestedFormat.m_window && !s_requestedFormat.m_maximize;
+
+    if (windowed) {
+        if (s_fullWindow >= 0) {
+            s_requestedFormat.m_window = s_fullWindow != 0;
+            s_requestedFormat.m_maximize = s_fullMaximize != 0;
+        } else {
+            s_requestedFormat.m_window = true;
+            s_requestedFormat.m_maximize = true;
+        }
+    } else {
+        s_fullWindow = s_requestedFormat.m_window;
+        s_fullMaximize = s_requestedFormat.m_maximize;
+        s_requestedFormat.m_window = true;
+        s_requestedFormat.m_maximize = false;
+
+        if (s_windowedSizeValid) {
+            s_requestedFormat.m_size = s_windowedSize;
+        }
+    }
+
+    bool window = s_requestedFormat.m_window;
+    bool maximize = s_requestedFormat.m_maximize;
+    s_cvGxWindow->Set(window ? "1" : "0", true, false, false, true);
+    s_cvGxWindow->Update();
+    s_cvGxMaximize->Set(maximize ? "1" : "0", true, false, false, true);
+    s_cvGxMaximize->Update();
+    s_requestedFormat.m_window = window;
+    s_requestedFormat.m_maximize = maximize;
+    CCGxRestart(nullptr, nullptr);
 }

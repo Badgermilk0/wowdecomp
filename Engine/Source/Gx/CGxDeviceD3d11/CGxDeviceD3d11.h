@@ -389,6 +389,9 @@ class CGxDeviceD3d11 : public CGxDevice {
     void ISetCaps(const CGxFormat& format);
     void IStateSetDefaults();
     void ISetWindowFocus(int32_t focus);
+    // MODIFIED: display management. Moves a full-screen or maximized window over the monitor it is on; 0 for a
+    // normal window
+    int32_t IFitToMonitor();
     void IUpdateGamma();
     void IPresentFrame();
     void IFrameLatency();

@@ -3985,7 +3985,10 @@ int32_t CGCamera::GetCameraDistance(float& distance, const C3Vector& position, c
     C44Matrix proj;
     C3Vector at(forward.x + position.x, forward.y + position.y, forward.z + position.z);
     GxuXformCreateLookAtSgCompat(position, at, up, view);
-    GxuXformCreateProjection_SG(this->FOV(), this->m_aspect, this->m_nearZ, this->m_farZ, proj);
+    // MODIFIED: widescreen. The probe used a diagonal field of view (_SG) while the world draws with a fixed vertical one
+    // (SetGxProjectionAndView: FOV * 0.6), so past 4:3 the probe was narrower than the view and walls at the screen's
+    // sides cut into the near plane; at 4:3 the two are the same
+    GxuXformCreateProjection_Exact(this->FOV() * 0.6f, this->m_aspect, this->m_nearZ, this->m_farZ, proj);
 
     float hit = 0.0f;
     int32_t collided = 0;

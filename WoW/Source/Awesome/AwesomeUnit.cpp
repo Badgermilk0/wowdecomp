@@ -23,7 +23,7 @@ static CGUnit_C* UnitFromToken(lua_State* L, const char* usage) {
         return nullptr;
     }
 
-    return static_cast<CGUnit_C*>(AwesomeObjectPtr(AwesomeGuidFromUnitToken(lua_tolstring(L, 1, nullptr)), TYPEMASK_UNIT));
+    return static_cast<CGUnit_C*>(AwesomeObjectPtr(AwesomeGuidFromUnitToken(lua_tolstring(L, 1, nullptr)), TYPE_UNIT));
 }
 
 static int32_t UnitHasFlag(lua_State* L, uint32_t flags, const char* usage) {
@@ -68,7 +68,7 @@ static int32_t Script_UnitOwner(lua_State* L) {
     }
 
     WOWGUID ownerGuid = unit->m_unit->m_unitFieldSummonedby ? unit->m_unit->m_unitFieldSummonedby : unit->m_unit->m_unitFieldCreatedby;
-    CGUnit_C* owner = static_cast<CGUnit_C*>(AwesomeObjectPtr(ownerGuid, TYPEMASK_UNIT));
+    CGUnit_C* owner = static_cast<CGUnit_C*>(AwesomeObjectPtr(ownerGuid, TYPE_UNIT));
 
     if (!owner) {
         return 0;
@@ -114,7 +114,7 @@ static int32_t Script_UnitTokenFromGUID(lua_State* L) {
 
     WOWGUID guid = StringToGuid(lua_tolstring(L, 1, nullptr));
 
-    if (!guid || !AwesomeObjectPtr(guid, TYPEMASK_UNIT)) {
+    if (!guid || !AwesomeObjectPtr(guid, TYPE_UNIT)) {
         return 0;
     }
 

@@ -792,13 +792,13 @@ void AsyncFileReadInitialize(uint32_t threadSleep, uint32_t handlerTimeout) {
 
 #if defined(WOWDECOMP_ARCH_64)
     // MODIFIED: performance; the frame's post-load pass keeps to s_postloadBudget (AsyncFileReadPollEvent)
-    EventRegisterEx(EVENT_ID_POLL, AsyncFileReadPollEvent, nullptr, 0.0f);
+    EventRegisterEx(EVENT_ID_POLL, AsyncFileReadPollEvent, nullptr, EVENT_PRIORITY_NORMAL);
 #else
-    EventRegisterEx(EVENT_ID_POLL, AsyncFileReadPollHandler, nullptr, 0.0f);
+    EventRegisterEx(EVENT_ID_POLL, AsyncFileReadPollHandler, nullptr, EVENT_PRIORITY_NORMAL);
 #endif
 
     if (SFile::IsStreamingMode()) {
-        EventRegisterEx(EVENT_ID_IDLE, NetQueuePromoteLocalFiles, nullptr, -1.0f);
+        EventRegisterEx(EVENT_ID_IDLE, NetQueuePromoteLocalFiles, nullptr, EVENT_PRIORITY_BELOW_NORMAL);
     }
 
     s_asyncWaitObject = nullptr;

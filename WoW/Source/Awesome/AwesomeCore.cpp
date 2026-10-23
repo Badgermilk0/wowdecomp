@@ -228,7 +228,7 @@ CGObject_C* AwesomeObjectPtr(const WOWGUID& guid, uint32_t typeMask) {
         return nullptr;
     }
 
-    return ClntObjMgrObjectPtr(guid, static_cast<TypeMask>(typeMask), __FILE__, __LINE__);
+    return ClntObjMgrObjectPtr(guid, static_cast<OBJECT_TYPE>(typeMask), __FILE__, __LINE__);
 }
 
 WOWGUID AwesomeGuidFromUnitToken(const char* token) {

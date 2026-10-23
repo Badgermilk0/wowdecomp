@@ -141,7 +141,7 @@ static bool IsValidInteractObject(CGObject_C* object, CGUnit_C* player, float di
 }
 
 static CGObject_C* InteractObjectPtr(const WOWGUID& guid) {
-    return AwesomeObjectPtr(guid, TYPEMASK_GAMEOBJECT | TYPEMASK_UNIT);
+    return AwesomeObjectPtr(guid, TYPE_GAMEOBJECT | TYPE_UNIT);
 }
 
 // the interaction highlight is drawn dimmer than the engine's target and mouseover highlights
@@ -229,7 +229,7 @@ static void UpdateInteractCandidate() {
 
     s_lastScan = now;
 
-    CGPlayer_C* player = static_cast<CGPlayer_C*>(AwesomeObjectPtr(ClntObjMgrGetActivePlayer(), TYPEMASK_PLAYER));
+    CGPlayer_C* player = static_cast<CGPlayer_C*>(AwesomeObjectPtr(ClntObjMgrGetActivePlayer(), TYPE_PLAYER));
 
     if (!player) {
         return;
@@ -432,7 +432,7 @@ void AwesomeOnTrackTerrain(const C3Vector& point) {
         }
     }
 
-    CGPlayer_C* player = static_cast<CGPlayer_C*>(AwesomeObjectPtr(ClntObjMgrGetActivePlayer(), TYPEMASK_PLAYER));
+    CGPlayer_C* player = static_cast<CGPlayer_C*>(AwesomeObjectPtr(ClntObjMgrGetActivePlayer(), TYPE_PLAYER));
 
     if (!player) {
         return;
@@ -503,7 +503,7 @@ static int32_t RefreshPassiveHighlight(WOWGUID guid, void* param) {
         return 1;
     }
 
-    CGGameObject_C* object = static_cast<CGGameObject_C*>(AwesomeObjectPtr(guid, TYPEMASK_GAMEOBJECT));
+    CGGameObject_C* object = static_cast<CGGameObject_C*>(AwesomeObjectPtr(guid, TYPE_GAMEOBJECT));
 
     if (object && object->m_typeId == ID_GAMEOBJECT) {
         object->CheckForPassiveHighlight();
@@ -513,7 +513,7 @@ static int32_t RefreshPassiveHighlight(WOWGUID guid, void* param) {
 }
 
 static void OnObjectHighlightMode(AwesomeCVar* cvar, bool changed) {
-    if (!changed || !AwesomeObjectPtr(ClntObjMgrGetActivePlayer(), TYPEMASK_PLAYER)) {
+    if (!changed || !AwesomeObjectPtr(ClntObjMgrGetActivePlayer(), TYPE_PLAYER)) {
         return;
     }
 

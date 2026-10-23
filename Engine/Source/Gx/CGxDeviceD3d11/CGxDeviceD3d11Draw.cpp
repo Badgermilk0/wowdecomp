@@ -94,7 +94,7 @@ void CGxDeviceD3d11::ISetTexGen(uint32_t tmu, int32_t texGen) {
 
     C44Matrix matrix;
 
-    if (texGen == GxTexGen_ObjectLinear || texGen == GxTexGen_EyeLinear) {
+    if (texGen == GxTexGen_ObjectLinear || texGen == GxTexGen_World) {
         CGxMatrixStack& view = this->m_xforms[GxXform_View];
         matrix = view.m_mtx[view.m_level];
         matrix = matrix.AffineInverse();
@@ -1146,8 +1146,8 @@ bool CGxDeviceD3d11::IStateSync(EGxPrim primType) {
 
             switch (this->m_appRenderStates[GxRs_TexGen0 + s].m_value.m_data.i[0]) {
                 case GxTexGen_ObjectLinear:
-                case GxTexGen_EyeLinear:
-                case GxTexGen_Unk3:
+                case GxTexGen_World:
+                case GxTexGen_View:
                     key.m_texGen[s] = FfTexGen_Position;
                     break;
                 case GxTexGen_ReflectionMap:
@@ -1192,7 +1192,7 @@ bool CGxDeviceD3d11::IStateSync(EGxPrim primType) {
     uint32_t blendMode = this->m_appRenderStates[GxRs_BlendingMode].m_value.m_data.u[0];
     uint32_t writeMask = (master & 0x10) ? this->m_appRenderStates[GxRs_ColorWrite].m_value.m_data.u[0] & 0xF : 0;
     ID3D11BlendState* blend = this->IBlendState(blendMode < 2 ? GxBlend_Opaque : blendMode, writeMask);
-    float factor = floorf(this->m_appRenderStates[Unk84].m_value.m_data.f[0] * 255.0f) / 255.0f;
+    float factor = floorf(this->m_appRenderStates[GxRs_BlendFactor].m_value.m_data.f[0] * 255.0f) / 255.0f;
 
     uint32_t depthFunc = D3D11_COMPARISON_ALWAYS;
 

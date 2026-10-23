@@ -226,7 +226,7 @@ void AwesomeAudioUpdate(const C3Vector& listener) {
     s_rayStart = listener;
     CGObject_C* focus = CGObject_C::GetFocusObject();
 
-    if (focus && (focus->m_obj->m_type & TYPEMASK_UNIT)) {
+    if (focus && (focus->m_obj->m_type & TYPE_UNIT)) {
         CGUnit_C* unit = static_cast<CGUnit_C*>(focus);
         s_rayStart = unit->GetPosition();
         float height = unit->m_movementData.m_collisionHeight;

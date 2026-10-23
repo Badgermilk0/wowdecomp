@@ -390,6 +390,17 @@ and the test lights; the D3D11 debug layer reports nothing new. **Not seen in th
 (checked only by the GPU test above), the MOLT lights, liquids and transparent passes over the HDR scene, the sky, real
 fog values, and how any of it looks. The strengths are starting points to tune in game.
 
+## Upstream syncs
+
+- **2026-10-23**, SatyPardus `main` at `20f9120e` (187 commits, PR #1 on Badgermilk0/wowdecomp). Upstream replaced
+  many magic numbers with recovered enums; this tree's own code follows the new names: `TYPEMASK_*` → `TYPE_*`
+  (`TypeMask` → `OBJECT_TYPE`), `GxTexGen_EyeLinear`/`Unk3` → `GxTexGen_World`/`View`, `Unk84` → `GxRs_BlendFactor`,
+  `GxTex_3` → `GxTex_Recreate`. Upstream's own fixes (portrait cache entries start dirty, the font cache row scan,
+  override sky sync, talent preview ranks, `StopAllSounds` deadlock, item swap initialisation) sit beside the
+  changes here without overlap; the font row fix lands in this tree's page-size-aware `CreateNewDesc`. Upstream now
+  names the client "Waystone" (`GameVersion.h`, generated `WaystoneVersion.h`): the D3D9 windows and the glue
+  `GetBuildInfo` use it, while the D3D11 window keeps its "World of Warcraft" title.
+
 ## Building
 
 Requirements: Visual Studio 2026 (v18) with the C++ desktop workload, and CMake 4.x. Build x64 only.

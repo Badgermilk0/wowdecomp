@@ -15,6 +15,8 @@
 #include "Engine/Source/Storm/H/storm.h"
 #include "Engine/Source/Tempest/C44Matrix.h"
 
+static const double ONEOVERTEXSIZE = (1.0 / 256.0);
+
 // STATIC: 0x00AD9BCC
 TSList<TEXTLINETEXTURE, TSGetLink<TEXTLINETEXTURE> > TEXTLINETEXTURE::s_freeTextLineTextures;
 
@@ -497,6 +499,7 @@ CHARCODEDESC* TEXTURECACHEROW::CreateNewDesc(GLYPHBITMAPDATA* data, uint32_t row
             desc->m_bitmapData.CopyFrom(data);
             desc->GenerateTextureCoords(rowNumber, cellHeight, this->m_pageSize);
             inserted = 1;
+            next = desc;
         } else if (!next) {
             return nullptr;
         }

@@ -59,7 +59,7 @@ void MSDFFont::AtlasPage::TextureCallback(EGxTexCommand command, uint32_t width,
             break;
 
         // the device dropped the texture (reset); it comes back empty, so its glyphs go
-        case GxTex_3:
+        case GxTex_Recreate:
             page->owner->evictPage(*page);
             break;
 

@@ -119,7 +119,7 @@ static int32_t Script_GetInventoryItemTransmog(lua_State* L) {
         return 0;
     }
 
-    CGPlayer_C* player = static_cast<CGPlayer_C*>(AwesomeObjectPtr(guid, TYPEMASK_PLAYER));
+    CGPlayer_C* player = static_cast<CGPlayer_C*>(AwesomeObjectPtr(guid, TYPE_PLAYER));
 
     if (!player || !player->m_player) {
         return 0;

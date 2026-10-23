@@ -186,7 +186,7 @@ static void OnCameraFov(AwesomeCVar* cvar, bool changed) {
 }
 
 static void OnShowPlayer(AwesomeCVar* cvar, bool changed) {
-    CGPlayer_C* player = static_cast<CGPlayer_C*>(AwesomeObjectPtr(ClntObjMgrGetActivePlayer(), TYPEMASK_PLAYER));
+    CGPlayer_C* player = static_cast<CGPlayer_C*>(AwesomeObjectPtr(ClntObjMgrGetActivePlayer(), TYPE_PLAYER));
 
     if (player) {
         player->m_scale = cvar->m_intValue ? 1.0f : 0.0f;

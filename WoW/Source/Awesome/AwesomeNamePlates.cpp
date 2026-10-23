@@ -291,11 +291,11 @@ static RaiseFilter MouseoverRaise() {
 // Engine helpers
 
 static CGPlayer_C* ActivePlayer() {
-    return static_cast<CGPlayer_C*>(AwesomeObjectPtr(ClntObjMgrGetActivePlayer(), TYPEMASK_PLAYER));
+    return static_cast<CGPlayer_C*>(AwesomeObjectPtr(ClntObjMgrGetActivePlayer(), TYPE_PLAYER));
 }
 
 static CGUnit_C* UnitPtr(const WOWGUID& guid) {
-    return static_cast<CGUnit_C*>(AwesomeObjectPtr(guid, TYPEMASK_UNIT));
+    return static_cast<CGUnit_C*>(AwesomeObjectPtr(guid, TYPE_UNIT));
 }
 
 // awesome_wotlk's isFriendly, kept numerically as its build runs: its reaction enum is 1-based while the engine's is

@@ -66,10 +66,10 @@ static AwesomeCVar s_cvThunderVolume = AwesomeCVar::Float("weatherThunderVolume"
 static AwesomeCVar s_cvThunderNearKit = AwesomeCVar::Int("weatherThunderNearKit", 8439, 0, 1000000);
 static AwesomeCVar s_cvThunderFarKit = AwesomeCVar::Int("weatherThunderFarKit", 13006, 0, 1000000);
 static AwesomeCVar s_cvThunderLayers = AwesomeCVar::Int("weatherThunderLayers", 1, 0, 1);
-// gain of the low bands (FMOD PARAMEQ, 1 = flat) and the compressor's make-up gain in dB. The defaults make a clap
-// about 15-17 dB louder with 19-20 dB more bass, peaks under full scale (WeatherAudioTests); 3 and 24 are the limits
-static AwesomeCVar s_cvThunderBass = AwesomeCVar::Float("weatherThunderBass", 2.2f, 1.0f, 3.0f, OnThunderSettings);
-static AwesomeCVar s_cvThunderBoost = AwesomeCVar::Float("weatherThunderBoost", 8.0f, 0.0f, 24.0f, OnThunderSettings, "%.1f");
+// gain of the low bands (FMOD PARAMEQ, 1 = flat) and the compressor's make-up gain in dB. The defaults, chosen by ear in game
+// (bass at its limit of 3), are measured in WeatherAudioTests; boost goes up to 24
+static AwesomeCVar s_cvThunderBass = AwesomeCVar::Float("weatherThunderBass", 3.0f, 1.0f, 3.0f, OnThunderSettings);
+static AwesomeCVar s_cvThunderBoost = AwesomeCVar::Float("weatherThunderBoost", 10.0f, 0.0f, 24.0f, OnThunderSettings, "%.1f");
 static AwesomeCVar s_cvSoundLayer = AwesomeCVar::Int("weatherSoundLayer", 1, 0, 1, OnCurveSettings);
 static AwesomeCVar s_cvSoundIndoor = AwesomeCVar::Float("weatherSoundIndoor", 0.35f, 0.0f, 1.0f);
 static AwesomeCVar s_cvAmbienceDuck = AwesomeCVar::Float("weatherAmbienceDuck", 0.6f, 0.0f, 1.0f);

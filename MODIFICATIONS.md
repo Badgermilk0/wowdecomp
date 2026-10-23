@@ -321,6 +321,17 @@ Alt+Enter back to the same place and size; `gxWindow 0` and `gxMaximize 1` on th
 `gxMonitor 1`; the window's place and size kept across a restart; D3D9 still starts. **Not tested in the world**: the
 in-game live re-layout (FrameXML, addons, chat), `uiScaleDpi`, `uiMaxAspect` and the camera probe need a realm login.
 
+### Distance clarity (branch `feature/distance-clarity`, D3D11)
+
+| Part | Where | CVars (**default**) | What it does |
+|---|---|---|---|
+| Texture LOD bias | `World::SetTexLodBias` (`WorldClient/World.cpp`), `CGxDevice::s_texLodBias`, `CGxDeviceD3d11::ISamplerState` | `texLodBias` (stock, **0**, -1 to 1; live) | The stock client registered the CVar and checked its range, but `World::SetTexLodBias` was empty in 12340, so it did nothing on any device. It is now the `MipLODBias` of every D3D11 sampler that uses mips (not shadow-map comparisons or level-0-only filters); a change makes the cached samplers again. Negative values pick sharper mip levels in the distance and at grazing angles, at some cost in shimmer on fine patterns. The D3D9 devices still ignore it. |
+| Sharpening | `TonemapPs` / `GxSharpen` (`D3d11Lighting.cpp`), `GxLightingParams::m_sharpen`, `AwesomeLighting.cpp` | `sharpen` (**0**, 0 to 1; live; `/lighting on` sets 0.5) | AMD FidelityFX contrast-adaptive sharpening (CAS) of the world as it is tonemapped, before the UI is drawn, so the UI is never sharpened. A 4-tap cross with a negative weight that shrinks where the 3x3 neighbourhood already has contrast, so detail softened by mips and distance comes back without halos on edges. The weight is judged on the colour clamped to 1, so bright HDR pixels are left alone. Needs `hdr 1` (it lives in the HDR tonemap pass). |
+
+Tested offline: the tonemap shader compiles (no errors in `gx.log`) and, on the login scene's model with
+`lightingGlueTest 3`, `sharpen 1` roughly doubles edge energy against the pass off, with no visible halos.
+**Not seen in the world**; the texLodBias change could not be isolated on the login screen.
+
 ### Audio engine upgrade (branch `feature/audio-engine`)
 
 The client already mixes with FMOD Ex 4.9.7 in software. 3D positioning, the cone settings and the `Sound_EnableReverb`

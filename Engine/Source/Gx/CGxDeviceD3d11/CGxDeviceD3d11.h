@@ -234,6 +234,8 @@ class CGxDeviceD3d11 : public CGxDevice {
     std::unordered_map<uint32_t, ID3D11DepthStencilState*> m_depthStates;
     std::unordered_map<uint64_t, ID3D11RasterizerState*> m_rasterStates;
     std::unordered_map<uint32_t, ID3D11SamplerState*> m_samplerStates;
+    // MODIFIED: texLodBias, the bias the cached samplers were made with
+    float m_samplerBias = 0.0f;
     uint64_t m_nextProgramId = 1;
 
     // constants: a ring the draws take slices of (D3D11.1 offsets), or one buffer per binding without them

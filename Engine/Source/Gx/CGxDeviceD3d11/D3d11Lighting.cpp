@@ -79,7 +79,7 @@ const char* const s_postHlsl =
     "    float4 gxHeightFog;            // x density, y falloff, z base height (world z), w most opacity\n"
     "    float4 gxCamera;               // xyz camera (world), w time\n"
     "    float4 gxBloom;                // x threshold, y knee, z intensity, w 1 = on\n"
-    "    float4 gxTone;                 // x exposure, y mode (0 clamp, 1 neutral, 2 ACES)\n"
+    "    float4 gxTone;                 // x exposure, y mode (0 clamp, 1 neutral, 2 ACES), z debug, w sharpen\n"
     "    float4 gxSource;               // the texture sampled: xy 1 / size; zw the blur direction\n"
     "    float4 gxClusterDims;          // x, y, z clusters, w lights\n"
     "    float4 gxClusterZ;             // slice = log2(clip w) * x + y\n"
@@ -354,9 +354,39 @@ const char* const s_postHlsl =
     "    return saturate(c * (2.51 * c + 0.03) / (c * (2.43 * c + 0.59) + 0.14));\n"
     "}\n"
     "\n"
+    "float3 GxSceneTap(float2 pixel) {\n"
+    "    return GxDec(gxColor.Load(int3(GxClampPixel(pixel), 0)).rgb) * gxTone.x;\n"
+    "}\n"
+    "\n"
+    "// contrast-adaptive sharpening (AMD FidelityFX CAS): a 4-tap cross with a negative weight that is smaller where the\n"
+    "// 3x3 neighbourhood already has contrast, so detail lost to mips and distance comes back without halos on edges.\n"
+    "// The weight is judged on the colour clamped to 1; brighter HDR pixels are not sharpened\n"
+    "float3 GxSharpen(float2 p, float3 e, float amount) {\n"
+    "    float3 a = GxSceneTap(p + float2(-1.0, -1.0));\n"
+    "    float3 b = GxSceneTap(p + float2(0.0, -1.0));\n"
+    "    float3 c = GxSceneTap(p + float2(1.0, -1.0));\n"
+    "    float3 d = GxSceneTap(p + float2(-1.0, 0.0));\n"
+    "    float3 f = GxSceneTap(p + float2(1.0, 0.0));\n"
+    "    float3 g = GxSceneTap(p + float2(-1.0, 1.0));\n"
+    "    float3 h = GxSceneTap(p + float2(0.0, 1.0));\n"
+    "    float3 k = GxSceneTap(p + float2(1.0, 1.0));\n"
+    "    float3 se = saturate(e);\n"
+    "    float3 mnCross = min(se, min(min(saturate(b), saturate(d)), min(saturate(f), saturate(h))));\n"
+    "    float3 mxCross = max(se, max(max(saturate(b), saturate(d)), max(saturate(f), saturate(h))));\n"
+    "    float3 mn = mnCross + min(mnCross, min(min(saturate(a), saturate(c)), min(saturate(g), saturate(k))));\n"
+    "    float3 mx = mxCross + max(mxCross, max(max(saturate(a), saturate(c)), max(saturate(g), saturate(k))));\n"
+    "    float3 amp = sqrt(saturate(min(mn, 2.0 - mx) / max(mx, 0.00001)));\n"
+    "    float3 w = amp * (-1.0 / lerp(8.0, 5.0, amount));\n"
+    "    return max((b + d + f + h) * w + e, 0.0) / (1.0 + 4.0 * w);\n"
+    "}\n"
+    "\n"
     "float4 TonemapPs(GxPostVaryings i) : SV_Target0 {\n"
     "    float4 s = gxColor.Load(int3(i.pos.xy, 0));\n"
     "    float3 c = GxDec(s.rgb) * gxTone.x;\n"
+    "\n"
+    "    if (gxTone.w > 0.0) {\n"
+    "        c = GxSharpen(i.pos.xy, c, gxTone.w);\n"
+    "    }\n"
     "\n"
     "    if (gxBloom.w > 0.0) {\n"
     "        // the chain adds every level into the one above: its mean, times the intensity\n"
@@ -936,6 +966,8 @@ void D3d11Lighting::IWritePostConstants(const D3D11_VIEWPORT& viewport, uint32_t
     c.m_tone[0] = p.m_exposure;
     c.m_tone[1] = static_cast<float>(p.m_tonemap);
     c.m_tone[2] = static_cast<float>(p.m_debug);
+    // MODIFIED: sharpen
+    c.m_tone[3] = p.m_sharpen > 1.0f ? 1.0f : p.m_sharpen;
 
     if (source) {
         memcpy(c.m_source, source, sizeof(c.m_source));

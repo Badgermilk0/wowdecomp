@@ -507,6 +507,16 @@ ID3D11RasterizerState* CGxDeviceD3d11::IRasterState(uint32_t cull, bool wirefram
 }
 
 ID3D11SamplerState* CGxDeviceD3d11::ISamplerState(const CGxTexFlags& flags, bool compare) {
+    // MODIFIED: texLodBias. A new bias makes every sampler again; a sampler still bound keeps its reference
+    if (this->m_samplerBias != CGxDevice::s_texLodBias) {
+        for (auto& entry : this->m_samplerStates) {
+            SafeRelease(entry.second);
+        }
+
+        this->m_samplerStates.clear();
+        this->m_samplerBias = CGxDevice::s_texLodBias;
+    }
+
     uint32_t filter = flags.m_filter < GxTexFilters_Last ? flags.m_filter : GxTex_Linear;
     uint32_t anisotropy = flags.m_maxAnisotropy < 1 ? 1 : (flags.m_maxAnisotropy > 16 ? 16 : flags.m_maxAnisotropy);
     uint32_t key = filter | (flags.m_wrapU << 3) | (flags.m_wrapV << 4) | (anisotropy << 5) | (compare ? 1u << 10 : 0);
@@ -557,7 +567,8 @@ ID3D11SamplerState* CGxDeviceD3d11::ISamplerState(const CGxTexFlags& flags, bool
     desc.AddressV = flags.m_wrapV ? D3D11_TEXTURE_ADDRESS_WRAP : D3D11_TEXTURE_ADDRESS_CLAMP;
     desc.AddressW = D3D11_TEXTURE_ADDRESS_CLAMP;
     desc.MaxAnisotropy = anisotropy;
-    desc.MipLODBias = 0.0f;
+    // MODIFIED: texLodBias, for the filters that use mips (MaxLOD 0 samples level 0 only)
+    desc.MipLODBias = !compare && desc.MaxLOD > 0.0f ? this->m_samplerBias : 0.0f;
     desc.MinLOD = 0.0f;
 
     ID3D11SamplerState* state = nullptr;

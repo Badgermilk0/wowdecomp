@@ -262,7 +262,7 @@ static void TestStrike() {
     LightningScheduler scheduler(4242);
 
     for (int32_t i = 0; i < 2000; i++) {
-        Strike strike = scheduler.MakeStrike(300.0f, -1.0f);
+        Strike strike = scheduler.MakeStrike(300.0f, LIGHTNING_MAX_DISTANCE, -1.0f, -1.0f);
         CHECK(strike.m_distance >= 300.0f && strike.m_distance <= LIGHTNING_MAX_DISTANCE);
         CHECK_NEAR(strike.m_thunderDelay, strike.m_distance / SPEED_OF_SOUND_YARDS, 1e-4f);
         CHECK(strike.m_near == (strike.m_distance < THUNDER_NEAR_DISTANCE));
@@ -286,8 +286,8 @@ static void TestStrike() {
     }
 
     // a set distance; nearer is brighter and louder
-    Strike near = scheduler.MakeStrike(0.0f, 100.0f);
-    Strike far = scheduler.MakeStrike(0.0f, 2800.0f);
+    Strike near = scheduler.MakeStrike(0.0f, LIGHTNING_MAX_DISTANCE, -1.0f, 100.0f);
+    Strike far = scheduler.MakeStrike(0.0f, LIGHTNING_MAX_DISTANCE, -1.0f, 2800.0f);
     CHECK_NEAR(near.m_distance, 100.0f, 1e-6f);
     CHECK(near.m_near && !far.m_near);
     CHECK(near.m_brightness > far.m_brightness);
@@ -319,6 +319,130 @@ static void TestSound() {
     CHECK_NEAR(ZoneAmbienceDuck(5.0f, 5.0f), 0.0f, 1e-6f);
 }
 
+static void TestStrikePlacement() {
+    LightningScheduler scheduler(2024);
+
+    // a near chance splits the range at THUNDER_NEAR_DISTANCE
+    for (float chance : { 0.0f, 0.3f, 1.0f }) {
+        int32_t near = 0;
+        const int32_t total = 4000;
+
+        for (int32_t i = 0; i < total; i++) {
+            Strike strike = scheduler.MakeStrike(100.0f, 2000.0f, chance, -1.0f);
+            CHECK(strike.m_distance >= 100.0f && strike.m_distance <= 2000.0f);
+            near += strike.m_near ? 1 : 0;
+        }
+
+        CHECK_NEAR(near / static_cast<float>(total), chance, 0.04f);
+    }
+
+    // the range limits hold without a near chance, and a range wholly near or far ignores it
+    for (int32_t i = 0; i < 1000; i++) {
+        Strike a = scheduler.MakeStrike(800.0f, 1200.0f, 1.0f, -1.0f);
+        CHECK(a.m_distance >= 800.0f && a.m_distance <= 1200.0f);
+        Strike b = scheduler.MakeStrike(50.0f, 300.0f, 0.0f, -1.0f);
+        CHECK(b.m_distance >= 50.0f && b.m_distance <= 300.0f);
+        Strike c = scheduler.MakeStrike(5000.0f, 99999.0f, -1.0f, -1.0f);
+        CHECK(c.m_distance <= LIGHTNING_MAX_DISTANCE);
+    }
+
+    // bursts: none at 0, always three at 1, delays rising and within two and a half seconds
+    float delays[3];
+    CHECK(scheduler.RollBurst(0.0f, delays, 3) == 0);
+
+    for (int32_t i = 0; i < 200; i++) {
+        int32_t count = scheduler.RollBurst(1.0f, delays, 3);
+        CHECK(count == 3);
+        CHECK(delays[0] >= 0.25f && delays[0] < delays[1] && delays[1] < delays[2] && delays[2] <= 2.55f);
+    }
+
+    CHECK(scheduler.RollBurst(1.0f, delays, 1) == 1);
+}
+
+static void TestThunderParts() {
+    LightningScheduler random(31337);
+    ThunderPart parts[THUNDER_MAX_PARTS];
+
+    // near: crack, body, roll; the body pitched down, the roll after the crack
+    int32_t count = ThunderParts(200.0f, true, random, parts);
+    CHECK(count == 3);
+    CHECK(parts[0].m_layer == THUNDER_CRACK && parts[1].m_layer == THUNDER_BODY && parts[2].m_layer == THUNDER_ROLL);
+    CHECK(parts[1].m_pitch < 0.7f && parts[1].m_pitch >= 0.55f);
+    CHECK(parts[2].m_delay > parts[0].m_delay);
+
+    count = ThunderParts(1000.0f, true, random, parts);
+    CHECK(count == 2);
+    CHECK(parts[0].m_layer == THUNDER_BODY && parts[1].m_layer == THUNDER_ROLL);
+
+    count = ThunderParts(2500.0f, true, random, parts);
+    CHECK(count == 1 && parts[0].m_layer == THUNDER_DISTANT);
+
+    // unlayered: one part, as before
+    CHECK(ThunderParts(200.0f, false, random, parts) == 1 && parts[0].m_layer == THUNDER_CRACK && parts[0].m_pitch == 1.0f);
+    CHECK(ThunderParts(1000.0f, false, random, parts) == 1 && parts[0].m_layer == THUNDER_ROLL);
+    CHECK(ThunderParts(2500.0f, false, random, parts) == 1 && parts[0].m_layer == THUNDER_DISTANT);
+
+    for (int32_t i = 0; i < 500; i++) {
+        float distance = random.Random() * LIGHTNING_MAX_DISTANCE;
+        count = ThunderParts(distance, true, random, parts);
+
+        for (int32_t j = 0; j < count; j++) {
+            CHECK(parts[j].m_layer >= 0 && parts[j].m_layer < THUNDER_LAYER_COUNT);
+            CHECK(parts[j].m_volume > 0.0f && parts[j].m_volume <= 1.0f);
+            CHECK(parts[j].m_pitch > 0.5f && parts[j].m_pitch < 1.1f);
+            CHECK(parts[j].m_delay >= 0.0f && parts[j].m_delay < 1.0f);
+        }
+    }
+
+    uint8_t r;
+    uint8_t g;
+    uint8_t b;
+    UnpackColor(static_cast<float>(0xC8D7FF), &r, &g, &b);
+    CHECK(r == 0xC8 && g == 0xD7 && b == 0xFF);
+    UnpackColor(16777215.0f, &r, &g, &b);
+    CHECK(r == 0xFF && g == 0xFF && b == 0xFF);
+    UnpackColor(-5.0f, &r, &g, &b);
+    CHECK(r == 0 && g == 0 && b == 0);
+
+    // a colour survives the packet
+    Ext ext;
+    ext.Set(EXT_FLASH_COLOR, static_cast<float>(0x123456));
+    uint8_t buffer[64];
+    Ext parsed;
+    CHECK(ParseExt(buffer, WriteExt(ext, buffer, sizeof(buffer)), &parsed));
+    UnpackColor(parsed.Get(EXT_FLASH_COLOR, 0.0f), &r, &g, &b);
+    CHECK(r == 0x12 && g == 0x34 && b == 0x56);
+}
+
+static void TestExtKeys() {
+    // every key has a name and a range, and a full block (all keys) fits the client's packet buffer
+    Ext ext;
+
+    for (uint32_t key = 1; key < EXT_KEY_COUNT; key++) {
+        float min = -1.0f;
+        float max = -1.0f;
+        CHECK(ExtKeyName(key) != nullptr);
+        CHECK(ExtKeyRange(key, &min, &max) && min < max);
+        ext.Set(key, max + 1000.0f);
+        CHECK_NEAR(ext.Get(key, 0.0f), max, 1e-3f);
+    }
+
+    float min;
+    float max;
+    CHECK(!ExtKeyRange(0, &min, &max));
+    CHECK(!ExtKeyRange(EXT_KEY_COUNT, &min, &max));
+
+    uint8_t buffer[5 + 5 * EXT_MAX_ENTRIES];
+    uint32_t size = WriteExt(ext, buffer, sizeof(buffer));
+    CHECK(size == 5 + 5 * (EXT_KEY_COUNT - 1));
+    Ext parsed;
+    CHECK(ParseExt(buffer, size, &parsed));
+    CHECK(parsed.m_mask == ext.m_mask);
+    CHECK(ExtKeyFromName("intensity") == EXT_STORM);
+    CHECK(ExtKeyFromName("storm") == 0);
+    CHECK(ExtKeyFromName("flashcolor") == EXT_FLASH_COLOR);
+}
+
 int main() {
     TestParticleCurve();
     TestSkyCurve();
@@ -329,6 +453,9 @@ int main() {
     TestStrike();
     TestAutoLightning();
     TestSound();
+    TestStrikePlacement();
+    TestThunderParts();
+    TestExtKeys();
 
     printf("%d checks, %d failed\n", s_checks, s_failures);
     return s_failures ? 1 : 0;

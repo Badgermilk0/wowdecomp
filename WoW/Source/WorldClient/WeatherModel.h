@@ -26,7 +26,22 @@ enum ExtKey : uint8_t {
     EXT_TRANSITION = 5,         // seconds to reach the new grade, sky and particles (0 = at once)
     EXT_VOLUME = 6,             // weather sound volume multiplier 0..1
     EXT_LIGHTNING_DISTANCE = 7, // nearest a strike may land, yards 0..3000
-    EXT_KEY_COUNT = 8,
+    EXT_STRIKE_MAX_DISTANCE = 8, // farthest a strike may land, yards 50..3000
+    EXT_FLASH = 9,              // flash brightness multiplier 0..2
+    EXT_THUNDER = 10,           // thunder volume multiplier 0..2 (above 1 lifts the quieter layers and far strikes)
+    EXT_NEAR_CHANCE = 11,       // chance 0..1 that a strike lands within THUNDER_NEAR_DISTANCE (crack and bright flash)
+    EXT_BURST = 12,             // chance 0..1 that a strike is followed by 1-3 restrikes within two seconds
+    EXT_STORM = 13,             // "intensity", the storm 0..1: lightning rate, near chance, bursts and rumble when
+                                // those are not sent (the grade stays the precipitation)
+    EXT_SOUND_KIT = 14,         // the weather loop's sound kit in place of the row's (0 = silent)
+    EXT_RUMBLE_KIT = 15,        // a second loop under the weather, e.g. 4994 (distant thunder bed); 0 = none
+    EXT_RUMBLE = 16,            // its volume 0..1 (default: storm, or 1)
+    EXT_THUNDER_NEAR_KIT = 17,  // the crack of a near strike (default weatherThunderNearKit)
+    EXT_THUNDER_FAR_KIT = 18,   // the body and roll of every strike (default weatherThunderFarKit)
+    EXT_DUCK = 19,              // how far the zone ambience is turned down under full weather 0..1
+    EXT_INDOOR = 20,            // weather loop volume indoors 0..1
+    EXT_FLASH_COLOR = 21,       // flash colour as 0xRRGGBB in a float (exact up to 2^24)
+    EXT_KEY_COUNT = 22,
 };
 
 struct Ext {
@@ -44,6 +59,8 @@ const char* ExtKeyName(uint32_t key);
 // the key named name ("sky", "particles", ...), 0 if none
 uint32_t ExtKeyFromName(const char* name);
 float ClampExt(uint32_t key, float value);
+// the range a key is clamped to; false for an unknown key
+bool ExtKeyRange(uint32_t key, float* min, float* max);
 
 // data / size: the bytes after the stock fields. False when there is no well-formed block (ext left empty)
 bool ParseExt(const uint8_t* data, uint32_t size, Ext* ext);
@@ -94,6 +111,34 @@ struct Strike {
 float FlashBrightness(float distance);
 float ThunderVolume(float distance);
 const float THUNDER_NEAR_DISTANCE = 600.0f;
+const float THUNDER_MID_DISTANCE = 1500.0f;
+
+class LightningScheduler;
+
+// The layers a strike's thunder is built from. Near: the crack, a pitched-down body at once and a roll after it.
+// Mid: body and roll. Far: the distant roll alone, duller still. Each layer goes through its own filter chain
+// (AwesomeWeather: bass shelf, lowpass, compressor).
+enum ThunderLayer : int32_t {
+    THUNDER_CRACK = 0,
+    THUNDER_BODY = 1,
+    THUNDER_ROLL = 2,
+    THUNDER_DISTANT = 3,
+    THUNDER_LAYER_COUNT = 4,
+};
+
+struct ThunderPart {
+    int32_t m_layer;
+    float m_delay;   // seconds after the thunder arrives
+    float m_volume;  // 0..1 of the strike's thunder volume
+    float m_pitch;   // playback rate
+};
+
+const int32_t THUNDER_MAX_PARTS = 3;
+// fills parts (capacity THUNDER_MAX_PARTS) for a strike at distance; layered false gives one part, the crack near
+// and the roll otherwise
+int32_t ThunderParts(float distance, bool layered, LightningScheduler& random, ThunderPart* parts);
+// a packed 0xRRGGBB ext value to bytes
+void UnpackColor(float packed, uint8_t* r, uint8_t* g, uint8_t* b);
 
 // flash blend at t seconds after the strike, 0 before and after
 float FlashEnvelope(const Strike& strike, float t);
@@ -108,8 +153,12 @@ class LightningScheduler {
     bool Update(float dt, float ratePerMinute);
     // seconds to the next strike at the current rate, negative when none is scheduled
     float NextIn() const { return this->m_nextIn; }
-    // a strike at distance (yards), or a random one no nearer than minDistance when distance < 0
-    Strike MakeStrike(float minDistance, float distance);
+    // a strike at distance (yards), or a random one between minDistance and maxDistance when distance < 0. With
+    // nearChance >= 0, that share lands within THUNDER_NEAR_DISTANCE (when the range allows), the rest beyond it;
+    // otherwise most land far (u^0.6 over the range)
+    Strike MakeStrike(float minDistance, float maxDistance, float nearChance, float distance);
+    // restrikes after a strike: how many (0-3, each with chance burst), their delays in seconds into delays
+    int32_t RollBurst(float burst, float* delays, int32_t capacity);
 
     private:
     void Schedule(float ratePerMinute);

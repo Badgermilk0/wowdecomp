@@ -9,6 +9,10 @@
 #include <cstdint>
 #include "WoW/Source/Object/WGUID.h"
 
+namespace FMOD {
+class Channel;
+}
+
 class C2Vector;
 struct FMOD_REVERB_PROPERTIES;
 class C3Vector;
@@ -79,6 +83,11 @@ float AwesomeWeatherDensityScale();
 void AwesomeWeatherUpdate();
 // Weather::Reset (world load, teleport, logout)
 void AwesomeWeatherOnReset();
+// SI2::DSP_AttachCustomDspChain for a chain SoundFilter.dbc does not have: the thunder layers ("AwesomeThunder...")
+// get their filter chain and pitch here, as their channel is set up
+void AwesomeWeatherAttachDspChain(FMOD::Channel* channel, const char* name);
+// SI2::DSP_ShutDown: release the thunder chains with the sound system
+void AwesomeWeatherSoundShutdown();
 
 // AwesomeEmbeddedUi.cpp, the AwesomeCVar settings window and the Flash helper built into the client:
 // CGGameUI::InitializeFrameXML, after the FrameXML files and before LoadAddOns, runs them as FrameXML

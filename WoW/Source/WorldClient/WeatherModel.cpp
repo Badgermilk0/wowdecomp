@@ -53,7 +53,24 @@ static const struct {
     { "transition", 0.0f, 600.0f },
     { "volume", 0.0f, 1.0f },
     { "strikedistance", 0.0f, LIGHTNING_MAX_DISTANCE },
+    { "strikemaxdistance", 50.0f, LIGHTNING_MAX_DISTANCE },
+    { "flash", 0.0f, 2.0f },
+    { "thunder", 0.0f, 2.0f },
+    { "nearchance", 0.0f, 1.0f },
+    { "burst", 0.0f, 1.0f },
+    { "intensity", 0.0f, 1.0f },
+    { "soundkit", 0.0f, 1000000.0f },
+    { "rumblekit", 0.0f, 1000000.0f },
+    { "rumble", 0.0f, 1.0f },
+    { "nearkit", 0.0f, 1000000.0f },
+    { "farkit", 0.0f, 1000000.0f },
+    { "duck", 0.0f, 1.0f },
+    { "indoor", 0.0f, 1.0f },
+    { "flashcolor", 0.0f, 16777215.0f },
 };
+
+static_assert(sizeof(s_extKeys) / sizeof(s_extKeys[0]) == EXT_KEY_COUNT, "a name and range for every key");
+static_assert(EXT_KEY_COUNT <= 32, "Ext::m_mask holds one bit per key");
 
 const char* ExtKeyName(uint32_t key) {
     return key < EXT_KEY_COUNT ? s_extKeys[key].m_name : nullptr;
@@ -71,6 +88,16 @@ uint32_t ExtKeyFromName(const char* name) {
     }
 
     return 0;
+}
+
+bool ExtKeyRange(uint32_t key, float* min, float* max) {
+    if (key == 0 || key >= EXT_KEY_COUNT) {
+        return false;
+    }
+
+    *min = s_extKeys[key].m_min;
+    *max = s_extKeys[key].m_max;
+    return true;
 }
 
 float ClampExt(uint32_t key, float value) {
@@ -377,14 +404,23 @@ bool LightningScheduler::Update(float dt, float ratePerMinute) {
     return true;
 }
 
-Strike LightningScheduler::MakeStrike(float minDistance, float distance) {
+Strike LightningScheduler::MakeStrike(float minDistance, float maxDistance, float nearChance, float distance) {
     Strike strike;
-    minDistance = Clamp(minDistance, 0.0f, LIGHTNING_MAX_DISTANCE);
+    maxDistance = Clamp(maxDistance, 50.0f, LIGHTNING_MAX_DISTANCE);
+    minDistance = Clamp(minDistance, 0.0f, maxDistance);
 
     if (distance < 0.0f) {
-        // most strikes are far away: u^0.6 leans toward the far end
-        float u = powf(this->Random(), 0.6f);
-        distance = minDistance + (LIGHTNING_MAX_DISTANCE - minDistance) * u;
+        bool split = nearChance >= 0.0f && minDistance < THUNDER_NEAR_DISTANCE && maxDistance > THUNDER_NEAR_DISTANCE;
+
+        if (split && this->Random() < nearChance) {
+            distance = minDistance + (THUNDER_NEAR_DISTANCE - minDistance) * this->Random();
+        } else if (split) {
+            distance = THUNDER_NEAR_DISTANCE + (maxDistance - THUNDER_NEAR_DISTANCE) * powf(this->Random(), 0.8f);
+        } else {
+            // most strikes are far away: u^0.6 leans toward the far end
+            float u = powf(this->Random(), 0.6f);
+            distance = minDistance + (maxDistance - minDistance) * u;
+        }
     }
 
     strike.m_distance = Clamp(distance, 0.0f, LIGHTNING_MAX_DISTANCE);
@@ -410,6 +446,54 @@ Strike LightningScheduler::MakeStrike(float minDistance, float distance) {
 
     strike.m_duration = strike.m_pulseStart[strike.m_pulseCount - 1] + 0.45f;
     return strike;
+}
+
+int32_t LightningScheduler::RollBurst(float burst, float* delays, int32_t capacity) {
+    int32_t count = 0;
+    float time = 0.0f;
+    int32_t limit = capacity < 3 ? capacity : 3;
+
+    while (count < limit && this->Random() < burst) {
+        time += 0.25f + 0.6f * this->Random();
+        delays[count++] = time;
+    }
+
+    return count;
+}
+
+int32_t ThunderParts(float distance, bool layered, LightningScheduler& random, ThunderPart* parts) {
+    bool near = distance < THUNDER_NEAR_DISTANCE;
+    bool far = distance >= THUNDER_MID_DISTANCE;
+
+    if (!layered) {
+        parts[0] = { near ? THUNDER_CRACK : (far ? THUNDER_DISTANT : THUNDER_ROLL), 0.0f, 1.0f, 1.0f };
+        return 1;
+    }
+
+    if (near) {
+        // the crack, the body under it, and the roll as the sound comes back off the land
+        parts[0] = { THUNDER_CRACK, 0.0f, 1.0f, 0.92f + 0.14f * random.Random() };
+        parts[1] = { THUNDER_BODY, 0.02f, 0.9f, 0.55f + 0.12f * random.Random() };
+        parts[2] = { THUNDER_ROLL, 0.45f + 0.5f * random.Random(), 0.55f, 0.75f + 0.1f * random.Random() };
+        return 3;
+    }
+
+    if (!far) {
+        parts[0] = { THUNDER_BODY, 0.0f, 0.85f, 0.6f + 0.12f * random.Random() };
+        parts[1] = { THUNDER_ROLL, 0.2f + 0.4f * random.Random(), 0.8f, 0.72f + 0.12f * random.Random() };
+        return 2;
+    }
+
+    parts[0] = { THUNDER_DISTANT, 0.0f, 1.0f, 0.62f + 0.15f * random.Random() };
+    return 1;
+}
+
+void UnpackColor(float packed, uint8_t* r, uint8_t* g, uint8_t* b) {
+    // in double: a float above 2^23 has no room for the half, and + 0.5f would round up to the next integer
+    uint32_t value = static_cast<uint32_t>(static_cast<double>(Clamp(packed, 0.0f, 16777215.0f)) + 0.5);
+    *r = static_cast<uint8_t>(value >> 16);
+    *g = static_cast<uint8_t>(value >> 8);
+    *b = static_cast<uint8_t>(value);
 }
 
 float AutoLightningRate(int32_t mode, uint32_t weatherId, uint32_t type, float grade, float heavyGrade, float rate) {

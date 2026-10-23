@@ -485,6 +485,40 @@ and the test lights; the D3D11 debug layer reports nothing new. **Not seen in th
 (checked only by the GPU test above), the MOLT lights, liquids and transparent passes over the HDR scene, the sky, real
 fog values, and how any of it looks. The strengths are starting points to tune in game.
 
+### Weather overhaul (branch `feature/weather-overhaul`)
+
+The stock weather (`WorldClient/MapWeather.cpp`, the SMSG_WEATHER case in `Ui/GameUI.cpp`) takes a Weather.dbc row
+and a grade. Particles are `(grade - 0.25) / 0.75`, so nothing falls at or below 0.25. The storm sky is `4 * min(grade,
+0.25)`, fully stormy from 0.25. A change takes 10 s per 1.0 grade. The row's sound loop *replaces* the zone ambience
+and is silent indoors. There is no lightning. Two bugs: a sandstorm restarts its effect on every packet (it has no
+default texture, so `SetType` always sees a texture change), and a rain row's own texture (red, black) stays on
+later rain rows without one. Snow does not restart; `GetType` tests all three effects (checked against the 12340 exe
+at `0x783B60`). This overhaul works with any server and changes nothing a stock server relies on unless a CVar says so.
+It also gives a server finer control through an optional extension of the packet.
+
+| Part | Where | CVars (**default**) | What it does |
+|---|---|---|---|
+| Model | `WorldClient/WeatherModel.*` | — | The arithmetic, free of the engine: grade curves, the extension parser, the texture choice, the lightning scheduler, the flash envelope and the thunder. Unit-tested by `Tools/WeatherTests`. |
+| Stock fixes | `Weather::SetType` → `WeatherModel::ChoosePrecipTexture` | `weatherFixes` (**1**; 0 = stock logic) | A sandstorm keeps running across packets. Rain without its own texture goes back to the default drop. |
+| Particle curve | `Weather::SetStormIntensity`, the fade in `Weather::Update` | `weatherParticleStart` (**0.25** = stock) | The grade at and below which nothing falls; particles rise linearly from there to 1. |
+| Sky curve | `Weather::SetType` (the fog target is storm sky / 4) | `weatherSkyCurve` (**0** = stock), `weatherSkyMin` (**0.5**) | Curve 1 grades the sky under precipitation: `weatherSkyMin` at the first drop, full storm at grade 1. Sky-only rows (fog, id 0) keep the stock ramp, so a server's 0..0.25 sky states look the same. Left at stock by default because mod_weather_vibe is tuned to it; with curve 1 its overcast-to-light-rain step brightens the sky. |
+| Density | `MapWeather_CVar.cpp` (`s_weatherDensityBase`, `Weather_RefreshDensity`) | `weatherDensityScale` (**1**, 0.1-2) | The particle rate is the `weatherDensity` level × this × the server's density. |
+| Lightning | `AwesomeWeather.cpp` (`UpdateLightning`) through `DayNight::SetFlashColor` | `weatherLightning` (**1**: the thunderstorm row 86 and servers that ask; 2: also rain at `weatherLightningGrade` **0.85**+; 0 off), `weatherLightningRate` (**6**/min at grade 1), `weatherLightningBrightness` (**0.8**), `weatherLightningDistance` (**200** yd, nearest strike) | Strikes come as a Poisson process (at least 1.5 s apart), 200-3000 yd away, most of them far. Each is 1-4 return strokes. The flash uses the hook Eclipse uses, which tints the sky dome, fog, ambient and sun light toward bluish white, brighter when near and a third as strong indoors. |
+| Thunder | same, `PlayThunder` | `weatherThunder` (**1**), `weatherThunderVolume` (**1**), `weatherThunderNearKit` (**8439** Blasted Lands bolt), `weatherThunderFarKit` (**13006** Shaman_Thunder) | Plays after the flash, delayed by distance / 375 yd/s. Under 600 yd it uses the crack kit, otherwise the roll kit. Volume falls off with distance and is lower indoors. It plays on the ambience channel, so the ambience slider and `Sound_EnableAmbience` apply. |
+| Sound layer | `AwesomeWeather.cpp` (`UpdateSoundLayer`), `SI2::SetZoneAmbienceScale` in `SoundInterface2ZoneSounds.cpp` | `weatherSoundLayer` (**1**; 0 = stock replace), `weatherSoundIndoor` (**0.35**), `weatherAmbienceDuck` (**0.6**) | The row's loop plays on its own pair over the zone ambience and crossfades over 4 s. Its volume runs from 45% at the first drop to 100% at full particles, muffled indoors instead of cut. The zone ambience is ducked by up to `weatherAmbienceDuck` as the particles rise. |
+| Server extension | `GameUI.cpp` SMSG_WEATHER → `AwesomeWeatherOnPacket`, `WeatherModel::ParseExt` | — | After the stock `uint32 id, float grade, uint8 abrupt`: `uint32 'WVX1'` (bytes `57 56 58 31`), `uint8 count`, then `count × {uint8 key, float value}`. Keys: 1 sky (0-1), 2 particles (0-1), 3 density (0-2), 4 lightning per minute (0-60, 0 = none even for row 86), 5 transition seconds (0-600, 0 = at once), 6 volume (0-1), 7 nearest strike in yards. Out-of-range values are clamped, NaN and unknown keys are skipped, and a block that is cut short is ignored. Every packet replaces the previous block. The net layer skips unread bytes, so a stock client ignores the block. |
+| Override and tests | `AwesomeWeather.cpp` | — | `/weather` (`/wx`) draws any weather locally until `/weather off`. The server's packets keep arriving underneath and are applied again then. Lua: `GetWeatherInfo()` (a table), `SetWeatherOverride(id, grade[, abrupt])`, `SetWeatherOverrideField(name, value|nil)`, `ClearWeatherOverride()`, `TriggerLightning([yards])`, `GetWeatherRows()`. |
+
+`/weather` commands: no argument for the status; a preset (`clear fog overcast drizzle lightrain rain heavyrain storm
+lightsnow snow heavysnow blizzard lightsand sand sandstorm blackrain redrain mist`) with an optional grade and `now`
+(abrupt); `id <weatherId> [grade] [now]`; `grade <g>`; `sky|particles|density|lightning|transition|volume|strikedistance
+<value|off>` (the extension fields, on the override); `strike [yards]`; `list` (every Weather.dbc row); `off`.
+
+Tested: `WeatherTests` (curves against the stock formulas, the extension block round trip and malformed blocks, the
+stock and fixed texture logic, ten simulated minutes of the scheduler, 2,000 strikes' envelopes), and the client
+builds. **Not yet seen or heard in the world.** That includes the flash's look and strength, the thunder kits'
+loudness, the loop and duck levels, and the override commands. The defaults are starting points to tune in game.
+
 ## Upstream syncs
 
 - **2026-10-23**, SatyPardus `main` at `20f9120e` (187 commits, PR #1 on Badgermilk0/wowdecomp). Upstream replaced

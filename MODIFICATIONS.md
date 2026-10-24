@@ -598,7 +598,11 @@ the draw's near-map slots go in `gxShadowDraw.z`, and `GxStockShadow` takes the 
 Sixth test: a faintly darker square stayed around the player in Orgrimmar. `lightingDebug 2` showed the ground
 relit, and `shadowSun 0` removed the square. The stock bias is least on the 80-yard cascade: 0.9 yd, about half of
 it eaten by the map's own depth scale, `(z − 1) / 3999` written against `z / 4000` read. So flat ground shaded
-itself there. `shadowSunBias` (**0.5** yd, scaled by √(radius / 40) for the wider cascades) adds to it.
+itself there. `shadowSunBias` (yards, scaled by √(radius / 40) for the wider cascades) can add to it, but it changed nothing.
+`lightingDebug 9` then showed the square was exactly the 80-yard cascade, and skipping that cascade removed it with
+no other shadow lost. That cascade shades Orgrimmar's open ground where the others do not. So
+`shadowSunFirstCascade` (**2**: the 320-yard cascade first, still ~4 cm a texel at 8192; 1 restores the 80-yard
+one) is the default, and `shadowSunBias` defaults to **0**.
 `lightingDebug 9` colours the cascade used: red 80 yd, green 320, blue 1280.
 
 `lightingDebug` 6 shows the sunlight's shadow alone, 7 the canopy's dimming, and 8 the shafts. `/lighting` reports the

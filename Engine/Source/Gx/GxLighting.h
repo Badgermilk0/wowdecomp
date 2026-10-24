@@ -101,8 +101,8 @@ struct GxLightingParams {
     // the sun and its shadow (GxLighting_SunShadow, _Canopy, _Shafts)
     GxLightingShadows m_shadows;
     float m_sunShadowStrength = 1.0f; // 0 none, 1 the shadow takes all of the direct sunlight
-    uint32_t m_sunFirstCascade = 1; // the first cascade the sun shadows read: 1 the 80-yard one (2 skips it, a test)
-    float m_sunBias = 0.5f;          // yards of depth bias on top of the stock one (80-yard cascade; wider ones more)
+    uint32_t m_sunFirstCascade = 2; // the first cascade the sun shadows read: 1 the 80-yard one, 2 the 320-yard one
+    float m_sunBias = 0.0f;          // yards of depth bias on top of the stock one (80-yard cascade; wider ones more)
     float m_sunPenumbra = 1.5f;      // the sun's apparent size, times the real sun's: the softness of distant occluders
     float m_sunIntensity = 1.0f;     // the direct sunlight on lit surfaces
     float m_ambientIntensity = 1.0f; // their ambient light

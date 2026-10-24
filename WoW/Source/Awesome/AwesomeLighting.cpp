@@ -92,10 +92,13 @@ static AwesomeCVar s_cvFire = AwesomeCVar::Float("lightFire", 0.0f, 0.0f, 4.0f);
 static AwesomeCVar s_cvSunShadow = AwesomeCVar::Int("shadowSun", 0, 0, 1);
 static AwesomeCVar s_cvSunShadowStrength = AwesomeCVar::Float("shadowSunStrength", 1.0f, 0.0f, 1.0f);
 static AwesomeCVar s_cvPenumbra = AwesomeCVar::Float("shadowPenumbra", 1.5f, 0.0f, 6.0f);
-// yards of depth bias on top of the stock one: raise it where flat ground shades itself (a darker square around the player)
-static AwesomeCVar s_cvSunBias = AwesomeCVar::Float("shadowSunBias", 0.5f, 0.0f, 4.0f);
-// the first cascade the sun shadows read: 1 the 80-yard one, 2 the 320-yard one, 3 the 1280-yard one (a test)
-static AwesomeCVar s_cvSunFirstCascade = AwesomeCVar::Int("shadowSunFirstCascade", 1, 1, 3);
+// yards of depth bias on top of the stock one (scaled up on the wider cascades): raise it if flat ground shades itself in
+// speckles; more bias lifts shadows off their casters
+static AwesomeCVar s_cvSunBias = AwesomeCVar::Float("shadowSunBias", 0.0f, 0.0f, 4.0f);
+// the first cascade the sun shadows read: 1 the 80-yard one, 2 the 320-yard one (default), 3 the 1280-yard one. The
+// 80-yard one shaded open ground around the player in Orgrimmar (a square that followed along) that the others do not,
+// and the 320-yard one is still about 4 cm a texel at 8192
+static AwesomeCVar s_cvSunFirstCascade = AwesomeCVar::Int("shadowSunFirstCascade", 2, 1, 3);
 static AwesomeCVar s_cvSunIntensity = AwesomeCVar::Float("lightSunIntensity", 1.0f, 0.0f, 3.0f);
 static AwesomeCVar s_cvAmbientIntensity = AwesomeCVar::Float("lightAmbientIntensity", 1.0f, 0.0f, 2.0f);
 static AwesomeCVar s_cvCanopy = AwesomeCVar::Float("lightCanopy", 0.0f, 0.0f, 1.0f);

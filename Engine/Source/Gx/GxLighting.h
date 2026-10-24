@@ -108,7 +108,7 @@ struct GxLightingParams {
     float m_shadowedFraction = 0.4f; // a surface in full shade over one in full sun, from the zone's colours: what the
                                      // stock shadow of grass and unlit surfaces is deepened to
     float m_shafts = 0.0f;           // the intensity of the scattered sunlight
-    float m_shaftsDensity = 0.02f;   // its density per yard
+    float m_shaftsDensity = 0.012f;   // its density per yard
     float m_shaftsDistance = 120.0f; // how far along each view ray it is gathered
     float m_interior = 0.0f;         // 0 outdoors, 1 inside a WMO (no sun)
 };

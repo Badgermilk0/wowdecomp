@@ -96,7 +96,7 @@ static AwesomeCVar s_cvSunIntensity = AwesomeCVar::Float("lightSunIntensity", 1.
 static AwesomeCVar s_cvAmbientIntensity = AwesomeCVar::Float("lightAmbientIntensity", 1.0f, 0.0f, 2.0f);
 static AwesomeCVar s_cvCanopy = AwesomeCVar::Float("lightCanopy", 0.0f, 0.0f, 1.0f);
 static AwesomeCVar s_cvShafts = AwesomeCVar::Float("lightShafts", 0.0f, 0.0f, 4.0f);
-static AwesomeCVar s_cvShaftsDensity = AwesomeCVar::Float("lightShaftsDensity", 0.02f, 0.001f, 0.2f, nullptr, "%.3f");
+static AwesomeCVar s_cvShaftsDensity = AwesomeCVar::Float("lightShaftsDensity", 0.012f, 0.001f, 0.2f, nullptr, "%.3f");
 static AwesomeCVar s_cvShaftsDistance = AwesomeCVar::Float("lightShaftsDistance", 120.0f, 20.0f, 300.0f, nullptr, "%.0f");
 // the passes on the login screen's model, for a look without a realm: 1, 2 with three test lights, 3 as 2 but on and
 // off by turns every 4 seconds

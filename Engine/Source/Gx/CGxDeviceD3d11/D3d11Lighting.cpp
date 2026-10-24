@@ -378,7 +378,7 @@ const char* const s_postHlsl =
     "    // air lit along most of the ray (an open field) scatters less than a ray that crosses shade and light: the shafts\n"
     "    // stand out, and the open air stays clearer\n"
     "    float open = lit / steps;\n"
-    "    sum *= sigma * dt * lerp(1.0, 0.35, open);\n"
+    "    sum *= sigma * dt * lerp(1.0, 0.15, open);\n"
     "    // Henyey-Greenstein, 1 for light scattered evenly, at most 2.5 toward the sun: brighter toward it, not a glare\n"
     "    float g = gxShaftColor.w;\n"
     "    float phase = min((1.0 - g * g) / pow(max(1.0 + g * g - 2.0 * g * dot(dir, gxSunView.xyz), 0.0001), 1.5), 2.5);\n"
@@ -431,7 +431,7 @@ const char* const s_postHlsl =
     "        }\n"
     "    }\n"
     "\n"
-    "    float a = saturate(1.0 - exp(-gxShafts.x * sum / max(total, 0.00001))) * 0.6;\n"
+    "    float a = saturate(1.0 - exp(-gxShafts.x * sum / max(total, 0.00001))) * 0.45;\n"
     "\n"
     "    // lightingDebug 8: the shafts alone\n"
     "    if (gxTone.z > 7.5) {\n"
@@ -1308,6 +1308,10 @@ void D3d11Lighting::IWritePostConstants(const D3D11_VIEWPORT& viewport, uint32_t
     float fogTint[3];
     Tint(C3Vector(Decode(p.m_fogColor.x), Decode(p.m_fogColor.y), Decode(p.m_fogColor.z)), fogTint);
     float strength = (sunLum * 3.0f < 1.0f ? sunLum * 3.0f : 1.0f) * (1.0f - (p.m_interior < 0.0f ? 0.0f : (p.m_interior > 1.0f ? 1.0f : p.m_interior)));
+    // only as strong as the sun's share of the zone's light: under an overcast, foggy sky (Darkshore) the air is lit by
+    // the ambient all round and shows no shafts; a clear sun through a canopy does
+    float direct = (1.0f - p.m_shadowedFraction) * 1.6f;
+    strength *= direct < 0.0f ? 0.0f : (direct > 1.0f ? 1.0f : direct);
 
     for (uint32_t k = 0; k < 3; k++) {
         float tint = sunLum > 0.001f ? sun[k] / sunLum : 1.0f;

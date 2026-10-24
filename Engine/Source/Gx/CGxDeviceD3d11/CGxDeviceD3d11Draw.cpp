@@ -828,6 +828,7 @@ void CGxDeviceD3d11::IBuildDrawConstants(DrawConstants& c) {
     // MODIFIED: sun shadows (D3d11Lighting::StockShadowDepth)
     c.m_shadow[0] = this->m_drawShadowKind == 1 ? 1.0f : 0.0f;
     c.m_shadow[1] = this->m_drawShadowKind == 1 && this->m_lighting ? this->m_lighting->StockShadowDepth() : 1.0f;
+    c.m_shadow[2] = static_cast<float>(this->m_drawNearMask);
 }
 
 void CGxDeviceD3d11::IBuildFixedConstants(FfConstants& c, const uint8_t* texTransform) {
@@ -972,6 +973,7 @@ bool CGxDeviceD3d11::IStateSync(EGxPrim primType) {
     // MODIFIED: sun shadows: the slots holding the sun's cascades, and the interior map
     uint32_t sunMask = 0;
     uint32_t interiorMask = 0;
+    uint32_t nearMask = 0;
 
     for (uint32_t slot = 0; slot < 16; slot++) {
         CGxTex* texId = static_cast<CGxTex*>(this->m_appRenderStates[GxRs_Texture0 + slot].m_value.m_data.p);
@@ -1027,6 +1029,7 @@ bool CGxDeviceD3d11::IStateSync(EGxPrim primType) {
             uint32_t kind = this->m_lighting->ShadowKindOf(texId);
             sunMask |= kind == 1 ? 1u << slot : 0;
             interiorMask |= kind == 2 ? 1u << slot : 0;
+            nearMask |= kind == 3 ? 1u << slot : 0;
         }
     }
 
@@ -1065,6 +1068,7 @@ bool CGxDeviceD3d11::IStateSync(EGxPrim primType) {
 
     // MODIFIED: sun shadows: what the pixel shader's shadow taps read (GxDraw gxShadowDraw)
     this->m_drawShadowKind = 0;
+    this->m_drawNearMask = nearMask;
 
     if (psEntry) {
         uint32_t sampled = psEntry->m_dx9.m_samplerMask;

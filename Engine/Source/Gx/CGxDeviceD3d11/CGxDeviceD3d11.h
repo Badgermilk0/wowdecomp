@@ -234,6 +234,8 @@ class CGxDeviceD3d11 : public CGxDevice {
     bool m_lightingBound = false;
     // MODIFIED: sun shadows: the draw being prepared samples the sun's cascades (1) or the interior map (2), else 0
     uint32_t m_drawShadowKind = 0;
+    // the slots of that draw holding the near map (D3d11Lighting::ShadowKindOf 3), whose taps read lit
+    uint32_t m_drawNearMask = 0;
 
     // shaders and the state objects, by key
     std::unordered_map<GxD3d11::Hash128, Program*, Hash128Hash> m_programs;

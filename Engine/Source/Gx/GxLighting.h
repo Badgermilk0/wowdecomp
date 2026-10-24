@@ -73,7 +73,7 @@ struct GxLightingParams {
     // lights
     float m_lightWrap = 0.2f;
     float m_dynamicIntensity = 1.0f;
-    float m_specularM2 = 0.3f;
+    float m_specularM2 = 0.1f;
     float m_specularWmo = 1.0f;
     float m_lightDistance = 120.0f;  // the clusters reach this far
 

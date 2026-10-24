@@ -1062,6 +1062,11 @@ uint32_t D3d11Lighting::ShadowKindOf(CGxTex* texture) const {
         }
     }
 
+    // the near map: its taps read lit while the sun shadows are on (GxStockShadow)
+    if (shadows.m_maps[0] && shadows.m_maps[0] == texture && (this->m_params.m_features & GxLighting_SunShadow)) {
+        return 3;
+    }
+
     return 0;
 }
 

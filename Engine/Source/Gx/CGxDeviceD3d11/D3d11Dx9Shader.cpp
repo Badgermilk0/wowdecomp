@@ -47,7 +47,8 @@ const char* const s_hlslCommon =
     "    uint4 gxClipMask;        // x planes on\n"
     "    float4 gxOutput;         // x the largest colour a pixel shader writes: 1, or more into the HDR scene\n"
     // MODIFIED: sun shadows (D3d11Lighting)
-    "    float4 gxShadowDraw;     // x 1 = the draw samples the sun's shadow maps outdoors, y the stock taps' depth\n"
+    "    float4 gxShadowDraw;     // x 1 = the draw samples the sun's shadow maps outdoors, y the stock taps' depth, z the\n"
+    "                             // slots (a bit each) holding the near map, whose taps read lit\n"
     "};\n"
     "\n"
     "// MODIFIED: sun shadows. A relit pixel shades the direct sunlight with its own shadow (GxLightPixel sets gxOwnSun), so\n"
@@ -55,7 +56,13 @@ const char* const s_hlslCommon =
     "// shade come as dark as relit ones (the stock shaders keep 70% of all the light in full shadow)\n"
     "static bool gxOwnSun = false;\n"
     "\n"
-    "float4 GxStockShadow(float4 s) {\n"
+    "// the near map follows the player, and ground that is also a caster in it shades itself (Orgrimmar's): with the sun\n"
+    "// shadows on its taps read lit, the cascades hold the units too\n"
+    "float4 GxStockShadow(uint slot, float4 s) {\n"
+    "    if (((uint)gxShadowDraw.z >> slot) & 1u) {\n"
+    "        return 1.0;\n"
+    "    }\n"
+    "\n"
     "    return gxOwnSun ? 1.0 : 1.0 - gxShadowDraw.y * (1.0 - s);\n"
     "}\n"
     "\n"
@@ -2002,7 +2009,7 @@ bool Writer::Sample(const Dx9Inst& ins) {
     if (depth) {
         // D3D9's hardware shadow map: a depth texture compares the coordinate's z with its texel, filtered
         // MODIFIED: sun shadows: through GxStockShadow
-        fetch = Format("GxStockShadow(T%u.SampleCmpLevelZero(S%u, tc.xy, tc.z).xxxx)", slot, slot);
+        fetch = Format("GxStockShadow(%uu, T%u.SampleCmpLevelZero(S%u, tc.xy, tc.z).xxxx)", slot, slot, slot);
     } else if (ins.m_op == OP_TEXLDL) {
         fetch = Format("T%u.SampleLevel(S%u, %s, tc.w)", slot, slot, uv);
     } else if (ins.m_op == OP_TEXLDD) {

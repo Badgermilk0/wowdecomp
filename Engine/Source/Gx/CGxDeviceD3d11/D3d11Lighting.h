@@ -59,7 +59,8 @@ class D3d11Lighting : public IGxLighting {
     }
     // the constants, lights and clusters every translated shader may read
     void BindForDraw();
-    // MODIFIED: sun shadows. What a texture a draw samples is: 1 one of the sun's cascades, 2 the interior map, else 0
+    // MODIFIED: sun shadows. What a texture a draw samples is: 1 one of the sun's cascades, 2 the interior map, 3 the near
+    // map, else 0
     uint32_t ShadowKindOf(CGxTex* texture) const;
     // how much deeper the stock shadow taps of a draw outdoors go (GxDraw gxShadowDraw.y): 1 = stock
     float StockShadowDepth() const;

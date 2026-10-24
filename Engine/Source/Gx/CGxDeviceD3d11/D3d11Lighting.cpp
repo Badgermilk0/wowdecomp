@@ -434,7 +434,7 @@ const char* const s_postHlsl =
     "    float a = saturate(1.0 - exp(-gxShafts.x * sum / max(total, 0.00001))) * 0.45;\n"
     "\n"
     "    // lightingDebug 8: the shafts alone\n"
-    "    if (gxTone.z > 7.5) {\n"
+    "    if (gxTone.z > 7.5 && gxTone.z < 8.5) {\n"
     "        return float4(a.xxx, 1.0);\n"
     "    }\n"
     "\n"
@@ -1192,7 +1192,7 @@ void D3d11Lighting::IWriteConstants(bool on) {
         c.m_sunScale[1] = p.m_ambientIntensity;
         // the near map is left out: it follows the player, and ground that is also a caster in it (Orgrimmar's) shades
         // itself there, a dark square that travels along. The cascades hold the units too, finer
-        c.m_sunScale[2] = 0.0f;
+        c.m_sunScale[2] = static_cast<float>(p.m_sunFirstCascade < 1 ? 1 : (p.m_sunFirstCascade > 3 ? 3 : p.m_sunFirstCascade));
         c.m_sunScale[3] = this->m_sunActive ? 1.0f : 0.0f;
 
         for (uint32_t i = 0; i < 4; i++) {

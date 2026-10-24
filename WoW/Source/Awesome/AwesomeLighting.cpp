@@ -94,6 +94,8 @@ static AwesomeCVar s_cvSunShadowStrength = AwesomeCVar::Float("shadowSunStrength
 static AwesomeCVar s_cvPenumbra = AwesomeCVar::Float("shadowPenumbra", 1.5f, 0.0f, 6.0f);
 // yards of depth bias on top of the stock one: raise it where flat ground shades itself (a darker square around the player)
 static AwesomeCVar s_cvSunBias = AwesomeCVar::Float("shadowSunBias", 0.5f, 0.0f, 4.0f);
+// the first cascade the sun shadows read: 1 the 80-yard one, 2 the 320-yard one, 3 the 1280-yard one (a test)
+static AwesomeCVar s_cvSunFirstCascade = AwesomeCVar::Int("shadowSunFirstCascade", 1, 1, 3);
 static AwesomeCVar s_cvSunIntensity = AwesomeCVar::Float("lightSunIntensity", 1.0f, 0.0f, 3.0f);
 static AwesomeCVar s_cvAmbientIntensity = AwesomeCVar::Float("lightAmbientIntensity", 1.0f, 0.0f, 2.0f);
 static AwesomeCVar s_cvCanopy = AwesomeCVar::Float("lightCanopy", 0.0f, 0.0f, 1.0f);
@@ -114,7 +116,7 @@ static AwesomeCVar* const s_cvars[] = {
     &s_cvPerPixel, &s_cvDynamic, &s_cvDynamicIntensity, &s_cvDynamicM2, &s_cvDynamicWmo, &s_cvDynamicDistance, &s_cvFlicker,
     &s_cvWrap, &s_cvSpecular, &s_cvSpecularM2, &s_cvSpecularWmo, &s_cvSkyAmbient, &s_cvHeightFog, &s_cvHeightFogFalloff,
     &s_cvHeightFogOffset, &s_cvHeightFogMax, &s_cvScattering, &s_cvFire,
-    &s_cvSunShadow, &s_cvSunShadowStrength, &s_cvPenumbra, &s_cvSunBias, &s_cvSunIntensity, &s_cvAmbientIntensity, &s_cvCanopy,
+    &s_cvSunShadow, &s_cvSunShadowStrength, &s_cvPenumbra, &s_cvSunBias, &s_cvSunFirstCascade, &s_cvSunIntensity, &s_cvAmbientIntensity, &s_cvCanopy,
     &s_cvShafts, &s_cvShaftsDensity, &s_cvShaftsDistance,
 };
 
@@ -601,6 +603,7 @@ static void BuildParams(GxLightingParams& p, const C3Vector& camera) {
     p.m_sunShadowStrength = s_cvSunShadowStrength.m_floatValue;
     p.m_sunPenumbra = s_cvPenumbra.m_floatValue;
     p.m_sunBias = s_cvSunBias.m_floatValue;
+    p.m_sunFirstCascade = static_cast<uint32_t>(s_cvSunFirstCascade.m_intValue);
     p.m_sunIntensity = s_cvSunIntensity.m_floatValue;
     p.m_ambientIntensity = s_cvAmbientIntensity.m_floatValue;
     p.m_canopy = s_cvCanopy.m_floatValue;

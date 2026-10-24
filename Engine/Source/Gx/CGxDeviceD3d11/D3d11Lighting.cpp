@@ -248,8 +248,9 @@ const char* const s_postHlsl =
     "    float d = GxDepthAt(int2(i.pos.xy));\n"
     "    float w = GxClipW(GxViewPos(i.pos.xy, d));\n"
     "\n"
-    "    // lightingDebug 4: red geometry, green clip w / 200, blue the half-resolution occlusion under the pixel\n"
-    "    if (gxTone.z > 3.5) {\n"
+    "    // lightingDebug 4: red geometry, green clip w / 200, blue the half-resolution occlusion under the pixel (5: green\n"
+    "    // the depth); the higher modes are other passes'\n"
+    "    if (gxTone.z > 3.5 && gxTone.z < 5.5) {\n"
     "        float2 h4 = gxColor.Load(int3(int2((i.pos.xy - gxViewportPx.xy) * 0.5), 0)).xy;\n"
     "        return float4(GxIsGeometry(d) ? 1.0 : 0.0, gxTone.z > 4.5 ? d : saturate(w / 200.0), h4.x, 1.0);\n"
     "    }\n"
@@ -1576,7 +1577,7 @@ void D3d11Lighting::OpaqueDone() {
             this->IWritePostConstants(vp, dev->m_frameWidth, dev->m_frameHeight, source);
             // lightingDebug 1: the occlusion itself instead of the scene
             // (colour only: the frame's alpha is FFX glow's mask)
-            ID3D11BlendState* blend = this->m_params.m_debug == 1 || this->m_params.m_debug >= 4 ? this->m_blendOpaqueRgb : this->m_blendMultiply;
+            ID3D11BlendState* blend = this->m_params.m_debug == 1 || this->m_params.m_debug == 4 || this->m_params.m_debug == 5 ? this->m_blendOpaqueRgb : this->m_blendMultiply;
             this->IDrawFullscreen(msaa ? Shader_AoCompositePsMs : Shader_AoCompositePs, frame, vp, blend, composite, 2);
         }
     }

@@ -20,6 +20,8 @@
 #include <d3d11_1.h>
 #include "Engine/Source/Gx/GxLighting.h"
 
+class CGxTex;
+
 class CGxDeviceD3d11;
 
 class D3d11Lighting : public IGxLighting {
@@ -57,6 +59,10 @@ class D3d11Lighting : public IGxLighting {
     }
     // the constants, lights and clusters every translated shader may read
     void BindForDraw();
+    // MODIFIED: sun shadows. What a texture a draw samples is: 1 one of the sun's cascades, 2 the interior map, else 0
+    uint32_t ShadowKindOf(CGxTex* texture) const;
+    // how much deeper the stock shadow taps of a draw outdoors go (GxDraw gxShadowDraw.y): 1 = stock
+    float StockShadowDepth() const;
     // the frame's size changed, or the device goes
     void ReleaseTargets();
     void ReleaseAll();
@@ -84,6 +90,10 @@ class D3d11Lighting : public IGxLighting {
         Shader_BloomUpPs,
         Shader_TonemapPs,
         Shader_ClusterCs,
+        Shader_ShaftsPs,
+        Shader_ShaftsPsMs,
+        Shader_ShaftsCompositePs,
+        Shader_ShaftsCompositePsMs,
         Shaders_Last,
     };
 
@@ -134,6 +144,14 @@ class D3d11Lighting : public IGxLighting {
     ID3D11BlendState* m_blendOpaque = nullptr;
     ID3D11BlendState* m_blendOpaqueRgb = nullptr;
 
+    // MODIFIED: sun shadows: the stock maps of this frame (SetupView to EndWorld), their size, and the samplers that
+    // read them past their edge as lit
+    ID3D11ShaderResourceView* m_sunSrv[4] = {};
+    uint32_t m_sunMapSize = 0;
+    bool m_sunActive = false;
+    ID3D11SamplerState* m_sunPoint = nullptr;
+    ID3D11SamplerState* m_sunCompare = nullptr;
+
     // the world viewport and the matrices of the view, from SetupView
     D3D11_VIEWPORT m_viewport = {};
     float m_view[16] = {};
@@ -150,6 +168,8 @@ class D3d11Lighting : public IGxLighting {
     void IWritePostConstants(const D3D11_VIEWPORT& viewport, uint32_t targetWidth, uint32_t targetHeight, const float* source);
     void IDrawFullscreen(EShader shader, ID3D11RenderTargetView* target, const D3D11_VIEWPORT& viewport, ID3D11BlendState* blend, ID3D11ShaderResourceView* const* srvs, uint32_t srvCount);
     void ICaptureView();
+    void ICaptureShadows();
+    void IDrawShafts(ID3D11RenderTargetView* frame, ID3D11ShaderResourceView* depth, bool msaa);
     void IRestoreDevice();
 };
 

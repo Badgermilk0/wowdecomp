@@ -18,6 +18,12 @@
 // lightSkyAmbient: the ambient tinted by the zone's sky colour from above and its ground from below (Light.dbc).
 // fogHeight: exponential height fog (density per yard), thickest below the player (fogHeightOffset yards from the
 //   player's feet, fogHeightFalloff); fogScattering: the fog tinted toward the sun's colour around the sun.
+// shadowSun: the sun's shadow (the stock cascades, extShadowQuality 5) taken off the direct sunlight alone, per pixel
+//   and as soft as the sun's disc makes it (shadowPenumbra), instead of the stock 30% off all of the light; grass and
+//   unlit surfaces get their stock shadow deepened to match (shadowSunStrength). lightSunIntensity and
+//   lightAmbientIntensity weigh the two lights on lit surfaces. lightCanopy: the ambient dimmed under leaves and roofs,
+//   from the same maps. lightShafts: sunlight scattered in the air and shadowed by the cascades, so it falls in shafts
+//   through gaps in the leaves (lightShaftsDensity per yard, gathered lightShaftsDistance yards along each view ray).
 
 #include <algorithm>
 #include <cctype>
@@ -39,6 +45,9 @@
 #include "Engine/Source/Model2/M2ModelLight.h"
 #include "Engine/Source/Model2/M2Scene.h"
 #include "Engine/Source/Os/TimeManager.h"
+#include "Engine/Source/Services/Texture.h"
+#include "Engine/Source/ShaderEffect/ShaderEffect.h"
+#include "Engine/Source/ShaderEffect/ShadowCache.h"
 #include "Engine/Source/Tempest/C3Vector.h"
 #include "Engine/Source/Tempest/C44Matrix.h"
 #include "Engine/Source/Tempest/CImVector.h"
@@ -79,11 +88,22 @@ static AwesomeCVar s_cvScattering = AwesomeCVar::Float("fogScattering", 0.0f, 0.
 // fires as lights: the warm additive particle emitters of the world's models (bonfires, braziers, torches), which carry
 // no light of their own (0 off, else the intensity)
 static AwesomeCVar s_cvFire = AwesomeCVar::Float("lightFire", 0.0f, 0.0f, 4.0f);
+// sun shadows, the canopy and the shafts (all need extShadowQuality 5: the cascades)
+static AwesomeCVar s_cvSunShadow = AwesomeCVar::Int("shadowSun", 0, 0, 1);
+static AwesomeCVar s_cvSunShadowStrength = AwesomeCVar::Float("shadowSunStrength", 1.0f, 0.0f, 1.0f);
+static AwesomeCVar s_cvPenumbra = AwesomeCVar::Float("shadowPenumbra", 1.5f, 0.0f, 6.0f);
+static AwesomeCVar s_cvSunIntensity = AwesomeCVar::Float("lightSunIntensity", 1.0f, 0.0f, 3.0f);
+static AwesomeCVar s_cvAmbientIntensity = AwesomeCVar::Float("lightAmbientIntensity", 1.0f, 0.0f, 2.0f);
+static AwesomeCVar s_cvCanopy = AwesomeCVar::Float("lightCanopy", 0.0f, 0.0f, 1.0f);
+static AwesomeCVar s_cvShafts = AwesomeCVar::Float("lightShafts", 0.0f, 0.0f, 4.0f);
+static AwesomeCVar s_cvShaftsDensity = AwesomeCVar::Float("lightShaftsDensity", 0.02f, 0.001f, 0.2f, nullptr, "%.3f");
+static AwesomeCVar s_cvShaftsDistance = AwesomeCVar::Float("lightShaftsDistance", 120.0f, 20.0f, 300.0f, nullptr, "%.0f");
 // the passes on the login screen's model, for a look without a realm: 1, 2 with three test lights, 3 as 2 but on and
 // off by turns every 4 seconds
 static AwesomeCVar s_cvGlueTest = AwesomeCVar::Int("lightingGlueTest", 0, 0, 3);
-// 1: the SSAO term alone; 2: the lit surfaces by kind (green relit per pixel, red unlit, blue face normal); 3: the dynamic light alone
-static AwesomeCVar s_cvDebug = AwesomeCVar::Int("lightingDebug", 0, 0, 5);
+// 1: the SSAO term alone; 2: the lit surfaces by kind (green relit per pixel, red unlit, blue face normal); 3: the dynamic light alone;
+// 6: the sunlight's shadow alone; 7: the canopy's dimming alone; 8: the sun shafts alone
+static AwesomeCVar s_cvDebug = AwesomeCVar::Int("lightingDebug", 0, 0, 8);
 
 static AwesomeCVar* const s_cvars[] = {
     &s_cvGlueTest,
@@ -92,6 +112,8 @@ static AwesomeCVar* const s_cvars[] = {
     &s_cvPerPixel, &s_cvDynamic, &s_cvDynamicIntensity, &s_cvDynamicM2, &s_cvDynamicWmo, &s_cvDynamicDistance, &s_cvFlicker,
     &s_cvWrap, &s_cvSpecular, &s_cvSpecularM2, &s_cvSpecularWmo, &s_cvSkyAmbient, &s_cvHeightFog, &s_cvHeightFogFalloff,
     &s_cvHeightFogOffset, &s_cvHeightFogMax, &s_cvScattering, &s_cvFire,
+    &s_cvSunShadow, &s_cvSunShadowStrength, &s_cvPenumbra, &s_cvSunIntensity, &s_cvAmbientIntensity, &s_cvCanopy,
+    &s_cvShafts, &s_cvShaftsDensity, &s_cvShaftsDistance,
 };
 
 // the world pass of this frame, between BeginWorld and EndWorld
@@ -173,7 +195,64 @@ static uint32_t Features() {
         features |= GxLighting_Scattering;
     }
 
+    if (s_cvSunShadow.m_intValue) {
+        features |= GxLighting_SunShadow;
+
+        if (s_cvCanopy.m_floatValue > 0.0f) {
+            features |= GxLighting_Canopy;
+        }
+    }
+
+    if (s_cvShafts.m_floatValue > 0.0f) {
+        features |= GxLighting_Shafts;
+    }
+
     return features;
+}
+
+// the sun's shadow maps of this frame, as the stock shaders read them (CShadowCache::SetShadowMapGenericGlobal /
+// SetShadowMapTerrain): only the cascades of extShadowQuality 5 with depth-compare filtering, and only once the shadow
+// pass has drawn them (CShadowQuery::Update, before SetupView)
+static void GatherShadows(GxLightingShadows& shadows) {
+    shadows = GxLightingShadows();
+
+    if (CShadowCache::s_shadowMode != SHADOW_VERY_HIGH || !CShaderEffect::s_usePcfFiltering || CShadowCache::s_recreateTextures) {
+        return;
+    }
+
+    CShadowBand* bands = CShadowCache::s_extShadowBands;
+
+    for (uint32_t i = 0; i < 3; i++) {
+        if (!bands[i].m_textures[bands[i].m_current]) {
+            return;
+        }
+    }
+
+    if (CShadowCache::s_extDynShadow.m_textures[1]) {
+        shadows.m_maps[0] = TextureGetGxTex(CShadowCache::s_extDynShadow.m_textures[1], 1, nullptr);
+    }
+
+    shadows.m_radius[0] = CShadowCache::s_extDynShadow.m_radius;
+
+    for (uint32_t i = 0; i < 3; i++) {
+        shadows.m_maps[1 + i] = TextureGetGxTex(bands[i].m_textures[bands[i].m_current], 1, nullptr);
+        shadows.m_radius[1 + i] = bands[i].m_radius;
+    }
+
+    for (uint32_t i = 0; i < 12; i++) {
+        const C4Vector& row = CShadowCache::s_shadowMatrices[i];
+        shadows.m_rows[i][0] = row.x;
+        shadows.m_rows[i][1] = row.y;
+        shadows.m_rows[i][2] = row.z;
+        shadows.m_rows[i][3] = row.w;
+    }
+
+    shadows.m_depthYards = CShadowCache::s_shadowScale > 0.0f ? 1.0f / CShadowCache::s_shadowScale : 4000.0f;
+    shadows.m_interior = CShadowCache::s_intDynShadow ? TextureGetGxTex(CShadowCache::s_intDynShadow, 1, nullptr) : nullptr;
+}
+
+static float LuminanceOf(const C3Vector& gamma) {
+    return powf(gamma.x, 2.2f) * 0.2126f + powf(gamma.y, 2.2f) * 0.7152f + powf(gamma.z, 2.2f) * 0.0722f;
 }
 
 static C3Vector ColorOf(const CImVector& c) {
@@ -517,6 +596,14 @@ static void BuildParams(GxLightingParams& p, const C3Vector& camera) {
     p.m_cameraPosition = camera;
     p.m_time = static_cast<float>(OsGetAsyncTimeMs() % 3600000u) * 0.001f;
     p.m_debug = static_cast<uint32_t>(s_cvDebug.m_intValue);
+    p.m_sunShadowStrength = s_cvSunShadowStrength.m_floatValue;
+    p.m_sunPenumbra = s_cvPenumbra.m_floatValue;
+    p.m_sunIntensity = s_cvSunIntensity.m_floatValue;
+    p.m_ambientIntensity = s_cvAmbientIntensity.m_floatValue;
+    p.m_canopy = s_cvCanopy.m_floatValue;
+    p.m_shafts = s_cvShafts.m_floatValue;
+    p.m_shaftsDensity = s_cvShaftsDensity.m_floatValue;
+    p.m_shaftsDistance = s_cvShaftsDistance.m_floatValue;
 
     // the zone's colours this moment (Light.dbc through DayNight): the sky's top and middle, the ground lit by the sun
     DayNight::DNInfo* info = DayNight::GetInfo();
@@ -537,6 +624,14 @@ static void BuildParams(GxLightingParams& p, const C3Vector& camera) {
     p.m_sunColor = ColorOf(bands.m_diffuse);
     p.m_sunDirection = info->m_light0.m_dir;
     p.m_heightFogBase = info->m_playerPos.z + s_cvHeightFogOffset.m_floatValue;
+    p.m_interior = interior;
+
+    // a surface in full shade over one in full sun, the sun about 45 degrees up: what the stock shadow of grass and
+    // unlit surfaces is deepened to
+    float ambient = LuminanceOf(ColorOf(bands.m_ambient));
+    float direct = LuminanceOf(ColorOf(bands.m_diffuse)) * 0.7f;
+    float fraction = ambient + direct > 0.001f ? ambient / (ambient + direct) : 1.0f;
+    p.m_shadowedFraction = fraction < 0.15f ? 0.15f : (fraction > 1.0f ? 1.0f : fraction);
 }
 
 void AwesomeLightingBeginWorld() {
@@ -667,6 +762,12 @@ static void SmoothLights(const C3Vector& origin) {
 // into it
 static void SetupView(CM2Scene* scene, const C3Vector& camera, const C3Vector& origin, bool wmo, bool testLights) {
     BuildParams(s_params, camera);
+
+    // the world's shadow maps; the login screen's scene has none
+    if (wmo && (s_params.m_features & (GxLighting_SunShadow | GxLighting_Shafts))) {
+        GatherShadows(s_params.m_shadows);
+    }
+
     s_params.m_cameraPosition = camera - origin;
     s_params.m_heightFogBase -= origin.z;
     s_lights.clear();
@@ -860,7 +961,7 @@ static int32_t Script_LightingCommand(lua_State* L) {
     static const Preset s_preset[] = {
         { &s_cvHdr, "1" }, { &s_cvBloom, "0.3" }, { &s_cvSsao, "0.8" }, { &s_cvPerPixel, "1" }, { &s_cvDynamic, "1" },
         { &s_cvSpecular, "1" }, { &s_cvSkyAmbient, "0.5" }, { &s_cvHeightFog, "0.003" }, { &s_cvScattering, "0.4" },
-        { &s_cvFire, "1" }, { &s_cvSharpen, "0.5" },
+        { &s_cvFire, "1" }, { &s_cvSharpen, "0.5" }, { &s_cvSunShadow, "1" }, { &s_cvCanopy, "0.6" }, { &s_cvShafts, "1" },
     };
 
     if (!strcmp(word, "on") || !strcmp(word, "off")) {
@@ -870,7 +971,7 @@ static int32_t Script_LightingCommand(lua_State* L) {
             preset.m_cvar->Set(on ? preset.m_on : "0");
         }
 
-        Print(L, on ? "|cff33ff99Lighting|r on (WMO specular also needs the stock specular 1 and a restart)" : "|cff33ff99Lighting|r off");
+        Print(L, on ? "|cff33ff99Lighting|r on (WMO specular also needs the stock specular 1 and a restart; sun shadows, canopy and shafts need Shadow Quality 5)" : "|cff33ff99Lighting|r off");
         return 0;
     }
 
@@ -900,7 +1001,11 @@ static int32_t Script_LightingCommand(lua_State* L) {
         Print(L, line);
     }
 
-    Print(L, "  /lighting on | off; lightingDebug 1 SSAO, 2 lit surfaces (green per pixel, red unlit, blue face normal), 3 dynamic light alone, 4 SSAO inputs (red geometry, green distance / 200, blue occlusion)");
+    GxLightingShadows shadows;
+    GatherShadows(shadows);
+    snprintf(line, sizeof(line), "  sun shadows: shadow quality %u (5 needed), maps %s, near map %s, %.0f yd per depth unit; zone shade %.2f", static_cast<uint32_t>(CShadowCache::s_shadowMode), shadows.m_maps[1] ? "found" : "missing", shadows.m_maps[0] ? "found" : "missing", shadows.m_depthYards, s_params.m_shadowedFraction);
+    Print(L, line);
+    Print(L, "  /lighting on | off; lightingDebug 1 SSAO, 2 lit surfaces (green per pixel, red unlit, blue face normal), 3 dynamic light alone, 4 SSAO inputs (red geometry, green distance / 200, blue occlusion), 6 sun shadow, 7 canopy, 8 shafts");
     return 0;
 }
 

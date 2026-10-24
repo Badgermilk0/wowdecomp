@@ -533,6 +533,40 @@ and the test lights; the D3D11 debug layer reports nothing new. **Not seen in th
 (checked only by the GPU test above), the MOLT lights, liquids and transparent passes over the HDR scene, the sky, real
 fog values, and how any of it looks. The strengths are starting points to tune in game.
 
+### Sunlight, shade and shafts (branch `feature/sky-light-shadows`, D3D11 only)
+
+A second pass over how the sun and the sky light the world. In the stock shaders a shadow is `colour × (0.7 + 0.3 ×
+shadow)`: full shade still keeps 70% of all the light, ambient included. That is why a forest under a bright sun looked
+flat, with no patches of sunlight on the ground. Here the shadow takes away the direct sunlight only. Every effect has
+a CVar, all of them **default off**, and they need `extShadowQuality` 5: the three cascades are what they are made of.
+`/lighting on` turns them on with the rest of the preset.
+
+| Effect | CVars (**default**) | How |
+|---|---|---|
+| Sun shadows | `shadowSun` (**0**), `shadowSunStrength` (**1**), `shadowPenumbra` (**1.5**), `lightSunIntensity` (**1**), `lightAmbientIntensity` (**1**) | The lit families (M2, WMO, terrain, as in "Modern lighting") are lit again per pixel with the sun's term and the ambient apart. The sun's term is multiplied by the shadow, and the ambient is not. The shadow is read from the stock maps (the near map of the units, and the cascades 80, 320 and 1280 yards across, with the stock matrices and biases). Each map is read soft as the sun's disc makes it (PCSS): 8 gathers find the occluders around the point, and their distance gives the penumbra (the sun's angular radius × `shadowPenumbra` × the gap). Then 12 filtered compares are taken over that width, on a Vogel disc turned per pixel. A trunk's foot stays sharp, and light through a high canopy falls in soft patches. The first cascade that holds the point is used, blended into the next over its outer tenth; the near map is taken as the stock shaders take it (the darker of the two). In those draws the stock shadow taps read lit, so the shadow is not applied twice. WMO and terrain specular are shaded with the sun. The two intensities weigh the lights on lit surfaces; with HDR the lighting may reach 2. |
+| Grass and unlit surfaces | (the same) | Grass (`DetailDoodad`) and surfaces that are not relit keep the stock formula. Their shadow taps go deeper instead (`1 − k × (1 − tap)`), so their full shade is the zone's shaded fraction: ambient over ambient plus 0.7 × sun, from Light.dbc's colours. Grass in shade is then about as dark as the ground around it. |
+| Canopy shade | `lightCanopy` (**0** = off, to 1; needs `shadowSun`) | The ambient of lit surfaces dims under leaves and roofs. Eight points of a cone above the pixel (2 to 20 yards up, spreading by half their height) are looked up in the 320-yard cascade (the 1280-yard one past it) with a gather each. A point counts as open when nothing within 30 yards of it, toward the sun, is in the map; farther occluders are hills, whose shade is the sun's. Full cover dims the ambient to 0.3 at strength 1. |
+| Sun shafts | `lightShafts` (**0** = off, else the intensity), `lightShaftsDensity` (**0.02** per yard), `lightShaftsDistance` (**120** yd) | After the opaque pass (before the height fog): at half resolution each view ray is marched in 32 jittered steps up to the geometry or the distance. Each step reads the cascades for the sun, and the in-scattered light is weighed by Henyey-Greenstein (g 0.55, capped at 4). A ray lit along most of its length (an open field) scatters a tenth as much, so the open air stays clear and light crossing shade stands out as shafts. Then the depth-aware blur both ways, as SSAO's, and an upsample by depth laid over the scene by alpha. The colour is the sun's at luminance 1.5 with a quarter of the fog's. It is dimmer when the sun is (dusk, the moon) and off inside WMOs. |
+
+How it fits in:
+
+| Part | Where |
+|---|---|
+| The maps, matrices and their depth scale, read from `CShadowCache` after the shadow pass (`GatherShadows`), the CVars, the zone's shaded fraction | `Awesome/AwesomeLighting.cpp` |
+| `GxLightingShadows` and the new parameters | `Gx/GxLighting.h` |
+| The maps at t21-t24 with a point sampler (s13) and a comparison sampler (s14), both bordered as lit, only between SetupView and EndWorld (the shadow pass writes them before SetupView); the sun constants in b3; the shafts pass | `Gx/CGxDeviceD3d11/D3d11Lighting.*` |
+| Which draws sample a cascade (outdoors) or the interior map, per draw into `GxDraw.gxShadowDraw` | `Gx/CGxDeviceD3d11/CGxDeviceD3d11Draw.cpp` |
+| `GxStockShadow` around every depth-compare tap, `GxSunShadow` / `GxCanopy` / `GxSunLit*` in `s_hlslLighting`, the sun path of `GxLightPixel` | `Gx/CGxDeviceD3d11/D3d11Dx9Shader.cpp` |
+| Sun Shadows and Canopy Shade on the Lighting panel (and in its quality levels), Sun Shafts on the Water and Sky panel | `Awesome/Interface/FrameXML/VideoOptionsPanelsWaystone.lua`, `VideoOptionsStrings.lua` |
+
+`lightingDebug` 6 shows the sunlight's shadow alone, 7 the canopy's dimming, and 8 the shafts. `/lighting` reports the
+shadow quality and whether the maps were found. A model indoors samples only the near map or the interior map. It
+keeps the stock shadow, because only a draw that samples a cascade counts as outdoors.
+
+**Tested offline only:** the translated corpus and the post shaders compile, and the options panels pass their layout
+test. None of it can be seen without the world. The strengths (penumbra, canopy floor and reach, shaft density, phase
+and open-air damping) are starting points to tune in game.
+
 ### Weather overhaul (branch `feature/weather-overhaul`)
 
 The stock weather (`WorldClient/MapWeather.cpp`, the SMSG_WEATHER case in `Ui/GameUI.cpp`) takes a Weather.dbc row

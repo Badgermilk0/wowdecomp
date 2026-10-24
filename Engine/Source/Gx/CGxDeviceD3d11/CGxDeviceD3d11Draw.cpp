@@ -824,6 +824,10 @@ void CGxDeviceD3d11::IBuildDrawConstants(DrawConstants& c) {
         uint32_t blend = this->m_appRenderStates[GxRs_BlendingMode].m_value.m_data.u[0];
         c.m_output[0] = blend == GxBlend_Mod || blend == GxBlend_Mod2x ? 1.0f : 16.0f;
     }
+
+    // MODIFIED: sun shadows (D3d11Lighting::StockShadowDepth)
+    c.m_shadow[0] = this->m_drawShadowKind == 1 ? 1.0f : 0.0f;
+    c.m_shadow[1] = this->m_drawShadowKind == 1 && this->m_lighting ? this->m_lighting->StockShadowDepth() : 1.0f;
 }
 
 void CGxDeviceD3d11::IBuildFixedConstants(FfConstants& c, const uint8_t* texTransform) {
@@ -965,6 +969,9 @@ bool CGxDeviceD3d11::IStateSync(EGxPrim primType) {
     uint32_t depthMask = 0;
     uint32_t cubeMask = 0;
     uint32_t boundMask = 0;
+    // MODIFIED: sun shadows: the slots holding the sun's cascades, and the interior map
+    uint32_t sunMask = 0;
+    uint32_t interiorMask = 0;
 
     for (uint32_t slot = 0; slot < 16; slot++) {
         CGxTex* texId = static_cast<CGxTex*>(this->m_appRenderStates[GxRs_Texture0 + slot].m_value.m_data.p);
@@ -1015,6 +1022,12 @@ bool CGxDeviceD3d11::IStateSync(EGxPrim primType) {
         boundMask |= 1u << slot;
         depthMask |= texture->m_depth ? 1u << slot : 0;
         cubeMask |= texture->m_cube ? 1u << slot : 0;
+
+        if (texture->m_depth && this->m_lighting) {
+            uint32_t kind = this->m_lighting->ShadowKindOf(texId);
+            sunMask |= kind == 1 ? 1u << slot : 0;
+            interiorMask |= kind == 2 ? 1u << slot : 0;
+        }
     }
 
     // the shaders: the engine's when it bound valid ones, the fixed function's otherwise
@@ -1049,6 +1062,14 @@ bool CGxDeviceD3d11::IStateSync(EGxPrim primType) {
     bool specularEnable = this->m_appRenderStates[GxRs_MatSpecularExp].m_value.m_data.f[0] > 0.0f && this->m_appRenderStates[GxRs_MatSpecular].m_value.m_data.i[0];
     uint8_t texTransform[8] = {};
     bool fixedVertex = vsEntry == nullptr;
+
+    // MODIFIED: sun shadows: what the pixel shader's shadow taps read (GxDraw gxShadowDraw)
+    this->m_drawShadowKind = 0;
+
+    if (psEntry) {
+        uint32_t sampled = psEntry->m_dx9.m_samplerMask;
+        this->m_drawShadowKind = (interiorMask & sampled) ? 2 : ((sunMask & sampled) ? 1 : 0);
+    }
 
     if (psEntry) {
         psProgram = this->ITranslatedProgram(pixelShader, depthMask & psEntry->m_dx9.m_samplerMask);

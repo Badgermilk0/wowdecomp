@@ -466,6 +466,8 @@ do
 	specular:SetPoint("TOPLEFT", perPixel, "BOTTOMLEFT", 0, -8);
 	local stableShadows = VideoOptionsPanel_CreateCheckButton(panel, "StableShadows", "shadowStable", { text = "STABLE_SHADOWS" });
 	stableShadows:SetPoint("TOPLEFT", hdr, "BOTTOMLEFT", 0, -8);
+	local sunShadows = VideoOptionsPanel_CreateCheckButton(panel, "SunShadows", "shadowSun", { text = "SUN_SHADOWS" });
+	sunShadows:SetPoint("TOPLEFT", dynamic, "BOTTOMLEFT", 0, -8);
 
 	-- the sliders, three columns as on the Effects panel
 	local exposure = VideoOptionsPanel_CreateSlider(panel, "Exposure", "hdrExposure",
@@ -529,9 +531,13 @@ do
 		{ text = "SHADOW_SOFTNESS", minValue = 0.25, maxValue = 4, valueStep = 0.05 });
 	shadowSoftness:SetPoint("TOPLEFT", shadowSize, "BOTTOMLEFT", 0, -24);
 
+	local canopy = VideoOptionsPanel_CreateSlider(panel, "CanopyShade", "lightCanopy",
+		{ text = "CANOPY_SHADE", minValue = 0, maxValue = 1, valueStep = 0.05 });
+	canopy:SetPoint("TOPLEFT", shadowSoftness, "BOTTOMLEFT", 0, -24);
+
 	-- what needs the D3D11 device; the shadow settings work on every renderer
 	for _, control in ipairs({ hdr, perPixel, dynamic, specular, exposure, bloom, sharpen, ssao, skyAmbient, heightFog,
-							   scattering, fire, lightDistance }) do
+							   scattering, fire, lightDistance, sunShadows, canopy }) do
 		control.needsD3D11 = true;
 	end
 
@@ -540,19 +546,25 @@ do
 	sharpen.requires = { hdr };
 	fire.requires = { dynamic };
 	lightDistance.requires = { dynamic };
+	canopy.requires = { sunShadows };
 
 	-- Off, Low, Medium, High (the /lighting on preset), Ultra
 	local levels = {
-		[1] = { [hdr] = false, [perPixel] = false, [dynamic] = false, [specular] = false,
-				[bloom] = 0, [sharpen] = 0, [ssao] = 0, [skyAmbient] = 0, [heightFog] = 0, [scattering] = 0, [fire] = 0 },
-		[2] = { [hdr] = true, [perPixel] = true, [dynamic] = false, [specular] = false,
-				[bloom] = 0.1, [sharpen] = 0.3, [ssao] = 0, [skyAmbient] = 0.3, [heightFog] = 0, [scattering] = 0, [fire] = 0 },
-		[3] = { [hdr] = true, [perPixel] = true, [dynamic] = true, [specular] = true,
-				[bloom] = 0.2, [sharpen] = 0.4, [ssao] = 0.5, [skyAmbient] = 0.4, [heightFog] = 0, [scattering] = 0.2, [fire] = 0.5 },
-		[4] = { [hdr] = true, [perPixel] = true, [dynamic] = true, [specular] = true,
-				[bloom] = 0.3, [sharpen] = 0.5, [ssao] = 0.8, [skyAmbient] = 0.5, [heightFog] = 0.003, [scattering] = 0.4, [fire] = 1 },
-		[5] = { [hdr] = true, [perPixel] = true, [dynamic] = true, [specular] = true,
-				[bloom] = 0.4, [sharpen] = 0.5, [ssao] = 1, [skyAmbient] = 0.6, [heightFog] = 0.004, [scattering] = 0.5, [fire] = 1.5 },
+		[1] = { [hdr] = false, [perPixel] = false, [dynamic] = false, [specular] = false, [sunShadows] = false,
+				[bloom] = 0, [sharpen] = 0, [ssao] = 0, [skyAmbient] = 0, [heightFog] = 0, [scattering] = 0, [fire] = 0,
+				[canopy] = 0 },
+		[2] = { [hdr] = true, [perPixel] = true, [dynamic] = false, [specular] = false, [sunShadows] = false,
+				[bloom] = 0.1, [sharpen] = 0.3, [ssao] = 0, [skyAmbient] = 0.3, [heightFog] = 0, [scattering] = 0, [fire] = 0,
+				[canopy] = 0 },
+		[3] = { [hdr] = true, [perPixel] = true, [dynamic] = true, [specular] = true, [sunShadows] = true,
+				[bloom] = 0.2, [sharpen] = 0.4, [ssao] = 0.5, [skyAmbient] = 0.4, [heightFog] = 0, [scattering] = 0.2, [fire] = 0.5,
+				[canopy] = 0.4 },
+		[4] = { [hdr] = true, [perPixel] = true, [dynamic] = true, [specular] = true, [sunShadows] = true,
+				[bloom] = 0.3, [sharpen] = 0.5, [ssao] = 0.8, [skyAmbient] = 0.5, [heightFog] = 0.003, [scattering] = 0.4, [fire] = 1,
+				[canopy] = 0.6 },
+		[5] = { [hdr] = true, [perPixel] = true, [dynamic] = true, [specular] = true, [sunShadows] = true,
+				[bloom] = 0.4, [sharpen] = 0.5, [ssao] = 1, [skyAmbient] = 0.6, [heightFog] = 0.004, [scattering] = 0.5, [fire] = 1.5,
+				[canopy] = 0.7 },
 	};
 
 	local function GetQuality ()
@@ -673,17 +685,20 @@ do
 	transitions:SetPoint("TOPLEFT", skyBox, "TOPLEFT", 14, -56);
 	local dither = VideoOptionsPanel_CreateSlider(panel, "SkyDither", "skyDither",
 		{ text = "SKY_DITHERING", minValue = 0, maxValue = 2, valueStep = 0.25 });
-	dither:SetPoint("TOPLEFT", transitions, "TOPRIGHT", 40, 0);
+	dither:SetPoint("TOPLEFT", transitions, "TOPRIGHT", 12, 0);
 
 	local lightning = VideoOptionsPanel_CreateSlider(panel, "Lightning", "weatherLightning",
 		{ text = "LIGHTNING_FLASHES", minValue = 0, maxValue = 2, valueStep = 1, lowText = VIDEO_OPTIONS_OFF, highText = LIGHTNING_HEAVY_RAIN });
 	lightning:SetPoint("TOPLEFT", transitions, "BOTTOMLEFT", 0, -24);
 	local lightningBrightness = VideoOptionsPanel_CreateSlider(panel, "LightningBrightness", "weatherLightningBrightness",
 		{ text = "LIGHTNING_BRIGHTNESS", minValue = 0, maxValue = 1.5, valueStep = 0.05 });
-	lightningBrightness:SetPoint("TOPLEFT", lightning, "TOPRIGHT", 40, 0);
+	lightningBrightness:SetPoint("TOPLEFT", lightning, "TOPRIGHT", 12, 0);
+	local shafts = VideoOptionsPanel_CreateSlider(panel, "SunShafts", "lightShafts",
+		{ text = "SUN_SHAFTS", minValue = 0, maxValue = 4, valueStep = 0.1 });
+	shafts:SetPoint("TOPLEFT", dither, "TOPRIGHT", 12, 0);
 
 	-- the water is D3D11 work; the smooth sky, light transitions and lightning work on every renderer
-	for _, control in ipairs({ modern, reflections, ripples, waves, liquids, clarity, waveHeight, splashes, dither }) do
+	for _, control in ipairs({ modern, reflections, ripples, waves, liquids, clarity, waveHeight, splashes, dither, shafts }) do
 		control.needsD3D11 = true;
 	end
 

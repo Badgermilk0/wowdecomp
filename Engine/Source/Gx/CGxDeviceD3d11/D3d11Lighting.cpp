@@ -25,6 +25,12 @@ struct LightingConstants {
     float m_clusterZ[4];
     float m_projW[4];
     float m_lightParams[4];
+    // MODIFIED: sun shadows
+    float m_sunRows[12][4];
+    float m_sunShadow[4];
+    float m_sunScale[4];
+    float m_sunRadii[4];
+    float m_sunDepth[4];
 };
 
 // GxLight of s_hlslLighting
@@ -61,6 +67,11 @@ struct PostConstants {
     float m_clusterZ[4];
     float m_projW[4];
     float m_extra[4];
+    // MODIFIED: sun shafts
+    float m_sunRows[12][4];
+    float m_shafts[4];
+    float m_shaftColor[4];
+    float m_sunView[4];
 };
 
 const char* const s_postHlsl =
@@ -86,6 +97,10 @@ const char* const s_postHlsl =
     "    float4 gxClusterZ;             // slice = log2(clip w) * x + y\n"
     "    float4 gxProjW;                // clip w = dot(float4(view position, 1), gxProjW)\n"
     "    float4 gxExtra;                // x dither (8-bit steps of noise in the tonemap)\n"
+    "    float4 gxSunRows[12];          // view space to the sun's shadow maps (the near one, three cascades): x, y, depth\n"
+    "    float4 gxShafts;               // x intensity, y density per yard, z distance gathered, w steps\n"
+    "    float4 gxShaftColor;           // rgb the scattered light (gamma), w the phase function's forward lobe (g)\n"
+    "    float4 gxSunView;              // xyz toward the sun (view space)\n"
     "};\n"
     "\n"
     "#if GX_MSAA\n"
@@ -301,6 +316,102 @@ const char* const s_postHlsl =
     "    return float4((c1 * (a1 * (1.0 - a2)) + c2 * a2) / a, a);\n"
     "}\n"
     "\n"
+    "// MODIFIED: sun shafts. The cascades again (t3-t5) and their comparison sampler (s1)\n"
+    "Texture2D<float> gxShaftMap1 : register(t3);\n"
+    "Texture2D<float> gxShaftMap2 : register(t4);\n"
+    "Texture2D<float> gxShaftMap3 : register(t5);\n"
+    "SamplerComparisonState gxShaftCmp : register(s1);\n"
+    "\n"
+    "// the sun at view position q: 1 lit, 0 shaded, bilinear; 1 beyond the cascades\n"
+    "float GxShaftSun(float3 q) {\n"
+    "    float4 h = float4(q, 1.0);\n"
+    "    float3 c1 = float3(dot(gxSunRows[3], h), dot(gxSunRows[4], h), dot(gxSunRows[5], h));\n"
+    "    float3 c2 = float3(dot(gxSunRows[6], h), dot(gxSunRows[7], h), dot(gxSunRows[8], h));\n"
+    "    float3 c3 = float3(dot(gxSunRows[9], h), dot(gxSunRows[10], h), dot(gxSunRows[11], h));\n"
+    "    float v = 1.0;\n"
+    "\n"
+    "    [branch] if (max(abs(c1.x), abs(c1.y)) < 0.98) {\n"
+    "        v = gxShaftMap1.SampleCmpLevelZero(gxShaftCmp, c1.xy * 0.5 + 0.5, c1.z);\n"
+    "    } else if (max(abs(c2.x), abs(c2.y)) < 0.98) {\n"
+    "        v = gxShaftMap2.SampleCmpLevelZero(gxShaftCmp, c2.xy * 0.5 + 0.5, c2.z);\n"
+    "    } else if (max(abs(c3.x), abs(c3.y)) < 0.98) {\n"
+    "        v = gxShaftMap3.SampleCmpLevelZero(gxShaftCmp, c3.xy * 0.5 + 0.5, c3.z);\n"
+    "    }\n"
+    "\n"
+    "    return v;\n"
+    "}\n"
+    "\n"
+    "// at half resolution: x the sunlight the air scatters toward the eye along the pixel's ray, up to the geometry or\n"
+    "// gxShafts.z yards (the cascades' shadow along the way: shafts where the light comes through gaps), y the clip w\n"
+    "float4 ShaftsPs(GxPostVaryings i) : SV_Target0 {\n"
+    "    float2 pixel = gxViewportPx.xy + floor(i.pos.xy) * 2.0 + 0.5;\n"
+    "    float d = GxDepthAt(GxClampPixel(pixel));\n"
+    "    bool geometry = GxIsGeometry(d);\n"
+    "    float3 p = GxViewPos(pixel, geometry ? d : gxDepthRange.y);\n"
+    "    float dist = length(p);\n"
+    "    float3 dir = p / max(dist, 0.0001);\n"
+    "    float reach = geometry ? min(dist, gxShafts.z) : gxShafts.z;\n"
+    "    uint steps = (uint)gxShafts.w;\n"
+    "    float dt = reach / steps;\n"
+    "    float noise = frac(52.9829189 * frac(dot(i.pos.xy, float2(0.06711056, 0.00583715))));\n"
+    "    float sigma = gxShafts.y;\n"
+    "    float sum = 0.0;\n"
+    "    float lit = 0.0;\n"
+    "    float trans = 1.0;\n"
+    "    float fade = exp(-sigma * dt);\n"
+    "\n"
+    "    [loop] for (uint k = 0; k < steps; k++) {\n"
+    "        float v = GxShaftSun(dir * ((k + noise) * dt));\n"
+    "        sum += v * trans;\n"
+    "        lit += v;\n"
+    "        trans *= fade;\n"
+    "    }\n"
+    "\n"
+    "    // air that is lit along most of the ray (an open field) scatters less than a ray that crosses shade and light:\n"
+    "    // the shafts stand out, and the open air stays clear\n"
+    "    float open = lit / steps;\n"
+    "    sum *= sigma * dt * lerp(1.0, 0.1, open * open);\n"
+    "    // Henyey-Greenstein, 1 for light scattered evenly, at most 4 toward the sun\n"
+    "    float g = gxShaftColor.w;\n"
+    "    float phase = min((1.0 - g * g) / pow(max(1.0 + g * g - 2.0 * g * dot(dir, gxSunView.xyz), 0.0001), 1.5), 4.0);\n"
+    "    return float4(sum * phase, geometry ? GxClipW(p) : 100000.0, 0.0, 0.0);\n"
+    "}\n"
+    "\n"
+    "// the shafts over the scene by alpha, upsampled from half resolution by depth\n"
+    "float4 ShaftsCompositePs(GxPostVaryings i) : SV_Target0 {\n"
+    "    float d = GxDepthAt(int2(i.pos.xy));\n"
+    "    float w = GxIsGeometry(d) ? GxClipW(GxViewPos(i.pos.xy, d)) : 100000.0;\n"
+    "    float2 h = (i.pos.xy - gxViewportPx.xy - 0.5) * 0.5;\n"
+    "    int2 base = int2(floor(h));\n"
+    "    float2 f = h - base;\n"
+    "    int2 last = int2(1.0 / gxSource.xy + 0.5) - 1;\n"
+    "    float sum = 0.0;\n"
+    "    float total = 0.0;\n"
+    "\n"
+    "    [unroll] for (int y = 0; y < 2; y++) {\n"
+    "        [unroll] for (int x = 0; x < 2; x++) {\n"
+    "            float2 s = gxColor.Load(int3(clamp(base + int2(x, y), int2(0, 0), last), 0)).xy;\n"
+    "            float bilinear = (x ? f.x : 1.0 - f.x) * (y ? f.y : 1.0 - f.y);\n"
+    "            float weight = bilinear * exp(-abs(s.y - w) / (0.05 * w + 0.1)) + bilinear * 0.0001;\n"
+    "            sum += s.x * weight;\n"
+    "            total += weight;\n"
+    "        }\n"
+    "    }\n"
+    "\n"
+    "    float a = saturate(1.0 - exp(-gxShafts.x * sum / max(total, 0.00001))) * 0.85;\n"
+    "\n"
+    "    // lightingDebug 8: the shafts alone\n"
+    "    if (gxTone.z > 7.5) {\n"
+    "        return float4(a.xxx, 1.0);\n"
+    "    }\n"
+    "\n"
+    "    if (a <= 0.002) {\n"
+    "        discard;\n"
+    "    }\n"
+    "\n"
+    "    return float4(gxShaftColor.rgb, a);\n"
+    "}\n"
+    "\n"
     "// Call of Duty's 13-tap downsample\n"
     "float3 GxDown13(float2 uv, float2 t, bool decode) {\n"
     "    static const float2 offsets[13] = { float2(-2, -2), float2(0, -2), float2(2, -2), float2(-1, -1), float2(1, -1), float2(-2, 0), float2(0, 0), float2(2, 0), float2(-1, 1), float2(1, 1), float2(-2, 2), float2(0, 2), float2(2, 2) };\n"
@@ -505,6 +616,10 @@ const ShaderDesc s_shaderDescs[] = {
     { "BloomUpPs", "ps_5_0", false },
     { "TonemapPs", "ps_5_0", false },
     { "ClusterCs", "cs_5_0", false },
+    { "ShaftsPs", "ps_5_0", false },
+    { "ShaftsPs", "ps_5_0", true },
+    { "ShaftsCompositePs", "ps_5_0", false },
+    { "ShaftsCompositePs", "ps_5_0", true },
 };
 
 void CopyMatrix(float* out, const C44Matrix& m) {
@@ -522,6 +637,10 @@ void TransformDirection(const float* m, const C3Vector& d, float* out) {
     out[0] = d.x * m[0] + d.y * m[4] + d.z * m[8];
     out[1] = d.x * m[1] + d.y * m[5] + d.z * m[9];
     out[2] = d.x * m[2] + d.y * m[6] + d.z * m[10];
+}
+
+float Decode(float c) {
+    return c > 0.0f ? powf(c, 2.2f) : 0.0f;
 }
 
 float Luminance(const C3Vector& c) {
@@ -665,6 +784,28 @@ bool D3d11Lighting::ICreateBuffers() {
     desc.StructureByteStride = sizeof(uint32_t);
 
     if (FAILED(device->CreateBuffer(&desc, nullptr, &this->m_clusterBuffer)) || FAILED(device->CreateShaderResourceView(this->m_clusterBuffer, nullptr, &this->m_clusterSrv)) || FAILED(device->CreateUnorderedAccessView(this->m_clusterBuffer, nullptr, &this->m_clusterUav))) {
+        return false;
+    }
+
+    // MODIFIED: sun shadows: past a map's edge everything is lit (a border of the farthest depth)
+    D3D11_SAMPLER_DESC sampler = {};
+    sampler.AddressU = D3D11_TEXTURE_ADDRESS_BORDER;
+    sampler.AddressV = D3D11_TEXTURE_ADDRESS_BORDER;
+    sampler.AddressW = D3D11_TEXTURE_ADDRESS_BORDER;
+    sampler.BorderColor[0] = sampler.BorderColor[1] = sampler.BorderColor[2] = sampler.BorderColor[3] = 1.0f;
+    sampler.MaxLOD = 0.0f;
+    sampler.Filter = D3D11_FILTER_MIN_MAG_MIP_POINT;
+    sampler.ComparisonFunc = D3D11_COMPARISON_NEVER;
+
+    if (FAILED(device->CreateSamplerState(&sampler, &this->m_sunPoint))) {
+        return false;
+    }
+
+    // as the stock taps compare: 1 where the coordinate's z is at or before the texel, filtered
+    sampler.Filter = D3D11_FILTER_COMPARISON_MIN_MAG_LINEAR_MIP_POINT;
+    sampler.ComparisonFunc = D3D11_COMPARISON_LESS_EQUAL;
+
+    if (FAILED(device->CreateSamplerState(&sampler, &this->m_sunCompare))) {
         return false;
     }
 
@@ -831,6 +972,14 @@ void D3d11Lighting::ReleaseAll() {
     SafeRelease(this->m_lightBuffer);
     SafeRelease(this->m_postConstants);
     SafeRelease(this->m_constants);
+    SafeRelease(this->m_sunPoint);
+    SafeRelease(this->m_sunCompare);
+
+    for (ID3D11ShaderResourceView*& srv : this->m_sunSrv) {
+        srv = nullptr;
+    }
+
+    this->m_sunActive = false;
     this->m_failed = false;
 }
 
@@ -845,6 +994,75 @@ void D3d11Lighting::BindForDraw() {
     ctx->PSSetConstantBuffers(3, 1, &this->m_constants);
     ID3D11ShaderResourceView* views[2] = { this->m_lightSrv, this->m_clusterSrv };
     ctx->PSSetShaderResources(16, 2, views);
+
+    // MODIFIED: sun shadows: the maps only while the world draws (the shadow pass writes them before SetupView); s13 and
+    // s14 are the device's slots too, so its cache learns what is bound there
+    ID3D11ShaderResourceView* none[4] = {};
+    ctx->PSSetShaderResources(21, 4, this->m_sunActive ? this->m_sunSrv : none);
+    ID3D11SamplerState* samplers[2] = { this->m_sunPoint, this->m_sunCompare };
+    ctx->PSSetSamplers(13, 2, samplers);
+    this->m_device->m_boundSampler[13] = this->m_sunPoint;
+    this->m_device->m_boundSampler[14] = this->m_sunCompare;
+}
+
+uint32_t D3d11Lighting::ShadowKindOf(CGxTex* texture) const {
+    if (!this->m_sunActive || !texture) {
+        return 0;
+    }
+
+    const GxLightingShadows& shadows = this->m_params.m_shadows;
+
+    if (texture == shadows.m_interior) {
+        return 2;
+    }
+
+    // the cascades say the draw is outdoors; the near map alone (the units') is also what a model indoors samples
+    for (uint32_t i = 1; i < 4; i++) {
+        if (shadows.m_maps[i] && shadows.m_maps[i] == texture) {
+            return 1;
+        }
+    }
+
+    return 0;
+}
+
+float D3d11Lighting::StockShadowDepth() const {
+    const GxLightingParams& p = this->m_params;
+
+    if (!this->m_sunActive || !(p.m_features & GxLighting_SunShadow)) {
+        return 1.0f;
+    }
+
+    // the stock shaders keep 0.7 + 0.3 x the tap of the light: a full shadow at the zone's shaded fraction instead
+    float shaded = 1.0f - p.m_sunShadowStrength * (1.0f - p.m_shadowedFraction);
+    float depth = (1.0f - shaded) / 0.3f;
+    return depth < 0.3f ? 0.3f : (depth > 3.0f ? 3.0f : depth);
+}
+
+void D3d11Lighting::ICaptureShadows() {
+    CGxDeviceD3d11* dev = this->m_device;
+    const GxLightingShadows& shadows = this->m_params.m_shadows;
+    this->m_sunActive = false;
+    this->m_sunMapSize = 0;
+
+    for (uint32_t i = 0; i < 4; i++) {
+        this->m_sunSrv[i] = nullptr;
+        CGxDeviceD3d11::Texture* texture = shadows.m_maps[i] ? dev->ITexGet(shadows.m_maps[i]) : nullptr;
+
+        if (texture && texture->m_srv && texture->m_depth) {
+            this->m_sunSrv[i] = texture->m_srv;
+            this->m_sunMapSize = texture->m_width > this->m_sunMapSize ? texture->m_width : this->m_sunMapSize;
+        }
+    }
+
+    // the cascades are what the sun shadows and the shafts are made of
+    this->m_sunActive = this->m_sunSrv[1] && this->m_sunSrv[2] && this->m_sunSrv[3] && this->m_sunMapSize;
+
+    if (!this->m_sunActive) {
+        for (ID3D11ShaderResourceView*& srv : this->m_sunSrv) {
+            srv = nullptr;
+        }
+    }
 }
 
 void D3d11Lighting::IWriteConstants(bool on) {
@@ -860,6 +1078,15 @@ void D3d11Lighting::IWriteConstants(bool on) {
 
     if (!this->m_lightCount) {
         features &= ~GxLighting_Dynamic;
+    }
+
+    // MODIFIED: sun shadows (the shaders' GX_LIGHT_SUNSHADOW 16 and GX_LIGHT_CANOPY 32)
+    if (this->m_sunActive && (p.m_features & GxLighting_SunShadow)) {
+        features |= 16u;
+
+        if ((p.m_features & GxLighting_Canopy) && p.m_canopy > 0.0f) {
+            features |= 32u;
+        }
     }
 
     if (on && features) {
@@ -907,6 +1134,28 @@ void D3d11Lighting::IWriteConstants(bool on) {
         c.m_lightParams[1] = p.m_dynamicIntensity;
         c.m_lightParams[2] = p.m_specularM2;
         c.m_lightParams[3] = p.m_specularWmo;
+
+        // MODIFIED: sun shadows
+        const GxLightingShadows& shadows = p.m_shadows;
+        memcpy(c.m_sunRows, shadows.m_rows, sizeof(c.m_sunRows));
+        c.m_sunShadow[0] = this->m_sunMapSize ? 1.0f / this->m_sunMapSize : 0.0f;
+        c.m_sunShadow[1] = p.m_sunShadowStrength;
+        // the sun's disc is about 0.0047 radians across, half that its radius
+        c.m_sunShadow[2] = 0.00233f * p.m_sunPenumbra;
+        c.m_sunShadow[3] = (features & 32u) ? p.m_canopy : 0.0f;
+        c.m_sunScale[0] = p.m_sunIntensity;
+        c.m_sunScale[1] = p.m_ambientIntensity;
+        c.m_sunScale[2] = this->m_sunSrv[0] ? 1.0f : 0.0f;
+        c.m_sunScale[3] = this->m_sunActive ? 1.0f : 0.0f;
+
+        for (uint32_t i = 0; i < 4; i++) {
+            c.m_sunRadii[i] = shadows.m_radius[i] > 0.0f ? shadows.m_radius[i] : 1.0f;
+        }
+
+        c.m_sunDepth[0] = shadows.m_depthYards;
+        c.m_sunDepth[1] = 30.0f;
+        // the lighting may pass 1 into the HDR scene (a bright sun on a lit surface)
+        c.m_sunDepth[2] = this->m_hdrActive ? 2.0f : 1.0f;
     }
 
     D3D11_MAPPED_SUBRESOURCE mapped;
@@ -998,6 +1247,39 @@ void D3d11Lighting::IWritePostConstants(const D3D11_VIEWPORT& viewport, uint32_t
     c.m_projW[2] = this->m_proj[11];
     c.m_projW[3] = this->m_proj[15];
 
+    // MODIFIED: sun shafts
+    memcpy(c.m_sunRows, p.m_shadows.m_rows, sizeof(c.m_sunRows));
+    c.m_shafts[0] = p.m_shafts;
+    c.m_shafts[1] = p.m_shaftsDensity;
+    c.m_shafts[2] = p.m_shaftsDistance;
+    c.m_shafts[3] = 32.0f;
+
+    // the scattered light: the sun's colour at a luminance of 1.5, a little of the fog's in it; dimmer when the sun
+    // itself is (dusk, the moon) and indoors
+    float sun[3] = { Decode(p.m_sunColor.x), Decode(p.m_sunColor.y), Decode(p.m_sunColor.z) };
+    float sunLum = sun[0] * 0.2126f + sun[1] * 0.7152f + sun[2] * 0.0722f;
+    float fogTint[3];
+    Tint(C3Vector(Decode(p.m_fogColor.x), Decode(p.m_fogColor.y), Decode(p.m_fogColor.z)), fogTint);
+    float strength = (sunLum * 3.0f < 1.0f ? sunLum * 3.0f : 1.0f) * (1.0f - (p.m_interior < 0.0f ? 0.0f : (p.m_interior > 1.0f ? 1.0f : p.m_interior)));
+
+    for (uint32_t k = 0; k < 3; k++) {
+        float tint = sunLum > 0.001f ? sun[k] / sunLum : 1.0f;
+        tint = tint > 3.0f ? 3.0f : tint;
+        float linear = 1.5f * (tint * 0.75f + fogTint[k] * 0.25f);
+        c.m_shaftColor[k] = powf(linear, 1.0f / 2.2f);
+    }
+
+    c.m_shafts[0] *= strength;
+    c.m_shaftColor[3] = 0.55f;
+    TransformDirection(this->m_view, C3Vector(-p.m_sunDirection.x, -p.m_sunDirection.y, -p.m_sunDirection.z), c.m_sunView);
+    float len = sqrtf(c.m_sunView[0] * c.m_sunView[0] + c.m_sunView[1] * c.m_sunView[1] + c.m_sunView[2] * c.m_sunView[2]);
+
+    if (len > 0.0f) {
+        c.m_sunView[0] /= len;
+        c.m_sunView[1] /= len;
+        c.m_sunView[2] /= len;
+    }
+
     D3D11_MAPPED_SUBRESOURCE mapped;
     ID3D11DeviceContext* ctx = this->m_device->m_ctx;
 
@@ -1010,11 +1292,11 @@ void D3d11Lighting::IWritePostConstants(const D3D11_VIEWPORT& viewport, uint32_t
 void D3d11Lighting::IDrawFullscreen(EShader shader, ID3D11RenderTargetView* target, const D3D11_VIEWPORT& viewport, ID3D11BlendState* blend, ID3D11ShaderResourceView* const* srvs, uint32_t srvCount) {
     CGxDeviceD3d11* dev = this->m_device;
     ID3D11DeviceContext* ctx = dev->m_ctx;
-    ID3D11ShaderResourceView* none[3] = {};
+    ID3D11ShaderResourceView* none[6] = {};
     ID3D11SamplerState* sampler = dev->ISamplerState(CGxTexFlags(GxTex_Linear), false);
 
     // the targets first: a texture bound for writing unbinds itself as a source
-    ctx->PSSetShaderResources(0, 3, none);
+    ctx->PSSetShaderResources(0, 6, none);
     ctx->OMSetRenderTargets(1, &target, nullptr);
     ctx->OMSetBlendState(blend, nullptr, 0xFFFFFFFF);
     ctx->OMSetDepthStencilState(dev->IDepthState(D3D11_COMPARISON_ALWAYS, 0), 0);
@@ -1029,7 +1311,7 @@ void D3d11Lighting::IDrawFullscreen(EShader shader, ID3D11RenderTargetView* targ
     ctx->PSSetSamplers(0, 1, &sampler);
     ctx->PSSetShaderResources(0, srvCount, srvs);
     ctx->Draw(3, 0);
-    ctx->PSSetShaderResources(0, 3, none);
+    ctx->PSSetShaderResources(0, 6, none);
 }
 
 void D3d11Lighting::ICaptureView() {
@@ -1066,6 +1348,8 @@ void D3d11Lighting::BeginWorld(const GxLightingParams& params) {
     this->m_worldActive = true;
     this->m_lightsActive = false;
     this->m_lightCount = 0;
+    // MODIFIED: sun shadows: the shadow pass is still to draw this frame's maps
+    this->m_sunActive = false;
     this->IWriteConstants(false);
 
     // the world viewport: CGWorldFrame::OnWorldRender has just set it, on the frame
@@ -1098,6 +1382,8 @@ void D3d11Lighting::SetupView(const GxLightingParams& params, const GxLightingLi
     this->m_params = params;
     this->m_params.m_features = (this->m_params.m_features & ~(GxLighting_Hdr | GxLighting_Bloom)) | (this->m_hdrActive ? params.m_features & (GxLighting_Hdr | GxLighting_Bloom) : 0);
     this->ICaptureView();
+    // MODIFIED: sun shadows
+    this->ICaptureShadows();
     this->m_lightCount = 0;
     this->m_statsLights = 0;
 
@@ -1181,11 +1467,13 @@ void D3d11Lighting::OpaqueDone() {
     const uint32_t features = this->m_params.m_features;
     bool ssao = (features & GxLighting_Ssao) && this->m_params.m_ssaoIntensity > 0.0f;
     bool fog = ((features & GxLighting_HeightFog) && this->m_params.m_heightFogDensity > 0.0f) || ((features & GxLighting_Scattering) && this->m_params.m_scattering > 0.0f);
+    // MODIFIED: sun shafts
+    bool shafts = (features & GxLighting_Shafts) && this->m_params.m_shafts > 0.0f && this->m_sunActive;
 
     static uint32_t s_logged = 0;
 
-    if (!this->m_worldActive || !this->m_lightsActive || (!ssao && !fog) || !dev->m_frameDepthSrv || !this->ICreateShaders()) {
-        if (s_logged < 3 && (ssao || fog)) {
+    if (!this->m_worldActive || !this->m_lightsActive || (!ssao && !fog && !shafts) || !dev->m_frameDepthSrv || !this->ICreateShaders()) {
+        if (s_logged < 3 && (ssao || fog || shafts)) {
             s_logged++;
             CGxDevice::Log("D3d11Lighting: opaque pass skipped (world %u, view %u, depth %u, shaders %u)", this->m_worldActive ? 1 : 0, this->m_lightsActive ? 1 : 0, dev->m_frameDepthSrv ? 1 : 0, this->m_failed ? 0 : 1);
         }
@@ -1207,7 +1495,7 @@ void D3d11Lighting::OpaqueDone() {
 
     if (s_logged < 3) {
         s_logged++;
-        CGxDevice::Log("D3d11Lighting: opaque pass: ssao %u, fog %u, msaa %u", ssao ? 1 : 0, fog ? 1 : 0, dev->m_samples > 1 ? 1 : 0);
+        CGxDevice::Log("D3d11Lighting: opaque pass: ssao %u, fog %u, shafts %u, msaa %u", ssao ? 1 : 0, fog ? 1 : 0, shafts ? 1 : 0, dev->m_samples > 1 ? 1 : 0);
     }
 
     bool msaa = dev->m_samples > 1;
@@ -1247,6 +1535,11 @@ void D3d11Lighting::OpaqueDone() {
         }
     }
 
+    // MODIFIED: sun shafts, under the fog
+    if (shafts) {
+        this->IDrawShafts(frame, depth, msaa);
+    }
+
     if (fog) {
         this->IWritePostConstants(vp, dev->m_frameWidth, dev->m_frameHeight, nullptr);
         this->IDrawFullscreen(msaa ? Shader_FogPsMs : Shader_FogPs, frame, vp, this->m_blendAlpha, &depth, 1);
@@ -1254,6 +1547,46 @@ void D3d11Lighting::OpaqueDone() {
 
     dev->m_frameResolvedValid = false;
     this->IRestoreDevice();
+}
+
+// MODIFIED: sun shafts: gathered at half resolution (the AO targets, free again by now), blurred by depth both ways,
+// and laid over the scene
+void D3d11Lighting::IDrawShafts(ID3D11RenderTargetView* frame, ID3D11ShaderResourceView* depth, bool msaa) {
+    CGxDeviceD3d11* dev = this->m_device;
+    const D3D11_VIEWPORT& vp = this->m_viewport;
+    uint32_t width = static_cast<uint32_t>(vp.Width + 1.0f) / 2;
+    uint32_t height = static_cast<uint32_t>(vp.Height + 1.0f) / 2;
+
+    if (!this->IEnsureTarget(this->m_ao[0], width, height, DXGI_FORMAT_R16G16_FLOAT) || !this->IEnsureTarget(this->m_ao[1], width, height, DXGI_FORMAT_R16G16_FLOAT)) {
+        return;
+    }
+
+    ID3D11DeviceContext* ctx = dev->m_ctx;
+    ctx->PSSetSamplers(1, 1, &this->m_sunCompare);
+
+    D3D11_VIEWPORT half = { 0.0f, 0.0f, static_cast<float>(width), static_cast<float>(height), 0.0f, 1.0f };
+    float source[4] = { 1.0f / width, 1.0f / height, 0.0f, 0.0f };
+    ID3D11ShaderResourceView* gather[6] = { depth, nullptr, nullptr, this->m_sunSrv[1], this->m_sunSrv[2], this->m_sunSrv[3] };
+    this->IWritePostConstants(vp, width, height, source);
+    this->IDrawFullscreen(msaa ? Shader_ShaftsPsMs : Shader_ShaftsPs, this->m_ao[0].m_rtv, half, this->m_blendOpaque, gather, 6);
+
+    ID3D11ShaderResourceView* blurH[2] = { nullptr, this->m_ao[0].m_srv };
+    source[2] = 1.0f;
+    this->IWritePostConstants(vp, width, height, source);
+    this->IDrawFullscreen(Shader_BlurPs, this->m_ao[1].m_rtv, half, this->m_blendOpaque, blurH, 2);
+
+    ID3D11ShaderResourceView* blurV[2] = { nullptr, this->m_ao[1].m_srv };
+    source[2] = 0.0f;
+    source[3] = 1.0f;
+    this->IWritePostConstants(vp, width, height, source);
+    this->IDrawFullscreen(Shader_BlurPs, this->m_ao[0].m_rtv, half, this->m_blendOpaque, blurV, 2);
+
+    ID3D11ShaderResourceView* composite[2] = { depth, this->m_ao[0].m_srv };
+    source[2] = 0.0f;
+    source[3] = 0.0f;
+    this->IWritePostConstants(vp, dev->m_frameWidth, dev->m_frameHeight, source);
+    // lightingDebug 8: the shafts alone (colour only: the frame's alpha is FFX glow's mask)
+    this->IDrawFullscreen(msaa ? Shader_ShaftsCompositePsMs : Shader_ShaftsCompositePs, frame, vp, this->m_params.m_debug == 8 ? this->m_blendOpaqueRgb : this->m_blendAlpha, composite, 2);
 }
 
 void D3d11Lighting::EndWorld() {
@@ -1265,6 +1598,8 @@ void D3d11Lighting::EndWorld() {
 
     this->m_worldActive = false;
     this->m_lightsActive = false;
+    // MODIFIED: sun shadows: the maps are the shadow pass's again
+    this->m_sunActive = false;
     this->m_lightCount = 0;
     this->IWriteConstants(false);
     dev->m_lightingBound = false;

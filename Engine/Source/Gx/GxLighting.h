@@ -9,7 +9,8 @@
 //   BeginWorld   before CWorld::Render: the world draws into the HDR scene target (hdr on)
 //   SetupView    in CWorldScene::Render once the camera, the models' lights and the shadows are ready, before the
 //                terrain: the lights, the clusters and the lighting constants the translated shaders read
-//   OpaqueDone   after the opaque models and the grass, before liquids and everything transparent: SSAO and fog
+//   OpaqueDone   after the opaque models and the grass, before liquids and everything transparent: SSAO, sun shafts and
+//                fog
 //   EndWorld     before FFX::Finish: bloom and the tonemap into the frame; the lighting constants switch off
 
 #include <cstddef>
@@ -26,6 +27,20 @@ enum EGxLightingFeature : uint32_t {
     GxLighting_Scattering = 0x40,     // the fog tinted toward the sun's colour around the sun
     GxLighting_Hdr = 0x80,            // the world into a 16-bit float target, tonemapped
     GxLighting_Bloom = 0x100,         // needs Hdr
+    GxLighting_SunShadow = 0x200,     // the sun's shadow on the direct sunlight only, per pixel, soft (needs the cascades)
+    GxLighting_Canopy = 0x400,        // the ambient dimmed under foliage and roofs (needs SunShadow)
+    GxLighting_Shafts = 0x800,        // sunlight scattered in the air, shadowed by the cascades: shafts through the leaves
+};
+
+class CGxTex;
+
+// the stock sun shadow maps of this frame (CShadowCache, extShadowQuality 5), for GxLighting_SunShadow / _Shafts
+struct GxLightingShadows {
+    CGxTex* m_maps[4] = {};          // the near map (units, 40 yards across), then the cascades (80, 320, 1280 across)
+    float m_radius[4] = {};          // half of each map's width in yards
+    float m_rows[12][4] = {};        // view space to each map: x and y (-1 to 1 across it) and depth, 3 rows a map
+    float m_depthYards = 4000.0f;    // yards per unit of depth
+    CGxTex* m_interior = nullptr;    // the interior map: a draw that samples it is indoors and has no sun
 };
 
 // a point light, in world space
@@ -80,6 +95,20 @@ struct GxLightingParams {
     C3Vector m_cameraPosition;       // world
     float m_time = 0.0f;             // seconds
     uint32_t m_debug = 0;            // 1 the SSAO term alone, 2 the lit surfaces by kind, 3 the dynamic light alone
+
+    // the sun and its shadow (GxLighting_SunShadow, _Canopy, _Shafts)
+    GxLightingShadows m_shadows;
+    float m_sunShadowStrength = 1.0f; // 0 none, 1 the shadow takes all of the direct sunlight
+    float m_sunPenumbra = 1.5f;      // the sun's apparent size, times the real sun's: the softness of distant occluders
+    float m_sunIntensity = 1.0f;     // the direct sunlight on lit surfaces
+    float m_ambientIntensity = 1.0f; // their ambient light
+    float m_canopy = 0.0f;           // 0 to 1: how much the ambient dims under cover
+    float m_shadowedFraction = 0.4f; // a surface in full shade over one in full sun, from the zone's colours: what the
+                                     // stock shadow of grass and unlit surfaces is deepened to
+    float m_shafts = 0.0f;           // the intensity of the scattered sunlight
+    float m_shaftsDensity = 0.02f;   // its density per yard
+    float m_shaftsDistance = 120.0f; // how far along each view ray it is gathered
+    float m_interior = 0.0f;         // 0 outdoors, 1 inside a WMO (no sun)
 };
 
 struct GxLightingStats {

@@ -1075,7 +1075,8 @@ float D3d11Lighting::StockShadowDepth() const {
     // the stock shaders keep 0.7 + 0.3 x the tap of the light: a full shadow at the zone's shaded fraction instead
     float shaded = 1.0f - p.m_sunShadowStrength * (1.0f - p.m_shadowedFraction);
     float depth = (1.0f - shaded) / 0.3f;
-    return depth < 0.3f ? 0.3f : (depth > 3.0f ? 3.0f : depth);
+    // never lighter than stock (1): under a weak sun the shade would wash out
+    return depth < 1.0f ? 1.0f : (depth > 3.0f ? 3.0f : depth);
 }
 
 void D3d11Lighting::ICaptureShadows() {
@@ -1184,7 +1185,9 @@ void D3d11Lighting::IWriteConstants(bool on) {
         c.m_sunShadow[3] = (features & 32u) ? p.m_canopy : 0.0f;
         c.m_sunScale[0] = p.m_sunIntensity;
         c.m_sunScale[1] = p.m_ambientIntensity;
-        c.m_sunScale[2] = this->m_sunSrv[0] ? 1.0f : 0.0f;
+        // the near map is left out: it follows the player, and ground that is also a caster in it (Orgrimmar's) shades
+        // itself there, a dark square that travels along. The cascades hold the units too, finer
+        c.m_sunScale[2] = 0.0f;
         c.m_sunScale[3] = this->m_sunActive ? 1.0f : 0.0f;
 
         for (uint32_t i = 0; i < 4; i++) {
@@ -1193,8 +1196,9 @@ void D3d11Lighting::IWriteConstants(bool on) {
 
         c.m_sunDepth[0] = shadows.m_depthYards;
         c.m_sunDepth[1] = 30.0f;
-        // the lighting may pass 1 into the HDR scene (a bright sun on a lit surface)
-        c.m_sunDepth[2] = this->m_hdrActive ? 2.0f : 1.0f;
+        // as bright as stock (the lighting clamped at 1), more only for a sun turned up into the HDR scene
+        float top = 1.0f + (p.m_sunIntensity > 1.0f ? p.m_sunIntensity - 1.0f : 0.0f);
+        c.m_sunDepth[2] = this->m_hdrActive ? top : 1.0f;
     }
 
     D3D11_MAPPED_SUBRESOURCE mapped;

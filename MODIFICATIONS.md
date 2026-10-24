@@ -580,6 +580,15 @@ least penumbra. The shafts scale with the sun's share of the zone's light, `(1 �
 overcast, foggy zone shows none. Open air is damped to 15%, opacity is at most 0.45, and the density is 0.012. The
 canopy's darkest is 0.45 of the ambient.
 
+Fourth test: pale creatures looked glossy and sunlit scenes a little bright, Darkshore's contours washed out, and
+in Orgrimmar a darker square followed the player.
+- The lighting on lit surfaces is clamped at 1 as stock (the 2 allowed with HDR made pale fur shine). It goes
+  higher only with `lightSunIntensity` above 1.
+- A shadow darkens at least as much as the stock one: at most `(0.7 + 0.3 × shadow)` of the unshadowed light on
+  sun-facing surfaces. The grass's taps are never deepened less than stock (k ≥ 1).
+- The near map is left out. It follows the player, and ground that is also a caster in it shaded itself. The
+  cascades hold the units too.
+
 `lightingDebug` 6 shows the sunlight's shadow alone, 7 the canopy's dimming, and 8 the shafts. `/lighting` reports the
 shadow quality and whether the maps were found. A model indoors samples only the near map or the interior map. It
 keeps the stock shadow, because only a draw that samples a cascade counts as outdoors.

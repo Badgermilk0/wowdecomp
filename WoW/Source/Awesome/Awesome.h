@@ -21,6 +21,8 @@ struct DNSky;
 class C2Vector;
 struct FMOD_REVERB_PROPERTIES;
 class C3Vector;
+class CAaSphere;
+class LiquidTypeRec;
 class CGGameObject_C;
 class CGNamePlateFrame;
 class CGObject_C;
@@ -77,9 +79,20 @@ void AwesomeWaterBeforeLiquids();
 void AwesomeWaterAfterLiquids();
 void AwesomeWaterEndWorld();
 // CGUnit_C::CreateRipple, every frame a unit is in liquid shallow enough to touch the surface (before the stock
-// ripple's rate limit): id tells units apart, surface is the unit's position at the liquid's height, motion the
-// movement flags, event 201 a crossing of the surface (a splash), speed the current movement speed
-void AwesomeWaterOnUnitInLiquid(uintptr_t id, const C3Vector& surface, float depth, float maxDepth, uint32_t motion, uint32_t event, float speed, float facing);
+// ripple's rate limit, and for magma and slime too, which have no stock ripple): id tells units apart, surface is the
+// unit's position at the liquid's height, motion the movement flags, event 201 a crossing of the surface (a splash),
+// speed the current movement speed, liquidType its LiquidType.dbc row
+void AwesomeWaterOnUnitInLiquid(uintptr_t id, const C3Vector& surface, float depth, float maxDepth, uint32_t motion, uint32_t event, float speed, float facing, uint32_t liquidType);
+// CWorldScene::Render, at the liquid renderer's opaque pass (magma, slime): true when it is to wait for the opaque world
+// (the D3D11 device shades them from a copy of it); CGWorldFrame::OnWorldRender then draws it after the grass with
+// AwesomeWaterOpaqueLiquids (AwesomeWaterEndWorld does, if nothing else did)
+bool AwesomeWaterDefersOpaqueLiquids();
+void AwesomeWaterOpaqueLiquids();
+// Liquid::CSettingsBank::UpdateRecord: a liquid type's material settings, classed by its row (water, magma, slime)
+void AwesomeWaterNoteLiquid(const void* settings, const LiquidTypeRec* rec);
+// each liquid material's Render, before its draw: the class of the settings' liquid for the device, and whether a thick
+// liquid is near (bounds and camera in world space)
+void AwesomeWaterLiquidRender(const void* settings, const CAaSphere* bounds, const C3Vector& camera);
 // CMap::CreateWaterRipple: true while the height field stands in for the stock splash and wake decals
 bool AwesomeWaterHidesStockRipples();
 

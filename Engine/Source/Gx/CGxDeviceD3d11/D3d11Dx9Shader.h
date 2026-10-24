@@ -54,8 +54,8 @@ enum EFamily : uint32_t {
     Family_LitPixel = 6,      // pixel
     Family_WmoComposite = 7,  // vertex, MapObjU*: the vertex colour added to the lit material, not multiplied
     Family_WmoCompositeSpecular = 8,
-    // MODIFIED: modern water (D3d11Water.h): vsLiquidWater* hand their view-space position to psLiquidWater*, which
-    // shade the surface (s_hlslWater)
+    // MODIFIED: modern water (D3d11Water.h): vsLiquidWater*, vsLiquidProcWater and vsLiquidMagma hand their view-space
+    // position to psLiquidWater*, psLiquidProcWater and psLiquidMagma, which shade the surface (s_hlslWater)
     Family_WaterVertex = 9,
     Family_WaterPixel = 10,
 };

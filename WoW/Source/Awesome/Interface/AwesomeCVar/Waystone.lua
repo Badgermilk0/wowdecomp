@@ -91,6 +91,8 @@ CVARS.Lighting = {
     { name = "waterRippleStrength", label = L.W_LABEL_WATER_RIPPLE_STRENGTH, desc = L.W_DESC_WATER_RIPPLE_STRENGTH, perf = L.PERF_NONE, type = "slider", min = 0, max = 4, step = 0.05, default = 1, requires = REQUIRES.ripples },
     { name = "waterInteraction", label = L.W_LABEL_WATER_INTERACTION, desc = L.W_DESC_WATER_INTERACTION, perf = L.PERF_NONE, type = "slider", min = 0, max = 4, step = 0.05, default = 1, requires = REQUIRES.ripples },
     { name = "waterRain", label = L.W_LABEL_WATER_RAIN, desc = L.W_DESC_WATER_RAIN, perf = L.PERF_NONE, type = "slider", min = 0, max = 4, step = 0.05, default = 1, requires = REQUIRES.ripples },
+    { name = "liquidGlow", label = L.W_LABEL_LIQUID_GLOW, desc = L.W_DESC_LIQUID_GLOW, perf = L.PERF_NONE, type = "slider", min = 0, max = 3, step = 0.05, default = 1, requires = REQUIRES.water },
+    { name = "liquidBubbles", label = L.W_LABEL_LIQUID_BUBBLES, desc = L.W_DESC_LIQUID_BUBBLES, perf = L.PERF_NONE, type = "slider", min = 0, max = 4, step = 0.05, default = 1, requires = REQUIRES.ripples },
     { name = "wHeaderShadows", label = L.W_SECTION_SHADOWS, type = "header" },
     { name = "shadowCascadeReuse", label = L.W_LABEL_SHADOW_REUSE, desc = L.W_DESC_SHADOW_REUSE, perf = L.W_PERF_SAVES, type = "toggle", min = 0, max = 1, default = 1 },
 }

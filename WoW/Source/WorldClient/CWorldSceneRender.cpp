@@ -243,7 +243,9 @@ void CWorldScene::Render(const C3Vector& cameraPos, float time) {
     Liquid::UpdateProceduralTextures();
     CWorldScene::PrepareLiquidInstances();
 
-    if ((CWorld::enables & 0x1000000) && CWorldScene::s_liquidRenderer) {
+    // MODIFIED: modern water (Awesome.h): the opaque liquids (magma, slime) may wait for the opaque world, to be shaded
+    // from a copy of it
+    if ((CWorld::enables & 0x1000000) && CWorldScene::s_liquidRenderer && !AwesomeWaterDefersOpaqueLiquids()) {
         CWorldScene::s_liquidRenderer->Flush(CWorldScene::s_activeWorldView, 0);
     }
 

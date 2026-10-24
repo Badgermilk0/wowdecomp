@@ -2,9 +2,12 @@
 //   - WoW/Source/WorldClient/SkyModel: the interpolation of the sky bands and the dome's geometry
 //   - the ripple height field's pass (D3d11WaterHlsl.cpp) run on a WARP device: a disturbance spreads at the set
 //     speed, stays bounded and dies away
+//   - the thick liquids' field (magma, slime): a dent oozes shut without ringing, bubbling stays bounded
+//   - the splash particles of water, magma (globs, embers) and slime (gobs, strands) on WARP
 //   - with a folder argument holding the stock vsLiquidWater.bls, psLiquidWater.bls and psLiquidWaterNoSpec.bls
-//     (Shaders\Vertex\vs_3_0, Shaders\Pixel\ps_3_0 from the client's MPQs): every permutation translated with the
-//     water family (D3d11Dx9Shader.cpp, s_hlslWater) and compiled to shader model 5
+//     (Shaders\Vertex\vs_3_0, Shaders\Pixel\ps_3_0 from the client's MPQs; also vsLiquidProcWater, psLiquidProcWater,
+//     vsLiquidMagma, psLiquidMagma): every permutation translated with the water family (D3d11Dx9Shader.cpp,
+//     s_hlslWater) and compiled to shader model 5
 //   cmake --build build/x64 --config Release --target WaterTests
 //   bin/Win/WaterTests.exe [folder with the .bls files]
 
@@ -221,6 +224,8 @@ struct PassConstants {
     float m_depthRange[4];
     float m_projW[4];
     float m_foam[4];
+    float m_bubble[4];
+    float m_thick[4];
 };
 
 static void TestSimulation() {
@@ -280,7 +285,11 @@ static void TestSimulation() {
     device->CreateTexture2D(&desc, nullptr, &staging);
 
     // as D3d11Water::IStep: 3 yards a second, damped 0.6 a second, 60 steps a second
-    const float speed = 3.0f;
+    float speed = 3.0f;
+    float damping = 0.6f;
+    float bubbles = 0.0f;
+    // the thick liquids' field: viscous, settling back at this rate
+    float settle = 0.0f;
     const float dt = 1.0f / 60.0f;
     D3D11_VIEWPORT vp = { 0.0f, 0.0f, static_cast<float>(n), static_cast<float>(n), 0.0f, 1.0f };
     uint32_t current = 0;
@@ -322,13 +331,25 @@ static void TestSimulation() {
         c.m_shift[3] = static_cast<int32_t>(n);
         float courant = speed * dt / texel;
         c.m_wave[0] = courant * courant;
-        c.m_wave[1] = expf(-0.6f * dt);
+        c.m_wave[1] = expf(-damping * dt);
+        c.m_thick[0] = settle > 0.0f ? 1.0f : 0.0f;
+        c.m_thick[1] = expf(-settle * dt);
         c.m_wave[2] = rain * texel * texel * dt;
         c.m_wave[3] = 0.012f;
         c.m_foam[0] = expf(-0.35f * dt);
         c.m_foam[1] = 10.0f;
         c.m_foam[2] = 60.0f;
         c.m_foam[3] = 1.0f / 1000000.0f;
+
+        if (bubbles > 0.0f) {
+            // as D3d11Water::IStep for the thick field: cells of 4 texels
+            c.m_bubble[0] = bubbles * (4.0f * texel) * (4.0f * texel) * dt;
+            c.m_bubble[1] = 0.05f;
+            c.m_bubble[2] = 0.45f / texel;
+            c.m_bubble[3] = 0.8f;
+            c.m_count[1] = 1000;
+            c.m_count[2] = -2000;
+        }
 
         if (impulse) {
             c.m_impulses[0][0] = n / 2.0f;
@@ -436,6 +457,90 @@ static void TestSimulation() {
     CHECK(finite);
     CHECK(rainMax > 0.0f && rainMax <= 0.3f);
 
+    // the thick liquids' field with magma's physics (BuildParams: 0.6 yards a second, its motion damped 10 a second, settling
+    // back at 0.5 a second): a splash's dent oozes shut where it fell instead of sending a ring out
+    for (int32_t i = 0; i < 2; i++) {
+        float zero[4] = {};
+        ctx->ClearRenderTargetView(rtv[i], zero);
+    }
+
+    speed = 0.6f;
+    damping = 10.0f;
+    settle = 0.5f;
+    step(true, 0.0f);
+
+    for (int32_t i = 1; i < 30; i++) {
+        step(false, 0.0f);
+    }
+
+    readRow(row, finite);
+    float dentHalf = fabsf(row[n / 2]);
+
+    for (int32_t i = 0; i < 90; i++) {
+        step(false, 0.0f);
+    }
+
+    readRow(row, finite);
+    float thickPeak = 0.0f;
+    uint32_t thickFront = n / 2;
+
+    for (uint32_t x = n / 2; x < n - 30; x++) {
+        thickPeak = fabsf(row[x]) > thickPeak ? fabsf(row[x]) : thickPeak;
+    }
+
+    for (uint32_t x = n / 2; x < n - 30; x++) {
+        if (fabsf(row[x]) > thickPeak * 0.05f) {
+            thickFront = x;
+        }
+    }
+
+    float thickYards = (thickFront + 0.5f - n / 2.0f) * texel;
+    printf("  magma: the dent 0.5 s after the splash %.4f yd; after 2 s the largest height %.5f yd, reaching %.2f yd (water: 6)\n", dentHalf, thickPeak, thickYards);
+    CHECK(finite);
+    CHECK(dentHalf > 0.0f);
+    CHECK(thickYards < 3.5f);
+    CHECK(thickPeak < dentHalf);
+
+    // a minute of bubbling (0.05 a square yard and second): it heaves a little, stirred where bubbles burst, bounded
+    bubbles = 0.05f;
+    float foamSeen = 0.0f;
+
+    for (int32_t i = 0; i < 3600; i++) {
+        step(false, 0.0f);
+    }
+
+    ctx->CopyResource(staging, field[current]);
+    D3D11_MAPPED_SUBRESOURCE bubbleMap;
+    ctx->Map(staging, 0, D3D11_MAP_READ, 0, &bubbleMap);
+    float bubbleMax = 0.0f;
+    double bubbleSquares = 0.0;
+    double bubbleSum = 0.0;
+    uint32_t heaving = 0;
+
+    for (uint32_t y = 30; y < n - 30; y++) {
+        const float* line = reinterpret_cast<const float*>(static_cast<const uint8_t*>(bubbleMap.pData) + y * bubbleMap.RowPitch);
+
+        for (uint32_t x = 30; x < n - 30; x++) {
+            float h = line[x * 4];
+            finite = finite && std::isfinite(h);
+            bubbleMax = fabsf(h) > bubbleMax ? fabsf(h) : bubbleMax;
+            bubbleSquares += h * h;
+            bubbleSum += h;
+            heaving += fabsf(h) > 0.001f ? 1 : 0;
+            foamSeen = line[x * 4 + 2] > foamSeen ? line[x * 4 + 2] : foamSeen;
+        }
+    }
+
+    ctx->Unmap(staging, 0);
+    double bubbleCount = static_cast<double>((n - 60) * (n - 60));
+    float bubbleRms = static_cast<float>(sqrt(bubbleSquares / bubbleCount));
+    float bubbleMean = static_cast<float>(bubbleSum / bubbleCount);
+    printf("  after a minute of bubbling magma: largest height %.4f yd, rms %.4f, mean %.4f, %u texels heaving, most stirred %.2f\n", bubbleMax, bubbleRms, bubbleMean, heaving, foamSeen);
+    CHECK(finite);
+    CHECK(bubbleMax > 0.002f && bubbleMax <= 0.3f);
+    CHECK(heaving > 1000);
+    CHECK(foamSeen > 0.05f);
+
     staging->Release();
     cb->Release();
 
@@ -483,6 +588,9 @@ static void TestTranslated(const std::string& folder) {
         // the HD client's water (its LiquidType.dbc makes every world water material 3)
         { "vsLiquidProcWater.bls", "vsLiquidProcWater", true },
         { "psLiquidProcWater.bls", "psLiquidProcWater", false },
+        // magma and slime (material 2)
+        { "vsLiquidMagma.bls", "vsLiquidMagma", true },
+        { "psLiquidMagma.bls", "psLiquidMagma", false },
     };
 
     for (const Case& test : cases) {
@@ -524,6 +632,10 @@ static void TestTranslated(const std::string& folder) {
             CHECK(emitted);
             CHECK(hlsl.find(test.m_vertex ? "o.gxP = float4((C[5]" : "GxWaterShade(i, o.c0)") != std::string::npos);
 
+            if (!test.m_vertex && !strncmp(test.m_name, "psLiquidMagma", 13)) {
+                CHECK(hlsl.find("#define WX_KIND 3") != std::string::npos);
+            }
+
             std::string compileError;
             bool compiled = emitted && Compile(hlsl, "main", test.m_vertex ? "vs_5_0" : "ps_5_0", nullptr, compileError);
 
@@ -552,7 +664,8 @@ static void TestTranslated(const std::string& folder) {
     }
 
     // the other shaders are not touched
-    CHECK(GxD3d11::FamilyForShader("psLiquidMagma", false) == GxD3d11::Family_None);
+    CHECK(GxD3d11::FamilyForShader("psLiquidMagma", false) == GxD3d11::Family_WaterPixel);
+    CHECK(GxD3d11::FamilyForShader("vsLiquidMagma", true) == GxD3d11::Family_WaterVertex);
     CHECK(GxD3d11::FamilyForShader("vsLiquidProcWater", true) == GxD3d11::Family_WaterVertex);
     CHECK(GxD3d11::FamilyForShader("psLiquidProcWater", false) == GxD3d11::Family_WaterPixel);
     CHECK(GxD3d11::FamilyForShader("Terrain", true) == GxD3d11::Family_Terrain);
@@ -692,6 +805,7 @@ struct WaterConstants {
     float m_fieldExtra[4];
     float m_view[16];
     float m_tess[4];
+    float m_liquid[4];
 };
 
 // the tessellation run on WARP: a 4-yard water quad 5 yards ahead, a height field lifted 0.5 yards everywhere; the domain
@@ -889,7 +1003,7 @@ struct ParticleConstants {
     float m_sim[4];
     uint32_t m_emit[4];
     uint32_t m_count[4];
-    float m_emitters[64][4];
+    float m_emitters[96][4];
 };
 
 struct Particle {
@@ -901,6 +1015,8 @@ struct Particle {
     float m_kind;
     float m_age;
     float m_maxLife;
+    float m_color[3];
+    float m_liquid;
 };
 
 // a splash of 100 droplets at the field's middle: they rise, fall back through the surface, and each leaves an impact
@@ -994,6 +1110,7 @@ static void TestParticles() {
     c.m_emit[3] = 100;
     c.m_count[0] = 1;
     c.m_count[1] = 1;
+    c.m_count[2] = 1;
     c.m_emitters[0][3] = 100.0f;
     c.m_emitters[1][0] = 4.5f;
     c.m_emitters[1][1] = 2.6f;
@@ -1001,12 +1118,42 @@ static void TestParticles() {
     c.m_emitters[1][3] = 0.0f;
     c.m_offset[3] = 1.0f / 60.0f;
 
-    ID3D11UnorderedAccessView* uavs[2] = { particleUav, impactUav };
-    ctx->CSSetUnorderedAccessViews(0, 2, uavs, nullptr);
+    // the thick liquids' impacts
+    tex.Usage = D3D11_USAGE_DEFAULT;
+    tex.BindFlags = D3D11_BIND_UNORDERED_ACCESS;
+    tex.CPUAccessFlags = 0;
+    ID3D11Texture2D* thickImpact = nullptr;
+    ID3D11UnorderedAccessView* thickImpactUav = nullptr;
+    device->CreateTexture2D(&tex, nullptr, &thickImpact);
+    device->CreateUnorderedAccessView(thickImpact, nullptr, &thickImpactUav);
+    ctx->ClearUnorderedAccessViewUint(thickImpactUav, zero);
+
+    ID3D11UnorderedAccessView* uavs[3] = { particleUav, impactUav, thickImpactUav };
+    ctx->CSSetUnorderedAccessViews(0, 3, uavs, nullptr);
     ctx->CSSetConstantBuffers(6, 1, &cb);
     ctx->UpdateSubresource(cb, 0, nullptr, &c, 0, 0);
     ctx->CSSetShader(emitCs, nullptr, 0);
     ctx->Dispatch(2, 1, 1);
+
+    // the texels an impact texture was hit on, and the push in all
+    auto readImpacts = [&](ID3D11Texture2D* source, uint64_t& total, uint32_t& texels) {
+        ctx->CopyResource(impactStaging, source);
+        D3D11_MAPPED_SUBRESOURCE mapped;
+        ctx->Map(impactStaging, 0, D3D11_MAP_READ, 0, &mapped);
+        total = 0;
+        texels = 0;
+
+        for (uint32_t y = 0; y < 512; y++) {
+            const uint32_t* line = reinterpret_cast<const uint32_t*>(static_cast<const uint8_t*>(mapped.pData) + y * mapped.RowPitch);
+
+            for (uint32_t x = 0; x < 512; x++) {
+                total += line[x];
+                texels += line[x] ? 1 : 0;
+            }
+        }
+
+        ctx->Unmap(impactStaging, 0);
+    };
 
     auto readParticles = [&](uint32_t& alive, float& highest) {
         ctx->CopyResource(particleStaging, particles);
@@ -1051,27 +1198,97 @@ static void TestParticles() {
     }
 
     readParticles(alive, highest);
-    ctx->CopyResource(impactStaging, impact);
-    D3D11_MAPPED_SUBRESOURCE mapped;
-    ctx->Map(impactStaging, 0, D3D11_MAP_READ, 0, &mapped);
     uint64_t total = 0;
     uint32_t texels = 0;
-
-    for (uint32_t y = 0; y < 512; y++) {
-        const uint32_t* line = reinterpret_cast<const uint32_t*>(static_cast<const uint8_t*>(mapped.pData) + y * mapped.RowPitch);
-
-        for (uint32_t x = 0; x < 512; x++) {
-            total += line[x];
-            texels += line[x] ? 1 : 0;
-        }
-    }
-
-    ctx->Unmap(impactStaging, 0);
+    readImpacts(impact, total, texels);
     printf("  after 2.25 s: %u in the air, impacts on %u texels, %.3f yards of push in all\n", alive, texels, total / 1000000.0);
     CHECK(alive == 0);
     CHECK(texels > 20);
     CHECK(total > 100000 && total < 2000000);
+    uint64_t thickTotal = 0;
+    uint32_t thickTexels = 0;
+    readImpacts(thickImpact, thickTotal, thickTexels);
+    CHECK(thickTotal == 0);
 
+    // magma (AwesomeWater's jump into it): 30 globs, 40 embers. The globs fall back on the thick liquids' field, the
+    // embers rise and leave nothing on any field
+    ctx->ClearUnorderedAccessViewUint(particleUav, zero);
+    ctx->ClearUnorderedAccessViewUint(impactUav, zero);
+    c.m_count[0] = 2;
+    c.m_emit[3] = 70;
+    c.m_emitters[0][3] = 30.0f;
+    c.m_emitters[1][0] = 4.5f;
+    c.m_emitters[1][1] = 2.2f;
+    c.m_emitters[1][2] = 0.4f;
+    c.m_emitters[1][3] = 0.0f;
+    c.m_emitters[2][0] = 1.0f;
+    c.m_emitters[2][1] = 0.3f;
+    c.m_emitters[2][2] = 0.04f;
+    c.m_emitters[2][3] = 1.0f;
+    c.m_emitters[3][3] = 70.0f;
+    c.m_emitters[4][0] = 3.0f;
+    c.m_emitters[4][1] = 1.5f;
+    c.m_emitters[4][2] = 0.45f;
+    c.m_emitters[4][3] = 3.0f;
+    c.m_emitters[5][0] = 1.0f;
+    c.m_emitters[5][1] = 0.3f;
+    c.m_emitters[5][2] = 0.04f;
+    c.m_emitters[5][3] = 1.0f;
+    ctx->UpdateSubresource(cb, 0, nullptr, &c, 0, 0);
+    ctx->CSSetShader(emitCs, nullptr, 0);
+    ctx->Dispatch(2, 1, 1);
+    c.m_emit[3] = 0;
+    ctx->UpdateSubresource(cb, 0, nullptr, &c, 0, 0);
+    ctx->CSSetShader(updateCs, nullptr, 0);
+
+    for (int32_t i = 0; i < 60; i++) {
+        ctx->Dispatch(capacity / 64, 1, 1);
+    }
+
+    // a second on: the embers still up and rising, the globs mostly back
+    ctx->CopyResource(particleStaging, particles);
+    D3D11_MAPPED_SUBRESOURCE pm;
+    ctx->Map(particleStaging, 0, D3D11_MAP_READ, 0, &pm);
+    const Particle* all = static_cast<const Particle*>(pm.pData);
+    uint32_t embersUp = 0;
+    uint32_t globsUp = 0;
+    float emberLow = 1e9f;
+
+    for (uint32_t i = 0; i < capacity; i++) {
+        if (all[i].m_life <= 0.0f) {
+            continue;
+        }
+
+        CHECK(all[i].m_liquid > 0.5f && all[i].m_liquid < 1.5f);
+        CHECK_NEAR(all[i].m_color[1], 0.3f, 0.001f);
+
+        if (all[i].m_kind > 2.5f) {
+            embersUp++;
+            emberLow = all[i].m_pos[2] < emberLow ? all[i].m_pos[2] : emberLow;
+        } else {
+            globsUp++;
+        }
+    }
+
+    ctx->Unmap(particleStaging, 0);
+    printf("  magma after 1 s: %u embers up (the lowest %.2f yd), %u globs in the air\n", embersUp, emberLow, globsUp);
+    CHECK(embersUp > 20);
+    CHECK(emberLow > 0.3f);
+
+    for (int32_t i = 0; i < 120; i++) {
+        ctx->Dispatch(capacity / 64, 1, 1);
+    }
+
+    readParticles(alive, highest);
+    readImpacts(impact, total, texels);
+    readImpacts(thickImpact, thickTotal, thickTexels);
+    printf("  magma after 3 s: %u in the air, impacts on the thick field's %u texels (%.3f yd), on the water's %u\n", alive, thickTexels, thickTotal / 1000000.0, texels);
+    CHECK(alive == 0);
+    CHECK(thickTexels > 10);
+    CHECK(texels == 0);
+
+    thickImpactUav->Release();
+    thickImpact->Release();
     cb->Release();
     impactStaging->Release();
     impactUav->Release();
@@ -1085,9 +1302,10 @@ static void TestParticles() {
     device->Release();
 }
 
-// WaterTests --render <background.rgba> <width> <height> <out.rgba> [seconds]: a big splash (the game's emitters for a jump
-// into the water) drawn over a background with the real shaders on WARP, to look at; raw 8-bit RGBA in and out
-static int32_t RenderSplash(const char* inPath, uint32_t width, uint32_t height, const char* outPath, float seconds) {
+// WaterTests --render <background.rgba> <width> <height> <out.rgba> [seconds] [water|magma|slime]: a big splash (the
+// game's emitters for a jump into the liquid, AwesomeWater's Splash) drawn over a background with the real shaders on
+// WARP, to look at; raw 8-bit RGBA in and out
+static int32_t RenderSplash(const char* inPath, uint32_t width, uint32_t height, const char* outPath, float seconds, uint32_t liquid) {
     std::vector<uint8_t> background;
 
     if (!ReadFile(inPath, background) || background.size() != width * height * 4) {
@@ -1194,6 +1412,9 @@ static int32_t RenderSplash(const char* inPath, uint32_t width, uint32_t height,
     w.m_ambient[1] = 0.15f;
     w.m_ambient[2] = 0.18f;
     w.m_ambient[3] = 1.0f;
+    // an 8-bit frame: magma's glow as IWriteConstants gives it there
+    w.m_liquid[0] = 1.35f;
+    w.m_liquid[1] = 0.65f;
 
     desc.ByteWidth = (sizeof(WaterConstants) + 15) & ~15u;
     desc.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
@@ -1208,7 +1429,13 @@ static int32_t RenderSplash(const char* inPath, uint32_t width, uint32_t height,
 
     // AwesomeWaterOnUnitInLiquid's jump into the water, a body radius of 0.6 yards
     const float body = 0.6f;
-    const float emitters[4][5] = { { 36, 6.0f, 3.0f, body * 1.0f, 2 }, { 260, 7.0f, 3.2f, body * 0.9f, 0 }, { 70, 10.0f, 0.8f, body * 0.35f, 0 }, { 8, 1.2f, 1.6f, body * 0.8f, 1 } };
+    const float waterEmitters[4][5] = { { 36, 6.0f, 3.0f, body * 1.0f, 2 }, { 260, 7.0f, 3.2f, body * 0.9f, 0 }, { 70, 10.0f, 0.8f, body * 0.35f, 0 }, { 8, 1.2f, 1.6f, body * 0.8f, 1 } };
+    const float magmaEmitters[2][5] = { { 30, 4.5f, 2.2f, body * 0.8f, 0 }, { 40, 3.0f, 1.5f, body * 0.9f, 3 } };
+    const float slimeEmitters[2][5] = { { 24, 4.0f, 2.4f, body * 1.0f, 2 }, { 60, 4.5f, 2.6f, body * 0.9f, 0 } };
+    // AwesomeWater's Classify: magma orange, slime green
+    const float colors[3][3] = { { 0.0f, 0.0f, 0.0f }, { 1.0f, 0.25f, 0.03f }, { 0.22f, 0.45f, 0.04f } };
+    const float (*emitters)[5] = liquid == 1 ? magmaEmitters : (liquid == 2 ? slimeEmitters : waterEmitters);
+    int32_t emitterCount = liquid ? 2 : 4;
     ParticleConstants c = {};
     c.m_sim[0] = 15.0f;
     c.m_sim[1] = 0.6f;
@@ -1218,21 +1445,25 @@ static int32_t RenderSplash(const char* inPath, uint32_t width, uint32_t height,
     c.m_emit[2] = 777;
     uint32_t total = 0;
 
-    for (int32_t i = 0; i < 4; i++) {
+    for (int32_t i = 0; i < emitterCount; i++) {
         total += static_cast<uint32_t>(emitters[i][0]);
-        c.m_emitters[i * 2][3] = static_cast<float>(total);
-        c.m_emitters[i * 2 + 1][0] = emitters[i][1];
-        c.m_emitters[i * 2 + 1][1] = emitters[i][2];
-        c.m_emitters[i * 2 + 1][2] = emitters[i][3];
-        c.m_emitters[i * 2 + 1][3] = emitters[i][4];
+        c.m_emitters[i * 3][3] = static_cast<float>(total);
+        c.m_emitters[i * 3 + 1][0] = emitters[i][1];
+        c.m_emitters[i * 3 + 1][1] = emitters[i][2];
+        c.m_emitters[i * 3 + 1][2] = emitters[i][3];
+        c.m_emitters[i * 3 + 1][3] = emitters[i][4];
+        c.m_emitters[i * 3 + 2][0] = colors[liquid][0];
+        c.m_emitters[i * 3 + 2][1] = colors[liquid][1];
+        c.m_emitters[i * 3 + 2][2] = colors[liquid][2];
+        c.m_emitters[i * 3 + 2][3] = static_cast<float>(liquid);
     }
 
     c.m_emit[3] = total;
-    c.m_count[0] = 4;
+    c.m_count[0] = static_cast<uint32_t>(emitterCount);
     c.m_offset[3] = 1.0f / 60.0f;
     ctx->UpdateSubresource(particleCb, 0, nullptr, &c, 0, 0);
-    ID3D11UnorderedAccessView* uavs[2] = { particleUav, nullptr };
-    ctx->CSSetUnorderedAccessViews(0, 2, uavs, nullptr);
+    ID3D11UnorderedAccessView* uavs[3] = { particleUav, nullptr, nullptr };
+    ctx->CSSetUnorderedAccessViews(0, 3, uavs, nullptr);
     ctx->CSSetConstantBuffers(6, 1, &particleCb);
     ctx->CSSetShader(emitCs, nullptr, 0);
     ctx->Dispatch((total + 63) / 64, 1, 1);
@@ -1244,8 +1475,8 @@ static int32_t RenderSplash(const char* inPath, uint32_t width, uint32_t height,
         ctx->Dispatch(capacity / 64, 1, 1);
     }
 
-    ID3D11UnorderedAccessView* noUavs[2] = {};
-    ctx->CSSetUnorderedAccessViews(0, 2, noUavs, nullptr);
+    ID3D11UnorderedAccessView* noUavs[3] = {};
+    ctx->CSSetUnorderedAccessViews(0, 3, noUavs, nullptr);
 
     D3D11_BLEND_DESC blend = {};
     blend.RenderTarget[0].BlendEnable = TRUE;
@@ -1307,9 +1538,377 @@ static int32_t RenderSplash(const char* inPath, uint32_t width, uint32_t height,
     return 0;
 }
 
+// WaterTests --surface <psLiquidMagma.bls> <texture.rgba, 256 x 256> <magma|slime> <out.rgba> [seconds] [hdr 0|1]: a
+// 40-yard pool of magma or slime drawn with the real translated pixel shader (s_hlslWater's WxThickShade) on WARP,
+// looked at from 4 yards up: a rock floor rising out of it to a shore on the right, a stirred patch in the middle (a wake's
+// dent and its foam) and a few bubbles on the height field. A cave's light (indoors, no sky). Out: 640 x 360 8-bit RGBA
+// (an HDR run tonemapped as hdrTonemap 1 does)
+static int32_t RenderSurface(const char* blsPath, const char* texPath, uint32_t liquid, const char* outPath, float seconds, bool hdr) {
+    const uint32_t width = 640;
+    const uint32_t height = 360;
+    std::vector<uint8_t> texels;
+
+    if (!ReadFile(texPath, texels) || texels.size() != 256 * 256 * 4) {
+        printf("surface: %s is not 256 x 256 RGBA\n", texPath);
+        return 1;
+    }
+
+    std::vector<uint8_t> psCode;
+
+    if (!TranslateFirst(blsPath, "psLiquidMagma", false, 0, psCode)) {
+        printf("surface: %s did not translate\n", blsPath);
+        return 1;
+    }
+
+    ID3D11Device* device = nullptr;
+    ID3D11DeviceContext* ctx = nullptr;
+
+    if (FAILED(D3D11CreateDevice(nullptr, D3D_DRIVER_TYPE_WARP, nullptr, 0, nullptr, 0, D3D11_SDK_VERSION, &device, nullptr, &ctx))) {
+        return 1;
+    }
+
+    // the pool: a quad on z = 0, its texture coordinates as the stock vertex shader's scroll gives them
+    std::string vsSource = std::string(GxD3d11::s_hlslCommon) + GxD3d11::s_hlslWaterConstants +
+        "GxVaryings SurfaceVs(uint id : SV_VertexID) {\n"
+        "    static const float2 corners[6] = { float2(-1, -1), float2(1, -1), float2(-1, 1), float2(1, -1), float2(1, 1), float2(-1, 1) };\n"
+        "    float2 k = corners[id];\n"
+        "    float3 w = float3(k.x * 24.0, k.y * 24.0 + 14.0, 0.0);\n"
+        "    GxVaryings o = (GxVaryings)0;\n"
+        "    float3 v = mul(float4(w, 1.0), gxWaterView).xyz;\n"
+        "    o.gxP = float4(v, 1.0);\n"
+        "    o.pos = mul(float4(v, 1.0), gxWaterProj);\n"
+        "    o.pos.xy += float2(gxWaterTarget.x, -gxWaterTarget.y) * o.pos.w;\n"
+        "    o.c0 = 1.0;\n"
+        "    o.t0 = float4(w.xy * 0.08 + gxWaterParams1.z * float2(0.025, 0.0), 0.0, 0.0);\n"
+        "    o.t1 = o.t0;\n"
+        "    o.fog = 1.0;\n"
+        "    o.clip0 = 1.0;\n"
+        "    o.clip1 = 1.0;\n"
+        "    return o;\n"
+        "}\n";
+    std::vector<uint8_t> vsCode;
+    std::string error;
+
+    if (!Compile(vsSource, "SurfaceVs", "vs_5_0", &vsCode, error)) {
+        printf("surface: %s\n", error.c_str());
+        return 1;
+    }
+
+    ID3D11VertexShader* vs = nullptr;
+    ID3D11PixelShader* ps = nullptr;
+    device->CreateVertexShader(vsCode.data(), vsCode.size(), nullptr, &vs);
+    device->CreatePixelShader(psCode.data(), psCode.size(), nullptr, &ps);
+
+    // the camera 4 yards up, 8 back, looking down about 24 degrees; view x right, y up, z ahead
+    const float cam[3] = { 0.0f, -8.0f, 4.0f };
+    float f[3] = { 0.0f, 1.0f, -0.45f };
+    float fl = sqrtf(f[0] * f[0] + f[1] * f[1] + f[2] * f[2]);
+    f[0] /= fl;
+    f[1] /= fl;
+    f[2] /= fl;
+    const float r[3] = { 1.0f, 0.0f, 0.0f };
+    const float u[3] = { r[1] * f[2] - r[2] * f[1], r[2] * f[0] - r[0] * f[2], r[0] * f[1] - r[1] * f[0] };
+    auto dot3 = [](const float* a, const float* b) { return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]; };
+    float view[16] = { r[0], u[0], f[0], 0, r[1], u[1], f[1], 0, r[2], u[2], f[2], 0, -dot3(cam, r), -dot3(cam, u), -dot3(cam, f), 1 };
+    float viewInv[16] = { r[0], r[1], r[2], 0, u[0], u[1], u[2], 0, f[0], f[1], f[2], 0, cam[0], cam[1], cam[2], 1 };
+    const float aspect = static_cast<float>(width) / height;
+    const float px = 1.732f / aspect;
+    const float py = 1.732f;
+    const float nearZ = 0.2f;
+    const float farZ = 1000.0f;
+    float proj[16] = { px, 0, 0, 0, 0, py, 0, 0, 0, 0, farZ / (farZ - nearZ), 1, 0, 0, -nearZ * farZ / (farZ - nearZ), 0 };
+
+    // the opaque scene behind: the rock floor z = -1.2 + 0.1 x (it leaves the pool at x 12), its clip w (the view
+    // depth: a view ray's forward part is 1), and its colour, dim and mottled
+    std::vector<float> depth(width * height, 0.0f);
+    std::vector<uint8_t> rock(width * height * 4, 0);
+    std::vector<bool> dry(width * height, false);
+
+    for (uint32_t y = 0; y < height; y++) {
+        for (uint32_t x = 0; x < width; x++) {
+            float nx = (x + 0.5f) / width * 2.0f - 1.0f;
+            float ny = 1.0f - (y + 0.5f) / height * 2.0f;
+            float d[3];
+
+            for (int32_t i = 0; i < 3; i++) {
+                d[i] = r[i] * (nx / px) + u[i] * (ny / py) + f[i];
+            }
+
+            float t = (-1.2f + 0.1f * cam[0] - cam[2]) / (d[2] - 0.1f * d[0]);
+            float tl = d[2] < 0.0f ? -cam[2] / d[2] : -1.0f;
+            uint8_t* c = &rock[(y * width + x) * 4];
+
+            if (t > 0.0f) {
+                float hx = cam[0] + t * d[0];
+                float hy = cam[1] + t * d[1];
+                float m = 0.5f + 0.25f * sinf(hx * 1.7f) * sinf(hy * 2.3f) + 0.15f * sinf(hx * 5.1f + hy * 3.7f);
+                c[0] = static_cast<uint8_t>(70 * m + 20);
+                c[1] = static_cast<uint8_t>(60 * m + 18);
+                c[2] = static_cast<uint8_t>(55 * m + 16);
+                depth[y * width + x] = t;
+                dry[y * width + x] = tl < 0.0f || t < tl;
+            } else {
+                c[0] = 20;
+                c[1] = 16;
+                c[2] = 18;
+            }
+
+            c[3] = 255;
+        }
+    }
+
+    // the height field: a wake's dent and its foam in the middle of the pool, and three bubbles
+    std::vector<float> field(512 * 512 * 4, 0.0f);
+
+    for (uint32_t y = 0; y < 512; y++) {
+        for (uint32_t x = 0; x < 512; x++) {
+            float wx = -64.0f + (x + 0.5f) * 0.25f;
+            float wy = -64.0f + (y + 0.5f) * 0.25f;
+            float* t = &field[(y * 512 + x) * 4];
+            float dx = wx + 2.0f;
+            float dy = wy - 10.0f;
+            float g = expf(-(dx * dx * 0.3f + dy * dy) / 1.5f);
+            t[0] = -0.12f * g;
+            t[1] = t[0];
+            t[2] = fminf(1.0f, 1.2f * expf(-(dx * dx * 0.2f + dy * dy) / 3.0f));
+            const float bubbles[3][2] = { { 3.0f, 8.0f }, { 5.5f, 13.0f }, { -6.0f, 15.0f } };
+
+            for (const float* b : bubbles) {
+                float bx = wx - b[0];
+                float by = wy - b[1];
+                float bg = expf(-(bx * bx + by * by) / 0.2f);
+                t[0] += 0.06f * bg;
+                t[1] += 0.06f * bg;
+                t[2] = fminf(1.0f, t[2] + 0.7f * bg);
+            }
+        }
+    }
+
+    WaterConstants w = {};
+    w.m_flags[0] = 0x7F;
+    w.m_flags[2] = 16;
+    w.m_flags[3] = liquid;
+    memcpy(w.m_view, view, sizeof(view));
+    memcpy(w.m_viewInv, viewInv, sizeof(viewInv));
+    memcpy(w.m_proj, proj, sizeof(proj));
+    w.m_viewport[2] = static_cast<float>(width);
+    w.m_viewport[3] = static_cast<float>(height);
+    w.m_depthRange[1] = 1.0f;
+    w.m_target[0] = 1.0f / width;
+    w.m_target[1] = 1.0f / height;
+    w.m_target[2] = static_cast<float>(width);
+    w.m_target[3] = static_cast<float>(height);
+    // a cave: no sky, a warm dim ambient, a weak light from above
+    for (int32_t i = 0; i < 6; i++) {
+        w.m_sky[i][0] = 0.05f;
+        w.m_sky[i][1] = 0.04f;
+        w.m_sky[i][2] = 0.04f;
+    }
+    w.m_sunDir[0] = 0.3f;
+    w.m_sunDir[1] = -0.4f;
+    w.m_sunDir[2] = 0.87f;
+    w.m_sunDir[3] = 1.0f;
+    w.m_sunColor[0] = 0.35f;
+    w.m_sunColor[1] = 0.3f;
+    w.m_sunColor[2] = 0.25f;
+    w.m_ambient[0] = 0.12f;
+    w.m_ambient[1] = 0.1f;
+    w.m_ambient[2] = 0.09f;
+    w.m_ambient[3] = 0.0f;
+    w.m_params0[0] = 1.0f;
+    w.m_params0[1] = 1.0f;
+    w.m_params0[2] = 1.0f;
+    w.m_params0[3] = 1.0f;
+    w.m_params1[0] = 1.0f;
+    w.m_params1[1] = 1.0f;
+    w.m_params1[2] = seconds;
+    w.m_field[0] = -64.0f;
+    w.m_field[1] = -64.0f;
+    w.m_field[2] = 1.0f / 128.0f;
+    w.m_field[3] = 1.0f / 512.0f;
+    w.m_fieldExtra[0] = 0.25f;
+    w.m_fieldExtra[1] = 1.0f;
+    // as IWriteConstants gives them
+    w.m_liquid[0] = hdr ? 2.6f : 1.35f;
+    w.m_liquid[1] = 0.65f;
+    w.m_liquid[2] = hdr ? 1.0f : 0.0f;
+
+    struct DrawConstants {
+        float m_viewport[4];
+        float m_clipPlanes[6][4];
+        float m_alphaTest[4];
+        float m_fog[4];
+        float m_pointSize[4];
+        float m_pointScale[4];
+        uint32_t m_clipMask[4];
+        float m_output[4];
+    } draw = {};
+    draw.m_viewport[0] = 1.0f / width;
+    draw.m_viewport[1] = 1.0f / height;
+    draw.m_output[0] = hdr ? 16.0f : 1.0f;
+    float constants[256][4] = {};
+
+    auto makeBuffer = [&](const void* data, uint32_t size) {
+        D3D11_BUFFER_DESC desc = {};
+        desc.ByteWidth = (size + 15) & ~15u;
+        desc.Usage = D3D11_USAGE_DEFAULT;
+        desc.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
+        std::vector<uint8_t> padded(desc.ByteWidth, 0);
+        memcpy(padded.data(), data, size);
+        D3D11_SUBRESOURCE_DATA init = { padded.data(), 0, 0 };
+        ID3D11Buffer* buffer = nullptr;
+        device->CreateBuffer(&desc, &init, &buffer);
+        return buffer;
+    };
+
+    ID3D11Buffer* cb0 = makeBuffer(constants, sizeof(constants));
+    ID3D11Buffer* cb1 = makeBuffer(&draw, sizeof(draw));
+    ID3D11Buffer* cb5 = makeBuffer(&w, sizeof(w));
+
+    auto makeTexture = [&](DXGI_FORMAT format, uint32_t w2, uint32_t h2, const void* data, uint32_t pitch, bool mips) {
+        D3D11_TEXTURE2D_DESC desc = {};
+        desc.Width = w2;
+        desc.Height = h2;
+        desc.MipLevels = mips ? 0 : 1;
+        desc.ArraySize = 1;
+        desc.Format = format;
+        desc.SampleDesc.Count = 1;
+        desc.Usage = D3D11_USAGE_DEFAULT;
+        desc.BindFlags = D3D11_BIND_SHADER_RESOURCE | (mips ? D3D11_BIND_RENDER_TARGET : 0);
+        desc.MiscFlags = mips ? D3D11_RESOURCE_MISC_GENERATE_MIPS : 0;
+        ID3D11Texture2D* tex = nullptr;
+        ID3D11ShaderResourceView* srv = nullptr;
+        device->CreateTexture2D(&desc, nullptr, &tex);
+        ctx->UpdateSubresource(tex, 0, nullptr, data, pitch, 0);
+        device->CreateShaderResourceView(tex, nullptr, &srv);
+
+        if (mips) {
+            ctx->GenerateMips(srv);
+        }
+
+        tex->Release();
+        return srv;
+    };
+
+    ID3D11ShaderResourceView* liquidSrv = makeTexture(DXGI_FORMAT_R8G8B8A8_UNORM, 256, 256, texels.data(), 256 * 4, true);
+    ID3D11ShaderResourceView* sceneSrv = makeTexture(DXGI_FORMAT_R8G8B8A8_UNORM, width, height, rock.data(), width * 4, false);
+    ID3D11ShaderResourceView* depthSrv = makeTexture(DXGI_FORMAT_R32_FLOAT, width, height, depth.data(), width * 4, false);
+    ID3D11ShaderResourceView* fieldSrv = makeTexture(DXGI_FORMAT_R32G32B32A32_FLOAT, 512, 512, field.data(), 512 * 16, false);
+
+    D3D11_SAMPLER_DESC samplerDesc = {};
+    samplerDesc.Filter = D3D11_FILTER_MIN_MAG_MIP_LINEAR;
+    samplerDesc.AddressU = samplerDesc.AddressV = samplerDesc.AddressW = D3D11_TEXTURE_ADDRESS_WRAP;
+    samplerDesc.MaxLOD = D3D11_FLOAT32_MAX;
+    ID3D11SamplerState* wrap = nullptr;
+    device->CreateSamplerState(&samplerDesc, &wrap);
+    samplerDesc.AddressU = samplerDesc.AddressV = samplerDesc.AddressW = D3D11_TEXTURE_ADDRESS_CLAMP;
+    ID3D11SamplerState* clamp = nullptr;
+    device->CreateSamplerState(&samplerDesc, &clamp);
+
+    D3D11_TEXTURE2D_DESC targetDesc = {};
+    targetDesc.Width = width;
+    targetDesc.Height = height;
+    targetDesc.MipLevels = 1;
+    targetDesc.ArraySize = 1;
+    targetDesc.Format = DXGI_FORMAT_R32G32B32A32_FLOAT;
+    targetDesc.SampleDesc.Count = 1;
+    targetDesc.Usage = D3D11_USAGE_DEFAULT;
+    targetDesc.BindFlags = D3D11_BIND_RENDER_TARGET;
+    ID3D11Texture2D* target = nullptr;
+    ID3D11RenderTargetView* rtv = nullptr;
+    device->CreateTexture2D(&targetDesc, nullptr, &target);
+    device->CreateRenderTargetView(target, nullptr, &rtv);
+    targetDesc.BindFlags = 0;
+    targetDesc.Usage = D3D11_USAGE_STAGING;
+    targetDesc.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+    ID3D11Texture2D* staging = nullptr;
+    device->CreateTexture2D(&targetDesc, nullptr, &staging);
+    float clearColor[4] = { -1.0f, -1.0f, -1.0f, 0.0f };
+    ctx->ClearRenderTargetView(rtv, clearColor);
+
+    D3D11_RASTERIZER_DESC raster = {};
+    raster.FillMode = D3D11_FILL_SOLID;
+    raster.CullMode = D3D11_CULL_NONE;
+    raster.DepthClipEnable = TRUE;
+    ID3D11RasterizerState* rasterState = nullptr;
+    device->CreateRasterizerState(&raster, &rasterState);
+
+    D3D11_VIEWPORT vp = { 0, 0, static_cast<float>(width), static_cast<float>(height), 0, 1 };
+    ctx->OMSetRenderTargets(1, &rtv, nullptr);
+    ctx->RSSetState(rasterState);
+    ctx->RSSetViewports(1, &vp);
+    ctx->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    ctx->VSSetShader(vs, nullptr, 0);
+    ctx->PSSetShader(ps, nullptr, 0);
+    ID3D11Buffer* vsBuffers[6] = { cb0, cb1, nullptr, nullptr, nullptr, cb5 };
+    ctx->VSSetConstantBuffers(0, 6, vsBuffers);
+    ctx->PSSetConstantBuffers(0, 6, vsBuffers);
+    ctx->PSSetShaderResources(0, 1, &liquidSrv);
+    ctx->PSSetSamplers(0, 1, &wrap);
+    ID3D11ShaderResourceView* copies[3] = { sceneSrv, depthSrv, fieldSrv };
+    ctx->PSSetShaderResources(18, 3, copies);
+    ctx->PSSetSamplers(15, 1, &clamp);
+    ctx->Draw(6, 0);
+
+    ctx->CopyResource(staging, target);
+    D3D11_MAPPED_SUBRESOURCE mapped;
+    ctx->Map(staging, 0, D3D11_MAP_READ, 0, &mapped);
+    std::vector<uint8_t> out(width * height * 4);
+    float brightest = 0.0f;
+
+    for (uint32_t y = 0; y < height; y++) {
+        const float* line = reinterpret_cast<const float*>(static_cast<const uint8_t*>(mapped.pData) + y * mapped.RowPitch);
+
+        for (uint32_t x = 0; x < width; x++) {
+            uint8_t* o = &out[(y * width + x) * 4];
+            const float* c = &line[x * 4];
+
+            // the rock above the pool, or nothing drawn there
+            if (dry[y * width + x] || c[0] < 0.0f) {
+                memcpy(o, &rock[(y * width + x) * 4], 4);
+                continue;
+            }
+
+            for (int32_t i = 0; i < 3; i++) {
+                // as the frame holds it (encoded); the HDR scene through a neutral tonemap: unchanged below 0.8 linear,
+                // rolled off toward 1 above
+                float lin = powf(c[i] > 0.0f ? c[i] : 0.0f, 2.2f);
+                brightest = lin > brightest ? lin : brightest;
+
+                if (hdr && lin > 0.8f) {
+                    lin = 0.8f + 0.2f * (1.0f - expf(-(lin - 0.8f) / 0.2f));
+                }
+
+                float e = powf(lin > 1.0f ? 1.0f : lin, 1.0f / 2.2f);
+                o[i] = static_cast<uint8_t>(e * 255.0f + 0.5f);
+            }
+
+            o[3] = 255;
+        }
+    }
+
+    ctx->Unmap(staging, 0);
+    FILE* file = fopen(outPath, "wb");
+
+    if (file) {
+        fwrite(out.data(), 1, out.size(), file);
+        fclose(file);
+    }
+
+    printf("surface: %s %s at %.1f s, the brightest %.2f linear, written to %s\n", liquid == 2 ? "slime" : "magma", hdr ? "(HDR)" : "(8-bit)", seconds, brightest, outPath);
+    return 0;
+}
+
 int main(int argc, char** argv) {
+    if (argc >= 6 && !strcmp(argv[1], "--surface")) {
+        uint32_t liquid = !strcmp(argv[4], "slime") ? 2u : 1u;
+        return RenderSurface(argv[2], argv[3], liquid, argv[5], argc > 6 ? static_cast<float>(atof(argv[6])) : 0.0f, argc > 7 && atoi(argv[7]) != 0);
+    }
+
     if (argc >= 6 && !strcmp(argv[1], "--render")) {
-        return RenderSplash(argv[2], static_cast<uint32_t>(atoi(argv[3])), static_cast<uint32_t>(atoi(argv[4])), argv[5], argc > 6 ? static_cast<float>(atof(argv[6])) : 0.25f);
+        const char* kind = argc > 7 ? argv[7] : "water";
+        uint32_t liquid = !strcmp(kind, "magma") ? 1u : (!strcmp(kind, "slime") ? 2u : 0u);
+        return RenderSplash(argv[2], static_cast<uint32_t>(atoi(argv[3])), static_cast<uint32_t>(atoi(argv[4])), argv[5], argc > 6 ? static_cast<float>(atof(argv[6])) : 0.25f, liquid);
     }
 
     TestMonotoneCubic();
@@ -1324,6 +1923,7 @@ int main(int argc, char** argv) {
         TestTranslated(argv[1]);
         TestLinkage(argv[1], "vsLiquidWater", "psLiquidWater");
         TestLinkage(argv[1], "vsLiquidProcWater", "psLiquidProcWater");
+        TestLinkage(argv[1], "vsLiquidMagma", "psLiquidMagma");
     }
 
     printf("%d checks, %d failed\n", s_checks, s_failures);

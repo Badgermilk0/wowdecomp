@@ -3,16 +3,18 @@
 
 // MODIFIED: modern water on the D3D11 device (GxWater.h is the interface the game drives). Three parts:
 //
-//  - the ripple height field: two R32G32_FLOAT textures (height now, height a step ago) of s_fieldSize texels, s_texel
-//    yards each, centred on the player and scrolled by whole texels as the player moves. Each step is a full-screen
-//    pass of the wave equation (a 5-point Laplacian, damped, absorbing at the border) that also adds the frame's
-//    disturbances (Gaussian dips at units in water) and raindrops. Steps are fixed at 60 a second
-//  - before the liquids: the opaque scene's colour is copied (resolved when multisampled) and its depth turned into
-//    clip w (distance along the view axis; 0 is the sky) in an R32F texture, for refraction, thickness and the
-//    screen-space reflections
-//  - the GxWater constants (b5) and the copies (t18 colour, t19 depth, t20 height field, s15 a linear clamp sampler)
-//    that a translated water pixel shader reads (s_hlslWater in D3d11Dx9Shader.cpp). Off, the constants are zero and
-//    the shader keeps the stock colour
+//  - the ripple height fields: each two RGBA32F textures (x height now, y a step ago, z foam) of s_fieldSize texels,
+//    s_texel yards each, centred on the player and scrolled by whole texels as the player moves. Each step is a
+//    full-screen pass of the wave equation (a 5-point Laplacian, damped, absorbing at the border) that also adds the
+//    frame's disturbances (Gaussian dips at units in the liquid) and raindrops or bubbles. Steps are fixed at 60 a
+//    second. Field 0 is the water's; field 1 the thick liquids' (magma, slime: slow, heavily damped, bubbling), run
+//    only while one is drawn near the player
+//  - before the liquids (the opaque ones, magma and slime, and again before the transparent ones): the opaque scene's
+//    colour is copied (resolved when multisampled) and its depth turned into clip w (distance along the view axis; 0
+//    is the sky) in an R32F texture, for refraction, thickness and the screen-space reflections
+//  - the GxWater constants (b5, one buffer for each liquid class) and the copies (t18 colour, t19 depth, t20 the
+//    class's height field, s15 a linear clamp sampler) that a translated liquid pixel shader reads (s_hlslWater in
+//    D3d11Dx9Shader.cpp). Off, the constants are zero and the shader keeps the stock colour
 
 #include <cstdint>
 #include <windows.h>
@@ -37,18 +39,26 @@ class D3d11Water : public IGxWater {
     static const uint32_t s_maxImpulses = 64;
     static const uint32_t s_maxParticles = 8192;
     static const uint32_t s_maxSplashes = 32;
+    static const uint32_t s_fields = 2;    // the water's, the thick liquids'
 
     explicit D3d11Water(CGxDeviceD3d11* device);
     virtual ~D3d11Water();
 
     // IGxWater
     virtual void Update(const GxWaterParams& params, const GxWaterImpulse* impulses, uint32_t count, const GxWaterSplash* splashes, uint32_t splashCount);
+    virtual void BeforeOpaqueLiquids(const C3Vector& origin);
     virtual void BeforeLiquids(const C3Vector& origin);
+    virtual void SetLiquid(uint32_t liquid);
     virtual void AfterLiquids();
     virtual void EndWorld();
     virtual void GetStats(GxWaterStats& stats);
 
-    // the device's side: before a draw with a water pixel shader
+    // the height field a liquid class moves on
+    static uint32_t FieldOf(uint32_t liquid) {
+        return liquid == GxLiquid_Water ? 0u : 1u;
+    }
+
+    // the device's side: before a draw with a liquid pixel shader (of the class SetLiquid gave)
     void BindForDraw();
     // a draw from a triangle list with the water shaders may be tessellated now (its vertex shader then takes the
     // Variant_Tessellated variant); BindTessellation binds the hull and domain shaders for it
@@ -71,16 +81,17 @@ class D3d11Water : public IGxWater {
     GxWaterParams m_params;
     bool m_failed = false;
 
-    // the height field; m_current holds the latest step
-    ID3D11Texture2D* m_field[2] = {};
-    ID3D11RenderTargetView* m_fieldRtv[2] = {};
-    ID3D11ShaderResourceView* m_fieldSrv[2] = {};
-    uint32_t m_current = 0;
-    bool m_fieldValid = false;
-    int32_t m_originX = 0;       // the absolute texel index of the field's corner
+    // the height fields (FieldOf); m_current holds the latest step of each
+    ID3D11Texture2D* m_field[s_fields][2] = {};
+    ID3D11RenderTargetView* m_fieldRtv[s_fields][2] = {};
+    ID3D11ShaderResourceView* m_fieldSrv[s_fields][2] = {};
+    uint32_t m_current[s_fields] = {};
+    bool m_fieldValid[s_fields] = {};
+    int32_t m_originX = 0;       // the absolute texel index of the fields' corner
     int32_t m_originY = 0;
     float m_stepTime = 0.0f;     // seconds not yet stepped
     uint32_t m_stepSeed = 0;
+    uint32_t m_drawLiquid = GxLiquid_Water;
 
     // this frame's disturbances, kept until a step takes them (a frame may have none at a high frame rate)
     GxWaterImpulse m_impulses[s_maxImpulses] = {};
@@ -96,7 +107,7 @@ class D3d11Water : public IGxWater {
     uint32_t m_width = 0;
     uint32_t m_height = 0;
 
-    ID3D11Buffer* m_constants = nullptr;      // GxWater (b5), this frame's
+    ID3D11Buffer* m_constants[GxLiquids_Last] = {};  // GxWater (b5), this frame's, for each liquid class
     ID3D11Buffer* m_offConstants = nullptr;   // all zero: the stock colour
     ID3D11Buffer* m_simConstants = nullptr;   // the passes' own (b0)
     ID3D11SamplerState* m_sampler = nullptr;
@@ -111,9 +122,9 @@ class D3d11Water : public IGxWater {
     ID3D11Buffer* m_particles = nullptr;
     ID3D11UnorderedAccessView* m_particleUav = nullptr;
     ID3D11ShaderResourceView* m_particleSrv = nullptr;
-    ID3D11Texture2D* m_impact = nullptr;
-    ID3D11UnorderedAccessView* m_impactUav = nullptr;
-    ID3D11ShaderResourceView* m_impactSrv = nullptr;
+    ID3D11Texture2D* m_impact[s_fields] = {};
+    ID3D11UnorderedAccessView* m_impactUav[s_fields] = {};
+    ID3D11ShaderResourceView* m_impactSrv[s_fields] = {};
     ID3D11Buffer* m_particleConstants = nullptr;
     ID3D11ComputeShader* m_emitCs = nullptr;
     ID3D11ComputeShader* m_updateCs = nullptr;
@@ -133,12 +144,16 @@ class D3d11Water : public IGxWater {
     // this frame
     bool m_worldActive = false;
     bool m_captured = false;
+    bool m_opaqueCaptured = false;
     ID3D11RenderTargetView* m_capturedRtv = nullptr;
     uint32_t m_statsSteps = 0;
     uint32_t m_statsImpulses = 0;
     uint32_t m_statsDraws = 0;
     uint32_t m_drawsThisFrame = 0;
+    uint32_t m_statsThickDraws = 0;
+    uint32_t m_thickDrawsThisFrame = 0;
     bool m_lastCaptured = false;
+    bool m_lastOpaqueCaptured = false;
 
     bool ICreateShaders();
     bool ICreateTessellation();
@@ -151,7 +166,9 @@ class D3d11Water : public IGxWater {
     bool IEnsureField();
     bool IEnsureCopies(DXGI_FORMAT format);
     void IReleaseField();
-    void IStep(int32_t shiftX, int32_t shiftY, bool impulses);
+    // the scene copied and the constants written, for the liquid draws that follow
+    bool ICapture(const C3Vector& origin);
+    void IStep(uint32_t field, int32_t shiftX, int32_t shiftY, bool impulses);
     void IWriteConstants();
     void IDrawFullscreen(EShader shader, ID3D11RenderTargetView* target, const D3D11_VIEWPORT& viewport, ID3D11ShaderResourceView* srv);
     void IRestoreDevice();

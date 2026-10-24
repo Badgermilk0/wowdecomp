@@ -17,7 +17,7 @@ namespace {
 
 // the GxWater cbuffer of s_hlslWater (D3d11Dx9Shader.cpp), b5
 struct WaterConstants {
-    uint32_t m_flags[4];        // x features (0 = the stock colour), y debug, z reflection steps, w 0
+    uint32_t m_flags[4];        // x features (0 = the stock colour), y debug, z reflection steps, w the liquid class
     float m_viewInv[16];        // view to world (relative to the render origin)
     float m_proj[16];
     float m_projInv[16];
@@ -34,6 +34,7 @@ struct WaterConstants {
     float m_fieldExtra[4];      // x texel (yards), y 1 = valid
     float m_view[16];           // world (relative to the render origin) to view
     float m_tess[4];            // x 1 = tessellate, y largest factor, z edge length near (yards), w wave height
+    float m_liquid[4];          // x magma's glow (linear, past 1 in the HDR scene), y slime's own light, z 1 = HDR scene
 };
 
 // the passes' cbuffer (s_waterPassHlsl), b0
@@ -47,7 +48,12 @@ struct PassConstants {
     float m_depthRange[4];
     float m_projW[4];
     float m_foam[4];            // x foam kept a step, y foam a yard of disturbance makes, z from fast crests, w yards an impact unit
+    float m_bubble[4];          // x bubble chance per cell and step, y yards a bubble lifts, z its radius (texels), w its foam
+    float m_thick[4];           // x 1 = viscous, y the surface kept a step as it settles back
 };
+
+// bubbles rise on a grid of cells this many texels wide, one at most a cell and step
+const int32_t s_bubbleCell = 4;
 
 struct ShaderDesc {
     const char* m_entry;
@@ -155,7 +161,7 @@ bool D3d11Water::ICreateTessellation() {
 }
 
 bool D3d11Water::ICreateResources() {
-    if (this->m_constants) {
+    if (this->m_constants[0]) {
         return true;
     }
 
@@ -167,8 +173,10 @@ bool D3d11Water::ICreateResources() {
     desc.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
     desc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
 
-    if (FAILED(device->CreateBuffer(&desc, nullptr, &this->m_constants))) {
-        return false;
+    for (ID3D11Buffer*& constants : this->m_constants) {
+        if (FAILED(device->CreateBuffer(&desc, nullptr, &constants))) {
+            return false;
+        }
     }
 
     // the stock colour: flags 0
@@ -206,7 +214,7 @@ bool D3d11Water::ICreateResources() {
 }
 
 bool D3d11Water::IEnsureField() {
-    if (this->m_field[0]) {
+    if (this->m_field[0][0]) {
         return true;
     }
 
@@ -223,26 +231,31 @@ bool D3d11Water::IEnsureField() {
     desc.Usage = D3D11_USAGE_DEFAULT;
     desc.BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
 
-    for (uint32_t i = 0; i < 2; i++) {
-        if (FAILED(device->CreateTexture2D(&desc, nullptr, &this->m_field[i])) || FAILED(device->CreateRenderTargetView(this->m_field[i], nullptr, &this->m_fieldRtv[i])) || FAILED(device->CreateShaderResourceView(this->m_field[i], nullptr, &this->m_fieldSrv[i]))) {
-            CGxDevice::Log("D3d11Water: no height field (%u x %u)", s_fieldSize, s_fieldSize);
-            this->IReleaseField();
-            return false;
+    for (uint32_t f = 0; f < s_fields; f++) {
+        for (uint32_t i = 0; i < 2; i++) {
+            if (FAILED(device->CreateTexture2D(&desc, nullptr, &this->m_field[f][i])) || FAILED(device->CreateRenderTargetView(this->m_field[f][i], nullptr, &this->m_fieldRtv[f][i])) || FAILED(device->CreateShaderResourceView(this->m_field[f][i], nullptr, &this->m_fieldSrv[f][i]))) {
+                CGxDevice::Log("D3d11Water: no height field (%u x %u)", s_fieldSize, s_fieldSize);
+                this->IReleaseField();
+                return false;
+            }
         }
+
+        this->m_fieldValid[f] = false;
     }
 
-    this->m_fieldValid = false;
     return true;
 }
 
 void D3d11Water::IReleaseField() {
-    for (uint32_t i = 0; i < 2; i++) {
-        SafeRelease(this->m_fieldSrv[i]);
-        SafeRelease(this->m_fieldRtv[i]);
-        SafeRelease(this->m_field[i]);
-    }
+    for (uint32_t f = 0; f < s_fields; f++) {
+        for (uint32_t i = 0; i < 2; i++) {
+            SafeRelease(this->m_fieldSrv[f][i]);
+            SafeRelease(this->m_fieldRtv[f][i]);
+            SafeRelease(this->m_field[f][i]);
+        }
 
-    this->m_fieldValid = false;
+        this->m_fieldValid[f] = false;
+    }
 }
 
 bool D3d11Water::IEnsureCopies(DXGI_FORMAT format) {
@@ -318,7 +331,11 @@ void D3d11Water::ReleaseAll() {
     SafeRelease(this->m_sampler);
     SafeRelease(this->m_simConstants);
     SafeRelease(this->m_offConstants);
-    SafeRelease(this->m_constants);
+
+    for (ID3D11Buffer*& constants : this->m_constants) {
+        SafeRelease(constants);
+    }
+
     this->m_failed = false;
 }
 
@@ -360,11 +377,12 @@ void D3d11Water::IRestoreDevice() {
     dev->IBindTargets();
 }
 
-void D3d11Water::IStep(int32_t shiftX, int32_t shiftY, bool impulses) {
+void D3d11Water::IStep(uint32_t field, int32_t shiftX, int32_t shiftY, bool impulses) {
     CGxDeviceD3d11* dev = this->m_device;
     ID3D11DeviceContext* ctx = dev->m_ctx;
     const GxWaterParams& p = this->m_params;
     const float dt = 1.0f / 60.0f;
+    const bool thick = field != 0;
 
     PassConstants c = {};
     c.m_shift[0] = shiftX;
@@ -373,18 +391,36 @@ void D3d11Water::IStep(int32_t shiftX, int32_t shiftY, bool impulses) {
     c.m_shift[3] = static_cast<int32_t>(s_fieldSize);
 
     // stable while (speed * dt / texel)^2 stays under 0.5
-    float courant = p.m_rippleSpeed * dt / s_texel;
+    float courant = (thick ? p.m_thickSpeed : p.m_rippleSpeed) * dt / s_texel;
     courant = courant > 0.7f ? 0.7f : courant;
     c.m_wave[0] = courant * courant;
-    c.m_wave[1] = expf(-p.m_rippleDamping * dt);
-    c.m_wave[2] = p.m_rain * s_texel * s_texel * dt;
+    // water: the amplitude lost a step; magma and slime: their motion lost a step, and the surface settles back
+    c.m_wave[1] = expf(-(thick ? p.m_thickDamping : p.m_rippleDamping) * dt);
+    c.m_thick[0] = thick ? 1.0f : 0.0f;
+    c.m_thick[1] = expf(-p.m_thickSettle * dt);
+    // rain falls on the water; the thick liquids bubble
+    c.m_wave[2] = thick ? 0.0f : p.m_rain * s_texel * s_texel * dt;
     c.m_wave[3] = p.m_rainStrength;
+
+    if (thick && p.m_bubbles > 0.0f) {
+        float cell = s_bubbleCell * s_texel;
+        c.m_bubble[0] = p.m_bubbles * cell * cell * dt;
+        c.m_bubble[1] = p.m_bubbleStrength;
+        c.m_bubble[2] = p.m_bubbleRadius / s_texel;
+        // a bubble's burst stirs the surface: on magma it breaks the crust and glows
+        c.m_bubble[3] = 0.8f;
+    }
 
     uint32_t count = 0;
 
     if (impulses) {
         for (uint32_t i = 0; i < this->m_impulseCount; i++) {
             const GxWaterImpulse& im = this->m_impulses[i];
+
+            if (FieldOf(im.m_liquid) != field) {
+                continue;
+            }
+
             float x = (im.m_x - this->m_originX * s_texel) / s_texel;
             float y = (im.m_y - this->m_originY * s_texel) / s_texel;
 
@@ -403,8 +439,8 @@ void D3d11Water::IStep(int32_t shiftX, int32_t shiftY, bool impulses) {
     c.m_count[0] = static_cast<int32_t>(count);
     c.m_count[1] = this->m_originX;
     c.m_count[2] = this->m_originY;
-    // foam: about 3 s to fade to a third; a 0.1-yard disturbance whitens fully
-    c.m_foam[0] = expf(-0.35f * dt);
+    // foam: about 3 s to fade to a third; a 0.1-yard disturbance whitens fully. Stirred magma and slime settle faster
+    c.m_foam[0] = expf(-(thick ? 0.6f : 0.35f) * dt);
     c.m_foam[1] = 10.0f;
     c.m_foam[2] = 60.0f;
     c.m_foam[3] = 1.0f / 1000000.0f;
@@ -416,15 +452,15 @@ void D3d11Water::IStep(int32_t shiftX, int32_t shiftY, bool impulses) {
         ctx->Unmap(this->m_simConstants, 0);
     }
 
-    uint32_t next = this->m_current ^ 1u;
+    uint32_t next = this->m_current[field] ^ 1u;
     D3D11_VIEWPORT vp = { 0.0f, 0.0f, static_cast<float>(s_fieldSize), static_cast<float>(s_fieldSize), 0.0f, 1.0f };
-    // the droplets that fell back at t2 (the draw binds t0 and t1)
-    ID3D11ShaderResourceView* impact = impulses ? this->m_impactSrv : nullptr;
+    // the drops that fell back at t2 (the draw binds t0 and t1)
+    ID3D11ShaderResourceView* impact = impulses ? this->m_impactSrv[field] : nullptr;
     ctx->PSSetShaderResources(2, 1, &impact);
-    this->IDrawFullscreen(Shader_SimPs, this->m_fieldRtv[next], vp, this->m_fieldSrv[this->m_current]);
+    this->IDrawFullscreen(Shader_SimPs, this->m_fieldRtv[field][next], vp, this->m_fieldSrv[field][this->m_current[field]]);
     ID3D11ShaderResourceView* none = nullptr;
     ctx->PSSetShaderResources(2, 1, &none);
-    this->m_current = next;
+    this->m_current[field] = next;
     this->m_statsImpulses += count;
 }
 
@@ -434,10 +470,14 @@ void D3d11Water::Update(const GxWaterParams& params, const GxWaterImpulse* impul
     this->m_worldActive = true;
     this->m_statsParticles = 0;
     this->m_captured = false;
+    this->m_opaqueCaptured = false;
     this->m_capturedRtv = nullptr;
     this->m_statsDraws = this->m_drawsThisFrame;
     this->m_drawsThisFrame = 0;
+    this->m_statsThickDraws = this->m_thickDrawsThisFrame;
+    this->m_thickDrawsThisFrame = 0;
     this->m_statsSteps = 0;
+    this->m_drawLiquid = GxLiquid_Water;
 
     if (!dev->m_ctx || !params.m_features || !this->ICreateResources() || !this->ICreateShaders()) {
         return;
@@ -469,7 +509,8 @@ void D3d11Water::Update(const GxWaterParams& params, const GxWaterImpulse* impul
     }
 
     if (!(params.m_features & GxWater_Ripples)) {
-        this->m_fieldValid = false;
+        this->m_fieldValid[0] = false;
+        this->m_fieldValid[1] = false;
         this->m_impulseCount = 0;
         this->m_splashCount = 0;
         return;
@@ -477,6 +518,13 @@ void D3d11Water::Update(const GxWaterParams& params, const GxWaterImpulse* impul
 
     if (!this->IEnsureField()) {
         return;
+    }
+
+    // the thick liquids' field runs only while one is near; it starts again flat
+    bool thick = params.m_thick && (params.m_features & GxWater_Liquids);
+
+    if (!thick) {
+        this->m_fieldValid[1] = false;
     }
 
     int32_t originX = FloorDiv(params.m_centerX, s_texel) - static_cast<int32_t>(s_fieldSize / 2);
@@ -487,15 +535,29 @@ void D3d11Water::Update(const GxWaterParams& params, const GxWaterImpulse* impul
     dev->m_ctx->PSSetShaderResources(18, 3, noViews);
 
     // a new field after a teleport, a long pause or a first frame
-    if (!this->m_fieldValid || abs(shiftX) >= static_cast<int32_t>(s_fieldSize) || abs(shiftY) >= static_cast<int32_t>(s_fieldSize) || params.m_deltaTime > 1.0f) {
-        float clear[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
-        dev->m_ctx->ClearRenderTargetView(this->m_fieldRtv[0], clear);
-        dev->m_ctx->ClearRenderTargetView(this->m_fieldRtv[1], clear);
-        this->m_current = 0;
-        this->m_fieldValid = true;
+    bool jump = abs(shiftX) >= static_cast<int32_t>(s_fieldSize) || abs(shiftY) >= static_cast<int32_t>(s_fieldSize) || params.m_deltaTime > 1.0f;
+    float clear[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
+
+    if (!this->m_fieldValid[0] || jump) {
+        dev->m_ctx->ClearRenderTargetView(this->m_fieldRtv[0][0], clear);
+        dev->m_ctx->ClearRenderTargetView(this->m_fieldRtv[0][1], clear);
+        this->m_current[0] = 0;
+        this->m_fieldValid[0] = true;
         this->m_stepTime = 0.0f;
+        this->m_fieldValid[1] = false;
         shiftX = 0;
         shiftY = 0;
+    }
+
+    // the thick field shifts with the water's; a fresh one starts flat where the water's is now
+    bool thickShift = true;
+
+    if (thick && !this->m_fieldValid[1]) {
+        dev->m_ctx->ClearRenderTargetView(this->m_fieldRtv[1][0], clear);
+        dev->m_ctx->ClearRenderTargetView(this->m_fieldRtv[1][1], clear);
+        this->m_current[1] = 0;
+        this->m_fieldValid[1] = true;
+        thickShift = false;
     }
 
     this->m_originX = originX;
@@ -508,14 +570,14 @@ void D3d11Water::Update(const GxWaterParams& params, const GxWaterImpulse* impul
     this->m_stepTime -= steps / 60.0f;
     this->m_stepTime = this->m_stepTime > 1.0f / 60.0f ? 1.0f / 60.0f : this->m_stepTime;
 
-    // the field moves with the player now, even on a frame without a step
+    // the fields move with the player now, even on a frame without a step
     if (!steps && (shiftX || shiftY)) {
         steps = 1;
     }
 
     this->m_statsImpulses = 0;
 
-    // the splashes start and every particle moves; droplets falling back are impacts for the steps below
+    // the splashes start and every particle moves; drops falling back are impacts for the steps below
     if (params.m_features & GxWater_Splashes) {
         this->IRunParticles(dt);
     } else {
@@ -523,16 +585,22 @@ void D3d11Water::Update(const GxWaterParams& params, const GxWaterImpulse* impul
     }
 
     for (uint32_t i = 0; i < steps; i++) {
-        this->IStep(i == 0 ? shiftX : 0, i == 0 ? shiftY : 0, i == 0);
+        this->IStep(0, i == 0 ? shiftX : 0, i == 0 ? shiftY : 0, i == 0);
+
+        if (thick) {
+            this->IStep(1, i == 0 && thickShift ? shiftX : 0, i == 0 && thickShift ? shiftY : 0, i == 0);
+        }
     }
 
     if (steps) {
         this->m_impulseCount = 0;
 
-        // the impacts are in the field now
-        if (this->m_impactUav) {
-            UINT zero[4] = {};
-            dev->m_ctx->ClearUnorderedAccessViewUint(this->m_impactUav, zero);
+        // the impacts are in the fields now
+        for (ID3D11UnorderedAccessView* uav : this->m_impactUav) {
+            if (uav) {
+                UINT zero[4] = {};
+                dev->m_ctx->ClearUnorderedAccessViewUint(uav, zero);
+            }
         }
     }
 
@@ -601,48 +669,60 @@ void D3d11Water::IWriteConstants() {
     c.m_params1[1] = p.m_rippleNormal;
     c.m_params1[2] = p.m_time;
 
-    bool field = (p.m_features & GxWater_Ripples) && this->m_fieldValid;
-
-    if (field) {
-        // the corner relative to the render origin, in double: the absolute coordinates reach 17,000 yards
-        c.m_field[0] = static_cast<float>(static_cast<double>(this->m_originX) * s_texel - p.m_origin.x);
-        c.m_field[1] = static_cast<float>(static_cast<double>(this->m_originY) * s_texel - p.m_origin.y);
-        c.m_field[2] = 1.0f / (s_fieldSize * s_texel);
-        c.m_field[3] = 1.0f / s_fieldSize;
-        c.m_fieldExtra[0] = s_texel;
-        c.m_fieldExtra[1] = 1.0f;
-    }
-
     CopyMatrix(c.m_view, view);
-    bool tess = field && (p.m_features & GxWater_Tessellation) && this->ICreateTessellation();
-    c.m_tess[0] = tess ? 1.0f : 0.0f;
+    bool tessShaders = (p.m_features & GxWater_Tessellation) && this->ICreateTessellation();
     c.m_tess[1] = 32.0f;
     c.m_tess[2] = 0.3f;
     c.m_tess[3] = p.m_waveHeight;
 
-    D3D11_MAPPED_SUBRESOURCE mapped;
+    // magma's light: the HDR scene keeps it past 1, so its hottest veins bloom; an 8-bit frame clamps it
+    bool hdr = dev->m_lighting && dev->m_lighting->HdrActive();
+    c.m_liquid[0] = p.m_glow * (hdr ? 2.6f : 1.35f);
+    c.m_liquid[1] = p.m_selfLight;
+    c.m_liquid[2] = hdr ? 1.0f : 0.0f;
 
-    if (SUCCEEDED(dev->m_ctx->Map(this->m_constants, 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped))) {
-        memcpy(mapped.pData, &c, sizeof(c));
-        dev->m_ctx->Unmap(this->m_constants, 0);
+    for (uint32_t liquid = 0; liquid < GxLiquids_Last; liquid++) {
+        uint32_t f = FieldOf(liquid);
+        bool field = (p.m_features & GxWater_Ripples) && this->m_fieldValid[f];
+        c.m_flags[3] = liquid;
+        memset(c.m_field, 0, sizeof(c.m_field));
+        memset(c.m_fieldExtra, 0, sizeof(c.m_fieldExtra));
+
+        if (field) {
+            // the corner relative to the render origin, in double: the absolute coordinates reach 17,000 yards
+            c.m_field[0] = static_cast<float>(static_cast<double>(this->m_originX) * s_texel - p.m_origin.x);
+            c.m_field[1] = static_cast<float>(static_cast<double>(this->m_originY) * s_texel - p.m_origin.y);
+            c.m_field[2] = 1.0f / (s_fieldSize * s_texel);
+            c.m_field[3] = 1.0f / s_fieldSize;
+            c.m_fieldExtra[0] = s_texel;
+            c.m_fieldExtra[1] = 1.0f;
+        }
+
+        c.m_tess[0] = field && tessShaders ? 1.0f : 0.0f;
+        D3D11_MAPPED_SUBRESOURCE mapped;
+
+        if (SUCCEEDED(dev->m_ctx->Map(this->m_constants[liquid], 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped))) {
+            memcpy(mapped.pData, &c, sizeof(c));
+            dev->m_ctx->Unmap(this->m_constants[liquid], 0);
+        }
     }
 }
 
-void D3d11Water::BeforeLiquids(const C3Vector& origin) {
+bool D3d11Water::ICapture(const C3Vector& origin) {
     CGxDeviceD3d11* dev = this->m_device;
     this->m_params.m_origin = origin;
     this->m_captured = false;
     this->m_capturedRtv = nullptr;
 
-    if (!this->m_worldActive || !this->m_params.m_features || !dev->m_ctx || !dev->m_frameDepthSrv || !this->m_constants || !this->ICreateShaders()) {
-        return;
+    if (!this->m_worldActive || !this->m_params.m_features || !dev->m_ctx || !dev->m_frameDepthSrv || !this->m_constants[0] || !this->ICreateShaders()) {
+        return false;
     }
 
     ID3D11RenderTargetView* frame = dev->IFrameRtv();
 
-    // the world is drawing into a texture of its own: the water there stays stock
+    // the world is drawing into a texture of its own: the liquids there stay stock
     if (!frame || dev->m_curRtv != frame) {
-        return;
+        return false;
     }
 
     bool hdr = dev->m_lighting && dev->m_lighting->HdrActive() && dev->m_lighting->SceneTexture();
@@ -650,7 +730,7 @@ void D3d11Water::BeforeLiquids(const C3Vector& origin) {
     DXGI_FORMAT format = hdr ? DXGI_FORMAT_R16G16B16A16_FLOAT : DXGI_FORMAT_B8G8R8A8_UNORM;
 
     if (!source || !this->IEnsureCopies(format)) {
-        return;
+        return false;
     }
 
     // the viewport the liquids draw with
@@ -702,8 +782,25 @@ void D3d11Water::BeforeLiquids(const C3Vector& origin) {
 
     if (s_logged < 3) {
         s_logged++;
-        CGxDevice::Log("D3d11Water: capture %u: features 0x%X, hdr %u, %u samples, %ux%u, viewport %.0f,%.0f %.0fx%.0f, field %u", s_logged, this->m_params.m_features, hdr ? 1 : 0, dev->m_samples, this->m_width, this->m_height, world.TopLeftX, world.TopLeftY, world.Width, world.Height, this->m_fieldValid ? 1 : 0);
+        CGxDevice::Log("D3d11Water: capture %u: features 0x%X, hdr %u, %u samples, %ux%u, viewport %.0f,%.0f %.0fx%.0f, fields %u %u", s_logged, this->m_params.m_features, hdr ? 1 : 0, dev->m_samples, this->m_width, this->m_height, world.TopLeftX, world.TopLeftY, world.Width, world.Height, this->m_fieldValid[0] ? 1 : 0, this->m_fieldValid[1] ? 1 : 0);
     }
+
+    return true;
+}
+
+void D3d11Water::BeforeOpaqueLiquids(const C3Vector& origin) {
+    // only magma and slime draw now: without their feature the copy is not needed
+    if (this->m_params.m_features & GxWater_Liquids) {
+        this->m_opaqueCaptured = this->ICapture(origin);
+    }
+}
+
+void D3d11Water::BeforeLiquids(const C3Vector& origin) {
+    this->ICapture(origin);
+}
+
+void D3d11Water::SetLiquid(uint32_t liquid) {
+    this->m_drawLiquid = liquid < GxLiquids_Last ? liquid : GxLiquid_Water;
 }
 
 void D3d11Water::BindForDraw() {
@@ -714,43 +811,57 @@ void D3d11Water::BindForDraw() {
         return;
     }
 
-    bool on = this->m_worldActive && this->m_captured && dev->m_curRtv == this->m_capturedRtv;
-    ID3D11Buffer* constants = on ? this->m_constants : this->m_offConstants;
+    uint32_t liquid = this->m_drawLiquid;
+    bool on = this->m_worldActive && this->m_captured && dev->m_curRtv == this->m_capturedRtv && (liquid == GxLiquid_Water || (this->m_params.m_features & GxWater_Liquids));
+    ID3D11Buffer* constants = on ? this->m_constants[liquid] : this->m_offConstants;
     ctx->PSSetConstantBuffers(5, 1, &constants);
 
     if (!on) {
         return;
     }
 
-    ID3D11ShaderResourceView* views[3] = { this->m_sceneSrv, this->m_depthSrv, this->m_fieldValid ? this->m_fieldSrv[this->m_current] : nullptr };
+    uint32_t f = FieldOf(liquid);
+    ID3D11ShaderResourceView* views[3] = { this->m_sceneSrv, this->m_depthSrv, this->m_fieldValid[f] ? this->m_fieldSrv[f][this->m_current[f]] : nullptr };
     ctx->PSSetShaderResources(18, 3, views);
     // s15 is the device's slot too: its cache learns what is bound there now
     ctx->PSSetSamplers(15, 1, &this->m_sampler);
     dev->m_boundSampler[15] = this->m_sampler;
-    this->m_drawsThisFrame++;
+
+    if (liquid == GxLiquid_Water) {
+        this->m_drawsThisFrame++;
+    } else {
+        this->m_thickDrawsThisFrame++;
+    }
 }
 
 bool D3d11Water::TessellationReady() const {
     const CGxDeviceD3d11* dev = this->m_device;
-    return dev->m_ctx && this->m_worldActive && this->m_captured && dev->m_curRtv == this->m_capturedRtv && this->m_fieldValid && (this->m_params.m_features & GxWater_Tessellation) && this->m_hullShader && this->m_domainShader;
+    uint32_t liquid = this->m_drawLiquid;
+    bool classOn = liquid == GxLiquid_Water || (this->m_params.m_features & GxWater_Liquids);
+    return dev->m_ctx && classOn && this->m_worldActive && this->m_captured && dev->m_curRtv == this->m_capturedRtv && this->m_fieldValid[FieldOf(liquid)] && (this->m_params.m_features & GxWater_Tessellation) && this->m_hullShader && this->m_domainShader;
 }
 
 void D3d11Water::BindTessellation() {
     ID3D11DeviceContext* ctx = this->m_device->m_ctx;
+    uint32_t liquid = this->m_drawLiquid;
+    uint32_t f = FieldOf(liquid);
 
     ctx->HSSetShader(this->m_hullShader, nullptr, 0);
     ctx->DSSetShader(this->m_domainShader, nullptr, 0);
-    ctx->HSSetConstantBuffers(5, 1, &this->m_constants);
-    ctx->DSSetConstantBuffers(5, 1, &this->m_constants);
-    ctx->DSSetShaderResources(20, 1, &this->m_fieldSrv[this->m_current]);
+    ctx->HSSetConstantBuffers(5, 1, &this->m_constants[liquid]);
+    ctx->DSSetConstantBuffers(5, 1, &this->m_constants[liquid]);
+    ctx->DSSetShaderResources(20, 1, &this->m_fieldSrv[f][this->m_current[f]]);
     ctx->DSSetSamplers(15, 1, &this->m_sampler);
 }
 
 void D3d11Water::EndWorld() {
     this->m_worldActive = false;
     this->m_lastCaptured = this->m_captured;
+    this->m_lastOpaqueCaptured = this->m_opaqueCaptured;
     this->m_captured = false;
+    this->m_opaqueCaptured = false;
     this->m_capturedRtv = nullptr;
+    this->m_drawLiquid = GxLiquid_Water;
 
     if (this->m_device->m_ctx) {
         ID3D11ShaderResourceView* noViews[3] = {};
@@ -759,7 +870,7 @@ void D3d11Water::EndWorld() {
 }
 
 void D3d11Water::GetStats(GxWaterStats& stats) {
-    stats.m_simActive = this->m_fieldValid;
+    stats.m_simActive = this->m_fieldValid[0];
     stats.m_simSteps = this->m_statsSteps;
     stats.m_impulses = this->m_statsImpulses;
     stats.m_captured = this->m_lastCaptured;
@@ -767,4 +878,7 @@ void D3d11Water::GetStats(GxWaterStats& stats) {
     stats.m_particlesStarted = this->m_statsParticles;
     stats.m_fieldSize = s_fieldSize;
     stats.m_texel = s_texel;
+    stats.m_thickActive = this->m_fieldValid[1];
+    stats.m_thickDraws = this->m_statsThickDraws;
+    stats.m_opaqueCaptured = this->m_lastOpaqueCaptured;
 }

@@ -1975,6 +1975,18 @@ void CGUnit_C::CreateRipple(uint32_t a2) {
     World::QueryObjectLiquidFlags(this->m_worldObject, &flag8, &flag9);
 
     if (!flag8) {
+        // MODIFIED: modern water (Awesome.h): a liquid without the stock ripple (LiquidType flag 1: magma, slime) still
+        // moves under the unit
+        float reach = this->m_movementData.m_collisionHeight + this->m_movementData.m_collisionHeight;
+        reach = reach <= 1.0f ? 1.0f : reach;
+        float under = liquidHeight - this->GetPosition().z;
+
+        if (under < reach) {
+            C3Vector surface = this->GetPosition();
+            surface.z = liquidHeight;
+            AwesomeWaterOnUnitInLiquid(reinterpret_cast<uintptr_t>(this), surface, under, reach, this->m_movement->m_flags, a2, this->m_movement->m_currentSpeed, this->GetFacing(), static_cast<uint32_t>(liquidType));
+        }
+
         return;
     }
 
@@ -2013,7 +2025,7 @@ void CGUnit_C::CreateRipple(uint32_t a2) {
     // ripple's moments
     C3Vector surface = this->GetPosition();
     surface.z = liquidHeight;
-    AwesomeWaterOnUnitInLiquid(reinterpret_cast<uintptr_t>(this), surface, depth, maxDepth, this->m_movement->m_flags, a2, this->m_movement->m_currentSpeed, this->GetFacing());
+    AwesomeWaterOnUnitInLiquid(reinterpret_cast<uintptr_t>(this), surface, depth, maxDepth, this->m_movement->m_flags, a2, this->m_movement->m_currentSpeed, this->GetFacing(), static_cast<uint32_t>(liquidType));
 
     uint32_t time = FrameTime::s_curTimeMs;
 

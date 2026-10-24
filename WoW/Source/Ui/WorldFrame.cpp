@@ -1781,6 +1781,9 @@ void CGWorldFrame::OnWorldRender() {
     CWorldScene::RenderDetailDoodads();
     // MODIFIED: modern lighting: SSAO and fog over the opaque world, before liquids and everything transparent
     AwesomeLightingOpaqueDone();
+    // MODIFIED: modern water (Awesome.h): the opaque liquids (magma, slime), held back by CWorldScene::Render, over the
+    // opaque world and a copy of it (after SSAO and the height fog: their light is their own)
+    AwesomeWaterOpaqueLiquids();
 
     if (World::SceneCamLiquidStatus(nullptr)) {
         FrameProfileSwitch(FRAMEPROFILE_LIQUID);

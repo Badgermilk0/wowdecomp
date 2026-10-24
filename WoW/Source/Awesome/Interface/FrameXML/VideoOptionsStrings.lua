@@ -33,8 +33,8 @@ LIGHTING_QUALITY_LABEL5 = "Ultra";
 LIGHTING_QUALITY_LABEL6 = "Custom";
 LIGHTING_QUALITY_SUBTEXT1 = "The world is lit as in the original game.";
 LIGHTING_QUALITY_SUBTEXT2 = "High dynamic range and per-pixel lighting with light sharpening. Little cost on any Direct3D 11 card.";
-LIGHTING_QUALITY_SUBTEXT3 = "Adds dynamic lights, specular highlights, soft ambient occlusion and a little bloom.";
-LIGHTING_QUALITY_SUBTEXT4 = "Adds firelight, valley mist and sun-tinted fog, with stronger ambient occlusion and bloom.";
+LIGHTING_QUALITY_SUBTEXT3 = "Adds sun shadows, shade under leaves, dynamic lights, specular highlights, soft ambient occlusion and a little bloom.";
+LIGHTING_QUALITY_SUBTEXT4 = "Adds firelight, valley mist and sun-tinted fog, with stronger ambient occlusion, shade and bloom.";
 LIGHTING_QUALITY_SUBTEXT5 = "The strongest settings, for high-end systems.";
 LIGHTING_QUALITY_SUBTEXT6 = "Your own combination of the settings below.";
 
@@ -72,6 +72,12 @@ SHADOW_SOFTNESS = "Shadow Softness";
 OPTION_TOOLTIP_SHADOW_SOFTNESS = "Widens the shadow edge filter. Raise it if large shadow maps look too sharp.";
 STABLE_SHADOWS = "Stable Shadows";
 OPTION_TOOLTIP_STABLE_SHADOWS = "Shadow edges no longer crawl and flicker while you move.";
+SUN_SHADOWS = "Sun Shadows";
+OPTION_TOOLTIP_SUN_SHADOWS = "Shadows take away the sunlight itself, not a little of all light: shade is deep where the sun is strong, and sunlight through leaves falls in bright, soft-edged patches. Needs Shadow Quality at its highest (Effects).";
+CANOPY_SHADE = "Canopy Shade";
+OPTION_TOOLTIP_CANOPY_SHADE = "The sky's light dims under leaves and roofs, so forests are shaded and clearings bright. Needs Sun Shadows.";
+SUN_SHAFTS = "Sun Shafts";
+OPTION_TOOLTIP_SUN_SHAFTS = "Sunlight lights the air where it gets through, so it falls in shafts through gaps in the leaves. Needs Direct3D 11 and Shadow Quality at its highest (Effects).";
 
 -- [[ Water and sky ]] --
 

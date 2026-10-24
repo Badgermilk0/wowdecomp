@@ -467,6 +467,13 @@ void CShadowQuery::GatherShadowCasters(CShadowCacheQueryData& data, int32_t firs
     maxRadius[2] = 10000.0f;
     minRadius[2] = 10.0f;
 
+    // MODIFIED: sun shadows (CShadowCache::s_fineCasters): the outer cascades keep smaller casters, so a bush's shadow
+    // does not vanish where the ground passes from one cascade to the next
+    if (CShadowCache::s_fineCasters) {
+        minRadius[1] = 0.5f;
+        minRadius[2] = 3.0f;
+    }
+
     for (CMapEntity* entity = CMap::entityList.Head(); entity; entity = CMap::entityList.Next(entity)) {
         if (entity->m_staticFlags & 0x4) {
             continue;
@@ -586,6 +593,11 @@ void CShadowQuery::GetSize(CShadowCacheQueryData& data, int32_t band, float* min
     }
 
     *minSize = band >= 2 ? 10.0f : 2.0f;
+
+    // MODIFIED: sun shadows, as GatherShadowCasters
+    if (CShadowCache::s_fineCasters) {
+        *minSize = band >= 2 ? 3.0f : 0.5f;
+    }
 }
 
 // VERIFY: 69b3a5e2 auto

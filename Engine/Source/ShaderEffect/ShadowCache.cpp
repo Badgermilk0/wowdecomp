@@ -103,6 +103,7 @@ C4Vector CShadowCache::s_shadowMatrices[12];
 // MODIFIED: shadow quality options, stock values until the CVars set them
 uint32_t CShadowCache::s_sizeOverride = 0;
 float CShadowCache::s_pcfScale = 1.0f;
+int32_t CShadowCache::s_fineCasters = 0;
 int32_t CShadowCache::s_stableBands = 0;
 int32_t CShadowCache::s_cascadeReuse = 0;
 

@@ -506,7 +506,7 @@ lights found and the CVars (`GetLightingStats()`).
 | Per-pixel lighting | `lightPerPixel` (**0**) | The M2 (`Diffuse_*`, `CDiffuse_*`), WMO (`MapObj*`, `MapObjU*`) and terrain (`Terrain`) vertex shaders compute the sun, ambient and stock point lights per vertex. The translator now also has them hand their view-space position, normal and material to the pixel shader, and the pixel shader evaluates the same formula per pixel. Each vertex checks that the formula reproduces its own colour (within 1/255); a permutation it does not reproduce (an unlit one) is left as it was. Checked on the GPU with stream output, random vertices and plausible constants: of the HD client's 773 distinct M2 / WMO / terrain vertex shader records, all 638 lit ones reproduce their colour exactly, and every rebuilt position matches (the other 135: unlit M2s, left alone, and unlit WMOs, which take dynamic lights only). |
 | Dynamic lights | `lightDynamic` (**0**), `lightDynamicIntensity` (**1**), `lightDynamicM2` (**0.6**), `lightDynamicWmo` (**0.5**), `lightDynamicDistance` (**100** yd), `lightFlicker` (**0.3**), `lightWrap` (**0.25**) | The point lights of M2 models (braziers, torches, lanterns: `CM2Scene`'s light grid, with the colour and the attenuation start / end the model animates; the stock client never animated the attenuation tracks and lit with a fixed falloff, four lights a model) and of WMOs (the MOLT lights, which the stock client only baked into vertex colours: transformed by each placed WMO's matrix), the nearest 256 within reach. A compute shader sorts them into 16 × 9 × 24 view clusters; the lit pixel shaders add the lights of their cluster in linear light (full up to the start, a smooth fall to the end, a wrap for soft terminators). Warm lights flicker. Surfaces without a normal (the unlit `MapObjU*` interiors) use their face normal. |
 | Fires as lights | `lightFire` (**0** = off, else the intensity; needs `lightDynamic`) | Most fires in the world (bonfires, braziers, torches) are particle effects with no light record, so the dynamic lights found nothing near them. `CM2Model::AnimateST` now hands each animated model with particle emitters to `AwesomeLighting` (`s_particlesAnimatedCallback`); an emitter counts as a flame when its particles glow (additive, or a bright alpha blend), its mid-life colour is red over green over blue, and it is emitting. Held and spell attachments are left out. The emitters of one fire (within 2.5 yd) merge into one warm, flickering light at their centre, half a yard up, sized by the particles and their number (5 to 18 yd). No asset is changed. |
-| Specular | `lightSpecular` (**0**), `lightSpecularM2` (**0.3**), `lightSpecularWmo` (**1**) | Only where the data asks for it: the WMO specular shaders (`MapObjSpecular_*`, which the stock `specular 1` turns on after a restart) get their specular per pixel plus the dynamic lights'; sphere-mapped M2 batches (`*_Env*`, the shiny ones) get the sun's highlight and the lights'. Everything else stays matte. |
+| Specular | `lightSpecular` (**0**), `lightSpecularM2` (**0.1**), `lightSpecularWmo` (**1**) | Only where the data asks for it: the WMO specular shaders (`MapObjSpecular_*`, which the stock `specular 1` turns on after a restart) get their specular per pixel plus the dynamic lights'; sphere-mapped M2 batches (`*_Env*`, the shiny ones) get the sun's highlight and the lights'. Everything else stays matte. |
 | Sky ambient | `lightSkyAmbient` (**0** = off, else the strength) | The ambient term of lit surfaces tinted by the zone's sky colour (Light.dbc's sky top and middle) from above and its ground (fog lit by the sun) from below, both scaled to the stock ambient's luminance. |
 | Height fog, scattering | `fogHeight` (**0** = off, else the density per yard), `fogHeightFalloff` (**0.05**), `fogHeightOffset` (**-5** yd from the player's feet), `fogHeightMax` (**0.85**); `fogScattering` (**0** = off, else the strength) | After the opaque pass: exponential fog integrated along each view ray, thickest below the player, in the zone's fog colour; and the stock distance fog (recomputed from the same start, end and density) tinted toward the sun's colour looking into the sun. |
 
@@ -532,6 +532,86 @@ dynamic lighting on skinned and lit M2 models with the scenes' own model lights 
 and the test lights; the D3D11 debug layer reports nothing new. **Not seen in the world:** the terrain and WMO families
 (checked only by the GPU test above), the MOLT lights, liquids and transparent passes over the HDR scene, the sky, real
 fog values, and how any of it looks. The strengths are starting points to tune in game.
+
+### Sunlight, shade and shafts (branch `feature/sky-light-shadows`, D3D11 only)
+
+A second pass over how the sun and the sky light the world. In the stock shaders a shadow is `colour × (0.7 + 0.3 ×
+shadow)`: full shade still keeps 70% of all the light, ambient included. That is why a forest under a bright sun looked
+flat, with no patches of sunlight on the ground. Here the shadow takes away the direct sunlight only. Every effect has
+a CVar, all of them **default off**, and they need `extShadowQuality` 5: the three cascades are what they are made of.
+`/lighting on` turns them on with the rest of the preset.
+
+| Effect | CVars (**default**) | How |
+|---|---|---|
+| Sun shadows | `shadowSun` (**0**), `shadowSunStrength` (**1**), `shadowPenumbra` (**1.5**), `lightSunIntensity` (**1**), `lightAmbientIntensity` (**1**) | The lit families (M2, WMO, terrain, as in "Modern lighting") are lit again per pixel with the sun's term and the ambient apart. The sun's term is multiplied by the shadow, and the ambient is not. The shadow is read from the stock maps (the near map of the units, and the cascades 80, 320 and 1280 yards across, with the stock matrices and biases). Each map is read soft as the sun's disc makes it (PCSS): 8 gathers find the occluders around the point, and their distance gives the penumbra (the sun's angular radius × `shadowPenumbra` × the gap). Then 12 filtered compares are taken over that width, on a Vogel disc turned per pixel. A trunk's foot stays sharp, and light through a high canopy falls in soft patches. The first cascade that holds the point is used, blended into the next over its outer tenth; the near map is taken as the stock shaders take it (the darker of the two). In those draws the stock shadow taps read lit, so the shadow is not applied twice. WMO and terrain specular are shaded with the sun. The two intensities weigh the lights on lit surfaces; with HDR the lighting may reach 2. |
+| Grass and unlit surfaces | (the same) | Grass (`DetailDoodad`) and surfaces that are not relit keep the stock formula. Their shadow taps go deeper instead (`1 − k × (1 − tap)`), so their full shade is the zone's shaded fraction: ambient over ambient plus 0.7 × sun, from Light.dbc's colours. Grass in shade is then about as dark as the ground around it. |
+| Canopy shade | `lightCanopy` (**0** = off, to 1; needs `shadowSun`) | The ambient of lit surfaces dims under leaves and roofs. Eight points of a cone above the pixel (2 to 20 yards up, spreading by half their height) are looked up in the 320-yard cascade (the 1280-yard one past it) with a gather each. A point counts as open when nothing within 30 yards of it, toward the sun, is in the map; farther occluders are hills, whose shade is the sun's. Full cover dims the ambient to 0.3 at strength 1. |
+| Sun shafts | `lightShafts` (**0** = off, else the intensity), `lightShaftsDensity` (**0.012** per yard), `lightShaftsDistance` (**120** yd) | After the opaque pass (before the height fog): at half resolution each view ray is marched in 32 jittered steps up to the geometry or the distance. Each step reads the cascades for the sun, and the in-scattered light is weighed by Henyey-Greenstein (g 0.55, capped at 4). A ray lit along most of its length (an open field) scatters a tenth as much, so the open air stays clear and light crossing shade stands out as shafts. Then the depth-aware blur both ways, as SSAO's, and an upsample by depth laid over the scene by alpha. The colour is the sun's at luminance 1.5 with a quarter of the fog's. It is dimmer when the sun is (dusk, the moon) and off inside WMOs. |
+
+How it fits in:
+
+| Part | Where |
+|---|---|
+| The maps, matrices and their depth scale, read from `CShadowCache` after the shadow pass (`GatherShadows`), the CVars, the zone's shaded fraction | `Awesome/AwesomeLighting.cpp` |
+| `GxLightingShadows` and the new parameters | `Gx/GxLighting.h` |
+| The maps at t21-t24 with a point sampler (s13) and a comparison sampler (s14), both bordered as lit, only between SetupView and EndWorld (the shadow pass writes them before SetupView); the sun constants in b3; the shafts pass | `Gx/CGxDeviceD3d11/D3d11Lighting.*` |
+| Which draws sample a cascade (outdoors) or the interior map, per draw into `GxDraw.gxShadowDraw` | `Gx/CGxDeviceD3d11/CGxDeviceD3d11Draw.cpp` |
+| `GxStockShadow` around every depth-compare tap, `GxSunShadow` / `GxCanopy` / `GxSunLit*` in `s_hlslLighting`, the sun path of `GxLightPixel` | `Gx/CGxDeviceD3d11/D3d11Dx9Shader.cpp` |
+| Sun Shadows and Canopy Shade on the Lighting panel (and in its quality levels), Sun Shafts on the Water and Sky panel | `Awesome/Interface/FrameXML/VideoOptionsPanelsWaystone.lua`, `VideoOptionsStrings.lua` |
+
+After the first in-game test (the strength changed with the camera, and the shadows flickered while moving):
+the PCSS taps turn by a hash of the shadow map's texels instead of the screen's pixels, so the pattern stays on the
+ground. With `shadowSun` on, the 320- and 1280-yard cascades keep casters down to 0.5 and 3 yards
+(`CShadowCache::s_fineCasters`; stock 2 and 10), so a bush's shadow no longer vanishes at a cascade edge. The
+cascade blend is wider (the outer quarter). The shafts take a new offset along the rays each frame and blend 88% of
+the last frame's, reprojected through its view and projection (the origin moves with the camera) where the depths
+agree. Their view dependence is lower: g 0.4, phase at most 2.5, open air damped to 35%, colour at luminance 1,
+opacity at most 0.6.
+
+Second test: the shadows on the ground still turned with the camera. The terrain's C0-C3 is world × view
+(`CMapRenderChunk::InitializeVertexShaderConstants`), so the terrain vertex shaders' position is already in view
+space; the surface outputs took it through the view matrix again. Fixed, which also corrects the terrain's dynamic
+lights and its sky-ambient up direction from "Modern lighting" (both had turned with the camera on the terrain). The
+canopy cone's axes now come from the world's, and `lightingDebug` 6-8 are no longer taken by the SSAO view.
+
+Third test (stable now): leafy small trees flickered, and Darkshore's fog went white. The shadow lookup now sits a
+little off the surface along its normal (0.03 yd plus 0.15% of the distance), and models take at least 2.5× the
+least penumbra. The shafts scale with the sun's share of the zone's light, `(1 − shaded fraction) × 1.6`, so an
+overcast, foggy zone shows none. Open air is damped to 15%, opacity is at most 0.45, and the density is 0.012. The
+canopy's darkest is 0.45 of the ambient.
+
+Fourth test: pale creatures looked glossy and sunlit scenes a little bright, Darkshore's contours washed out, and
+in Orgrimmar a darker square followed the player.
+- The lighting on lit surfaces is clamped at 1 as stock (the 2 allowed with HDR made pale fur shine). It goes
+  higher only with `lightSunIntensity` above 1.
+- A shadow darkens at least as much as the stock one: at most `(0.7 + 0.3 × shadow)` of the unshadowed light on
+  sun-facing surfaces. The grass's taps are never deepened less than stock (k ≥ 1).
+- The near map is left out. It follows the player, and ground that is also a caster in it shaded itself. The
+  cascades hold the units too.
+
+Fifth test: the Orgrimmar box remained, with near-black roofs beside the player. Those WMO surfaces are not relit.
+Their stock taps still read the near map, in which the city's ground shades itself, and the deepened taps made
+that nearly black. With `shadowSun` on, every stock tap of the near map now reads lit: `ShadowKindOf` returns 3,
+the draw's near-map slots go in `gxShadowDraw.z`, and `GxStockShadow` takes the slot. The M2 sphere-map highlight
+(`lightSpecularM2`) defaults to 0.1, since 0.3 made fur look glossy.
+
+Sixth test: a faintly darker square stayed around the player in Orgrimmar. `lightingDebug 2` showed the ground
+relit, and `shadowSun 0` removed the square. The stock bias is least on the 80-yard cascade: 0.9 yd, about half of
+it eaten by the map's own depth scale, `(z − 1) / 3999` written against `z / 4000` read. So flat ground shaded
+itself there. `shadowSunBias` (yards, scaled by √(radius / 40) for the wider cascades) can add to it, but it changed nothing.
+`lightingDebug 9` then showed the square was exactly the 80-yard cascade, and skipping that cascade removed it with
+no other shadow lost. That cascade shades Orgrimmar's open ground where the others do not. So
+`shadowSunFirstCascade` (**2**: the 320-yard cascade first, still ~4 cm a texel at 8192; 1 restores the 80-yard
+one) is the default, and `shadowSunBias` defaults to **0**.
+`lightingDebug 9` colours the cascade used: red 80 yd, green 320, blue 1280.
+
+`lightingDebug` 6 shows the sunlight's shadow alone, 7 the canopy's dimming, and 8 the shafts. `/lighting` reports the
+shadow quality and whether the maps were found. A model indoors samples only the near map or the interior map. It
+keeps the stock shadow, because only a draw that samples a cascade counts as outdoors.
+
+**Tested offline only:** the translated corpus and the post shaders compile, and the options panels pass their layout
+test. None of it can be seen without the world. The strengths (penumbra, canopy floor and reach, shaft density, phase
+and open-air damping) are starting points to tune in game.
 
 ### Weather overhaul (branch `feature/weather-overhaul`)
 

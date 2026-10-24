@@ -8,15 +8,16 @@
 #include "Engine/Source/Gx/CGxDeviceD3d11/D3d11Util.h"
 
 // MODIFIED: modern water, the splash particles (D3d11Water.h, s_hlslWaterParticles in D3d11WaterHlsl.cpp). Droplets
-// and mist thrown up where units splash into the water or swim fast; a droplet that falls back through the surface
-// becomes an impact on the height field, so a splash rains back as a scatter of small rings
+// and mist thrown up where units splash into the water or swim fast; globs and embers of magma, gobs and strands of
+// slime; a drop that falls back through the surface becomes an impact on its liquid's height field, so a splash rains
+// back as a scatter of small rings
 
 using namespace GxD3d11;
 
 namespace {
 
 // WxParticle
-const uint32_t s_particleStride = 48;
+const uint32_t s_particleStride = 64;
 
 // the GxWaterParticles cbuffer, b6
 struct ParticleConstants {
@@ -24,11 +25,11 @@ struct ParticleConstants {
     float m_field[4];           // xy the field's corner (particle space), z 1 / texel, w its size (texels)
     float m_sim[4];             // x gravity, y droplet drag, z impact units a yard, w yards a droplet pushes
     uint32_t m_emit[4];         // x first slot, y capacity, z seed, w particles to start
-    uint32_t m_count[4];        // x emitters, y 1 = the field is there
-    float m_emitters[D3d11Water::s_maxSplashes * 2][4];
+    uint32_t m_count[4];        // x emitters, y 1 = the water's field is there, z 1 = the thick liquids'
+    float m_emitters[D3d11Water::s_maxSplashes * 3][4];
 };
 
-// the longest a particle lives (EmitCs: droplets 3 s, mist 1.5 s)
+// the longest a particle lives (EmitCs: drops 3 s, mist 1.5 s, embers 2.2 s)
 const float s_longestLife = 3.0f;
 
 }
@@ -77,7 +78,11 @@ bool D3d11Water::ICreateParticles() {
         desc.SampleDesc.Count = 1;
         desc.Usage = D3D11_USAGE_DEFAULT;
         desc.BindFlags = D3D11_BIND_UNORDERED_ACCESS | D3D11_BIND_SHADER_RESOURCE;
-        ok = SUCCEEDED(device->CreateTexture2D(&desc, nullptr, &this->m_impact)) && SUCCEEDED(device->CreateUnorderedAccessView(this->m_impact, nullptr, &this->m_impactUav)) && SUCCEEDED(device->CreateShaderResourceView(this->m_impact, nullptr, &this->m_impactSrv));
+
+        // one for each height field
+        for (uint32_t f = 0; ok && f < s_fields; f++) {
+            ok = SUCCEEDED(device->CreateTexture2D(&desc, nullptr, &this->m_impact[f])) && SUCCEEDED(device->CreateUnorderedAccessView(this->m_impact[f], nullptr, &this->m_impactUav[f])) && SUCCEEDED(device->CreateShaderResourceView(this->m_impact[f], nullptr, &this->m_impactSrv[f]));
+        }
     }
 
     if (ok) {
@@ -113,7 +118,11 @@ bool D3d11Water::ICreateParticles() {
 
     UINT zero[4] = {};
     this->m_device->m_ctx->ClearUnorderedAccessViewUint(this->m_particleUav, zero);
-    this->m_device->m_ctx->ClearUnorderedAccessViewUint(this->m_impactUav, zero);
+
+    for (ID3D11UnorderedAccessView* uav : this->m_impactUav) {
+        this->m_device->m_ctx->ClearUnorderedAccessViewUint(uav, zero);
+    }
+
     this->m_particlesValid = false;
     return true;
 }
@@ -121,9 +130,12 @@ bool D3d11Water::ICreateParticles() {
 void D3d11Water::IReleaseParticles() {
     SafeRelease(this->m_blendParticles);
     SafeRelease(this->m_particleConstants);
-    SafeRelease(this->m_impactSrv);
-    SafeRelease(this->m_impactUav);
-    SafeRelease(this->m_impact);
+    for (uint32_t f = 0; f < s_fields; f++) {
+        SafeRelease(this->m_impactSrv[f]);
+        SafeRelease(this->m_impactUav[f]);
+        SafeRelease(this->m_impact[f]);
+    }
+
     SafeRelease(this->m_particleSrv);
     SafeRelease(this->m_particleUav);
     SafeRelease(this->m_particles);
@@ -158,10 +170,11 @@ void D3d11Water::IWriteParticleConstants(float dt, uint32_t emit, const float* e
     c.m_emit[2] = this->m_particleSeed++ * 0x9E3779B9u;
     c.m_emit[3] = emit;
     c.m_count[0] = emitterCount;
-    c.m_count[1] = this->m_fieldValid ? 1u : 0u;
+    c.m_count[1] = this->m_fieldValid[0] ? 1u : 0u;
+    c.m_count[2] = this->m_fieldValid[1] ? 1u : 0u;
 
     if (emitters && emitterCount) {
-        memcpy(c.m_emitters, emitters, sizeof(float) * 8 * emitterCount);
+        memcpy(c.m_emitters, emitters, sizeof(float) * 12 * emitterCount);
     }
 
     D3D11_MAPPED_SUBRESOURCE mapped;
@@ -205,7 +218,7 @@ void D3d11Water::IRunParticles(float dt) {
     }
 
     // the emitters, each with the end of its share of the particles
-    float emitters[s_maxSplashes * 2][4];
+    float emitters[s_maxSplashes * 3][4];
     uint32_t emit = 0;
     uint32_t emitterCount = 0;
 
@@ -223,8 +236,9 @@ void D3d11Water::IRunParticles(float dt) {
         }
 
         emit += count;
-        float* a = emitters[emitterCount * 2];
-        float* b = emitters[emitterCount * 2 + 1];
+        float* a = emitters[emitterCount * 3];
+        float* b = emitters[emitterCount * 3 + 1];
+        float* e = emitters[emitterCount * 3 + 2];
         a[0] = static_cast<float>(splash.m_x - this->m_particleOrigin[0]);
         a[1] = static_cast<float>(splash.m_y - this->m_particleOrigin[1]);
         a[2] = static_cast<float>(splash.m_z - this->m_particleOrigin[2]);
@@ -233,6 +247,10 @@ void D3d11Water::IRunParticles(float dt) {
         b[1] = splash.m_out;
         b[2] = splash.m_radius;
         b[3] = static_cast<float>(splash.m_kind);
+        e[0] = splash.m_color[0];
+        e[1] = splash.m_color[1];
+        e[2] = splash.m_color[2];
+        e[3] = static_cast<float>(splash.m_liquid);
         emitterCount++;
     }
 
@@ -245,8 +263,8 @@ void D3d11Water::IRunParticles(float dt) {
     ID3D11ShaderResourceView* noViews[3] = {};
     ctx->PSSetShaderResources(0, 3, noViews);
     ctx->VSSetShaderResources(21, 1, noViews);
-    ID3D11UnorderedAccessView* uavs[2] = { this->m_particleUav, this->m_impactUav };
-    ctx->CSSetUnorderedAccessViews(0, 2, uavs, nullptr);
+    ID3D11UnorderedAccessView* uavs[3] = { this->m_particleUav, this->m_impactUav[0], this->m_impactUav[1] };
+    ctx->CSSetUnorderedAccessViews(0, 3, uavs, nullptr);
     ctx->CSSetConstantBuffers(6, 1, &this->m_particleConstants);
 
     if (emit) {
@@ -258,8 +276,8 @@ void D3d11Water::IRunParticles(float dt) {
     ctx->CSSetShader(this->m_updateCs, nullptr, 0);
     ctx->Dispatch((s_maxParticles + 63) / 64, 1, 1);
 
-    ID3D11UnorderedAccessView* noUavs[2] = {};
-    ctx->CSSetUnorderedAccessViews(0, 2, noUavs, nullptr);
+    ID3D11UnorderedAccessView* noUavs[3] = {};
+    ctx->CSSetUnorderedAccessViews(0, 3, noUavs, nullptr);
     ctx->CSSetShader(nullptr, nullptr, 0);
     this->m_statsParticles += emit;
 }
@@ -306,7 +324,8 @@ void D3d11Water::AfterLiquids() {
     ctx->DSSetShader(nullptr, nullptr, 0);
     ctx->GSSetShader(nullptr, nullptr, 0);
     ctx->PSSetShader(this->m_particlePs, nullptr, 0);
-    ID3D11Buffer* constants[2] = { this->m_constants, this->m_particleConstants };
+    // the water's constants: the frame's view and light, which every class shares
+    ID3D11Buffer* constants[2] = { this->m_constants[GxLiquid_Water], this->m_particleConstants };
     ctx->VSSetConstantBuffers(5, 2, constants);
     ctx->PSSetConstantBuffers(5, 2, constants);
     ctx->VSSetShaderResources(21, 1, &this->m_particleSrv);

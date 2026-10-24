@@ -1,4 +1,5 @@
 #include "Liquid.h"
+#include "WoW/Source/Awesome/Awesome.h"
 #include "Engine/Source/Tempest/CMath.h"
 #include "Engine/Source/Gx/CGxDevice/CGxDevice.h"
 #include "Engine/Source/Gx/Gx.h"
@@ -323,6 +324,8 @@ void Liquid::CMaterialProcWater::Render(Liquid::IEnvironment* environment, Liqui
 
     g_theGxDevicePtr->RsSet(GxRs_VertexShader, Liquid::CMaterialProcWater::s_vertexShaders[lightCount]);
     g_theGxDevicePtr->RsSet(GxRs_PixelShader, Liquid::CMaterialProcWater::s_pixelShader);
+    // MODIFIED: modern water (Awesome.h): the class of this liquid (water, magma, slime) for the device
+    AwesomeWaterLiquidRender(settings, bounds, cameraPos);
     g_theGxDevicePtr->Draw(&batch, 1);
     g_theGxDevicePtr->RsPop();
 }

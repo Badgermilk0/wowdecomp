@@ -649,6 +649,8 @@ do
 	ripples:SetPoint("TOPLEFT", waterBox, "TOPLEFT", 126, -8);
 	local waves = VideoOptionsPanel_CreateCheckButton(panel, "Waves", "waterTessellation", { text = "WATER_WAVES" });
 	waves:SetPoint("TOPLEFT", ripples, "BOTTOMLEFT", 0, -4);
+	local liquids = VideoOptionsPanel_CreateCheckButton(panel, "Liquids", "liquidModern", { text = "LAVA_AND_SLIME" });
+	liquids:SetPoint("TOPLEFT", modern, "BOTTOMLEFT", 0, -4);
 
 	local clarity = VideoOptionsPanel_CreateSlider(panel, "Clarity", "waterClarity",
 		{ text = "WATER_CLARITY", minValue = 0.1, maxValue = 4, valueStep = 0.05 });
@@ -681,12 +683,13 @@ do
 	lightningBrightness:SetPoint("TOPLEFT", lightning, "TOPRIGHT", 40, 0);
 
 	-- the water is D3D11 work; the smooth sky, light transitions and lightning work on every renderer
-	for _, control in ipairs({ modern, reflections, ripples, waves, clarity, waveHeight, splashes, dither }) do
+	for _, control in ipairs({ modern, reflections, ripples, waves, liquids, clarity, waveHeight, splashes, dither }) do
 		control.needsD3D11 = true;
 	end
 
 	reflections.requires = { modern };
 	ripples.requires = { modern };
+	liquids.requires = { modern };
 	clarity.requires = { modern };
 	waves.requires = { ripples };
 	splashes.requires = { ripples };

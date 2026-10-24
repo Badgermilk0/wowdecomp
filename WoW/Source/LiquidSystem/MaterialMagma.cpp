@@ -1,4 +1,5 @@
 #include "Liquid.h"
+#include "WoW/Source/Awesome/Awesome.h"
 #include "Engine/Source/Gx/CGxDevice/CGxDevice.h"
 #include "Engine/Source/Gx/Gx.h"
 #include "Engine/Source/Model2/M2Light.h"
@@ -122,6 +123,8 @@ void Liquid::CMaterialMagma::Render(Liquid::IEnvironment* environment, Liquid::I
     geomFactory->GetBuffers(GxVBF_PCT, &vertexBuf, &indexBuf, &batch);
     GxPrimVertexPtr(vertexBuf, GxVBF_PCT);
     g_theGxDevicePtr->PrimIndexPtr(indexBuf);
+    // MODIFIED: modern water (Awesome.h): the class of this liquid (water, magma, slime) for the device
+    AwesomeWaterLiquidRender(settings, bounds, cameraPos);
     g_theGxDevicePtr->Draw(&batch, 1);
     g_theGxDevicePtr->RsPop();
 }

@@ -1,4 +1,5 @@
 #include "Liquid.h"
+#include "WoW/Source/Awesome/Awesome.h"
 #include "Engine/Source/Services/SysMessage.h"
 #include "WoW/Source/DB/WowClientDB.h"
 #include "WoW/Source/DB/Rec/LiquidTypeRec.h"
@@ -79,6 +80,8 @@ bool Liquid::CSettingsBank::UpdateRecord(Liquid::CMaterialSettings* settings, ui
 
     settings->m_transparent = materialRec->m_flags & 0x1;
     settings->InitTexture();
+    // MODIFIED: modern water (Awesome.h): what this liquid is (water, magma, slime), by its row
+    AwesomeWaterNoteLiquid(settings, typeRec);
 
     return true;
 }

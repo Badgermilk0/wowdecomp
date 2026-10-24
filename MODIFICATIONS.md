@@ -568,6 +568,12 @@ the last frame's, reprojected through its view and projection (the origin moves 
 agree. Their view dependence is lower: g 0.4, phase at most 2.5, open air damped to 35%, colour at luminance 1,
 opacity at most 0.6.
 
+Second test: the shadows on the ground still turned with the camera. The terrain's C0-C3 is world × view
+(`CMapRenderChunk::InitializeVertexShaderConstants`), so the terrain vertex shaders' position is already in view
+space; the surface outputs took it through the view matrix again. Fixed, which also corrects the terrain's dynamic
+lights and its sky-ambient up direction from "Modern lighting" (both had turned with the camera on the terrain). The
+canopy cone's axes now come from the world's, and `lightingDebug` 6-8 are no longer taken by the SSAO view.
+
 `lightingDebug` 6 shows the sunlight's shadow alone, 7 the canopy's dimming, and 8 the shafts. `/lighting` reports the
 shadow quality and whether the maps were found. A model indoors samples only the near map or the interior map. It
 keeps the stock shadow, because only a draw that samples a cascade counts as outdoors.

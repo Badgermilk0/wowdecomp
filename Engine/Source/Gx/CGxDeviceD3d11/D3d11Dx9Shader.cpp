@@ -523,7 +523,7 @@ const char* const s_hlslLighting =
     "        } else if (family == GX_SURF_WMO) {\n"
     "            c.rgb = clamp(i.gxM.rgb * min(GxSunLitWmo(n, p, lights, hemi, sunK, ambK), top) + VC[29].rgb, 0.0, top);\n"
     "        } else {\n"
-    "            float3 pw = mul(float4(p, 1.0), gxViewInv).xyz;\n"
+    "            float3 pw = p;\n"
     "            c.rgb = min(GxSunLitTerrain(normalize(i.gxM.xyz), pw, n, lights, hemi, sunK, ambK), top) * i.gxF.yzw;\n"
     "        }\n"
     "\n"
@@ -544,7 +544,7 @@ const char* const s_hlslLighting =
     "            } else if (family == GX_SURF_WMO) {\n"
     "                c.rgb = saturate(i.gxM.rgb * GxStockWmo(n, p, lights, hemi) + VC[29].rgb);\n"
     "            } else {\n"
-    "                float3 pw = mul(float4(p, 1.0), gxViewInv).xyz;\n"
+    "                float3 pw = p;\n"
     "                c.rgb = GxStockTerrain(normalize(i.gxM.xyz), pw, n, lights, hemi) * i.gxF.yzw;\n"
     "            }\n"
     "\n"
@@ -1525,7 +1525,8 @@ std::string Writer::SurfaceOutputs() const {
     s += "    if (gxLightFlags.x != 0u) {\n";
 
     if (family == Family_Terrain) {
-        // Terrain: C0-C3 the chunk's world matrix, C4-C7 view and projection, C24-C26 the sun
+        // Terrain: C0-C3 the chunk's world and view matrix (CMapRenderChunk::InitializeVertexShaderConstants: world *
+        // view, so its result is already in view space), C4-C7 the projection, C24-C26 the sun (C24 in view space too)
         if (normal < 0 || !reads(0, 7) || !reads(24, 26)) {
             return std::string();
         }
@@ -1552,8 +1553,9 @@ std::string Writer::SurfaceOutputs() const {
         }
 
         s += "        float gxOk = all(abs(o.c0.rgb - gxL * gxK) < 0.004) ? 1.0 : 0.0;\n";
-        s += "        o.gxP = float4(mul(float4(gxW.xyz, 1.0), gxView).xyz, all(abs(gxClip - o.pos) <= 0.001 * abs(o.pos.w) + 0.0001) ? 1.0 : 0.0);\n";
-        s += "        o.gxN = float4(normalize(mul(gxNw, (float3x3)gxView)), gxOk);\n";
+        // MODIFIED: sun shadows: gxW is in view space already; taken through gxView again it turned with the camera
+        s += "        o.gxP = float4(gxW.xyz, all(abs(gxClip - o.pos) <= 0.001 * abs(o.pos.w) + 0.0001) ? 1.0 : 0.0);\n";
+        s += "        o.gxN = float4(normalize(gxNw), gxOk);\n";
         s += "        o.gxM = float4(gxNw, 0.0);\n";
         Appendf(s, "        o.gxF = float4(%u.0, gxK);\n", 3u | 64u | (lights << 3));
         s += "    }\n";

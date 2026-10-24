@@ -1201,6 +1201,7 @@ void D3d11Lighting::IWriteConstants(bool on) {
 
         c.m_sunDepth[0] = shadows.m_depthYards;
         c.m_sunDepth[1] = 30.0f;
+        c.m_sunDepth[3] = p.m_sunBias;
         // as bright as stock (the lighting clamped at 1), more only for a sun turned up into the HDR scene
         float top = 1.0f + (p.m_sunIntensity > 1.0f ? p.m_sunIntensity - 1.0f : 0.0f);
         c.m_sunDepth[2] = this->m_hdrActive ? top : 1.0f;

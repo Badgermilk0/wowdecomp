@@ -92,6 +92,8 @@ static AwesomeCVar s_cvFire = AwesomeCVar::Float("lightFire", 0.0f, 0.0f, 4.0f);
 static AwesomeCVar s_cvSunShadow = AwesomeCVar::Int("shadowSun", 0, 0, 1);
 static AwesomeCVar s_cvSunShadowStrength = AwesomeCVar::Float("shadowSunStrength", 1.0f, 0.0f, 1.0f);
 static AwesomeCVar s_cvPenumbra = AwesomeCVar::Float("shadowPenumbra", 1.5f, 0.0f, 6.0f);
+// yards of depth bias on top of the stock one: raise it where flat ground shades itself (a darker square around the player)
+static AwesomeCVar s_cvSunBias = AwesomeCVar::Float("shadowSunBias", 0.5f, 0.0f, 4.0f);
 static AwesomeCVar s_cvSunIntensity = AwesomeCVar::Float("lightSunIntensity", 1.0f, 0.0f, 3.0f);
 static AwesomeCVar s_cvAmbientIntensity = AwesomeCVar::Float("lightAmbientIntensity", 1.0f, 0.0f, 2.0f);
 static AwesomeCVar s_cvCanopy = AwesomeCVar::Float("lightCanopy", 0.0f, 0.0f, 1.0f);
@@ -103,7 +105,7 @@ static AwesomeCVar s_cvShaftsDistance = AwesomeCVar::Float("lightShaftsDistance"
 static AwesomeCVar s_cvGlueTest = AwesomeCVar::Int("lightingGlueTest", 0, 0, 3);
 // 1: the SSAO term alone; 2: the lit surfaces by kind (green relit per pixel, red unlit, blue face normal); 3: the dynamic light alone;
 // 6: the sunlight's shadow alone; 7: the canopy's dimming alone; 8: the sun shafts alone
-static AwesomeCVar s_cvDebug = AwesomeCVar::Int("lightingDebug", 0, 0, 8);
+static AwesomeCVar s_cvDebug = AwesomeCVar::Int("lightingDebug", 0, 0, 9);
 
 static AwesomeCVar* const s_cvars[] = {
     &s_cvGlueTest,
@@ -112,7 +114,7 @@ static AwesomeCVar* const s_cvars[] = {
     &s_cvPerPixel, &s_cvDynamic, &s_cvDynamicIntensity, &s_cvDynamicM2, &s_cvDynamicWmo, &s_cvDynamicDistance, &s_cvFlicker,
     &s_cvWrap, &s_cvSpecular, &s_cvSpecularM2, &s_cvSpecularWmo, &s_cvSkyAmbient, &s_cvHeightFog, &s_cvHeightFogFalloff,
     &s_cvHeightFogOffset, &s_cvHeightFogMax, &s_cvScattering, &s_cvFire,
-    &s_cvSunShadow, &s_cvSunShadowStrength, &s_cvPenumbra, &s_cvSunIntensity, &s_cvAmbientIntensity, &s_cvCanopy,
+    &s_cvSunShadow, &s_cvSunShadowStrength, &s_cvPenumbra, &s_cvSunBias, &s_cvSunIntensity, &s_cvAmbientIntensity, &s_cvCanopy,
     &s_cvShafts, &s_cvShaftsDensity, &s_cvShaftsDistance,
 };
 
@@ -598,6 +600,7 @@ static void BuildParams(GxLightingParams& p, const C3Vector& camera) {
     p.m_debug = static_cast<uint32_t>(s_cvDebug.m_intValue);
     p.m_sunShadowStrength = s_cvSunShadowStrength.m_floatValue;
     p.m_sunPenumbra = s_cvPenumbra.m_floatValue;
+    p.m_sunBias = s_cvSunBias.m_floatValue;
     p.m_sunIntensity = s_cvSunIntensity.m_floatValue;
     p.m_ambientIntensity = s_cvAmbientIntensity.m_floatValue;
     p.m_canopy = s_cvCanopy.m_floatValue;
@@ -1009,7 +1012,7 @@ static int32_t Script_LightingCommand(lua_State* L) {
     GatherShadows(shadows);
     snprintf(line, sizeof(line), "  sun shadows: shadow quality %u (5 needed), maps %s, near map %s, %.0f yd per depth unit; zone shade %.2f", static_cast<uint32_t>(CShadowCache::s_shadowMode), shadows.m_maps[1] ? "found" : "missing", shadows.m_maps[0] ? "found" : "missing", shadows.m_depthYards, s_params.m_shadowedFraction);
     Print(L, line);
-    Print(L, "  /lighting on | off; lightingDebug 1 SSAO, 2 lit surfaces (green per pixel, red unlit, blue face normal), 3 dynamic light alone, 4 SSAO inputs (red geometry, green distance / 200, blue occlusion), 6 sun shadow, 7 canopy, 8 shafts");
+    Print(L, "  /lighting on | off; lightingDebug 1 SSAO, 2 lit surfaces (green per pixel, red unlit, blue face normal), 3 dynamic light alone, 4 SSAO inputs (red geometry, green distance / 200, blue occlusion), 6 sun shadow, 7 canopy, 8 shafts, 9 shadow cascade (red 80 yd, green 320, blue 1280)");
     return 0;
 }
 

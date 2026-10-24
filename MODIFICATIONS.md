@@ -595,6 +595,12 @@ that nearly black. With `shadowSun` on, every stock tap of the near map now read
 the draw's near-map slots go in `gxShadowDraw.z`, and `GxStockShadow` takes the slot. The M2 sphere-map highlight
 (`lightSpecularM2`) defaults to 0.1, since 0.3 made fur look glossy.
 
+Sixth test: a faintly darker square stayed around the player in Orgrimmar. `lightingDebug 2` showed the ground
+relit, and `shadowSun 0` removed the square. The stock bias is least on the 80-yard cascade: 0.9 yd, about half of
+it eaten by the map's own depth scale, `(z − 1) / 3999` written against `z / 4000` read. So flat ground shaded
+itself there. `shadowSunBias` (**0.5** yd, scaled by √(radius / 40) for the wider cascades) adds to it.
+`lightingDebug 9` colours the cascade used: red 80 yd, green 320, blue 1280.
+
 `lightingDebug` 6 shows the sunlight's shadow alone, 7 the canopy's dimming, and 8 the shafts. `/lighting` reports the
 shadow quality and whether the maps were found. A model indoors samples only the near map or the interior map. It
 keeps the stock shadow, because only a draw that samples a cascade counts as outdoors.

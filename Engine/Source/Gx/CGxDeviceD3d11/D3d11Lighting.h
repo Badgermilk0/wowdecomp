@@ -125,6 +125,15 @@ class D3d11Lighting : public IGxLighting {
 
     // half-resolution AO (x occlusion, y depth), ping-pong for the blur; the bloom chain
     Target m_ao[2];
+    // MODIFIED: sun shafts: the accumulated shafts (ping-pong), and what the next frame needs to reproject them
+    Target m_shaftHistory[2];
+    uint32_t m_shaftCurrent = 0;
+    uint32_t m_shaftFrame = 0;
+    bool m_shaftValid = false;
+    float m_shaftHistoryWeight = 0.0f;
+    float m_shaftJitter = 0.0f;
+    float m_shaftPrevViewProj[16] = {};
+    C3Vector m_shaftPrevOrigin;
     Target m_bloom[s_bloomLevels];
 
     // the lights and the clusters

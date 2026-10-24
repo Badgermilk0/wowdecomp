@@ -93,6 +93,8 @@ struct GxLightingParams {
     float m_heightFogBase = 0.0f;    // world z
     float m_heightFogMax = 0.9f;
     C3Vector m_cameraPosition;       // world
+    C3Vector m_origin;               // what the world draws relative to (it moves with the camera): the camera, the
+                                     // lights and the view matrix are relative to it
     float m_time = 0.0f;             // seconds
     uint32_t m_debug = 0;            // 1 the SSAO term alone, 2 the lit surfaces by kind, 3 the dynamic light alone
 

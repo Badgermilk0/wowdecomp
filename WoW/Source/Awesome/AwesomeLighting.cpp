@@ -637,6 +637,9 @@ static void BuildParams(GxLightingParams& p, const C3Vector& camera) {
 void AwesomeLightingBeginWorld() {
     s_inWorld = false;
 
+    // the outer cascades keep small casters while the sun shadows read them (before this frame's shadow pass)
+    CShadowCache::s_fineCasters = g_gxLighting && s_cvSunShadow.m_intValue ? 1 : 0;
+
     if (!g_gxLighting) {
         return;
     }
@@ -769,6 +772,7 @@ static void SetupView(CM2Scene* scene, const C3Vector& camera, const C3Vector& o
     }
 
     s_params.m_cameraPosition = camera - origin;
+    s_params.m_origin = origin;
     s_params.m_heightFogBase -= origin.z;
     s_lights.clear();
     s_statsM2 = 0;

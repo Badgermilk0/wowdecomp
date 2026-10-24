@@ -90,6 +90,10 @@ class CShadowCache {
     // a little beyond the view (CShadowQuery::FrustumCallback) and without the inner cascade's casters cut out, so a
     // kept map never leaves a gap. 0 = stock
     static int32_t s_cascadeReuse;
+    // MODIFIED: sun shadows (AwesomeLighting, shadowSun): the 320- and 1280-yard cascades keep casters down to 0.5 and
+    // 3 yards across (stock 2 and 10). A full-strength shadow shows the stock cut as bushes' shadows appearing and
+    // vanishing at the cascade edges; 0 = stock
+    static int32_t s_fineCasters;
     static float s_shadowScale;
     static uint32_t s_shadowSize;
     static const char* s_shadowModeDescs[NUM_SHADOW_MODES + 1];

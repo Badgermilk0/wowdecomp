@@ -559,6 +559,15 @@ How it fits in:
 | `GxStockShadow` around every depth-compare tap, `GxSunShadow` / `GxCanopy` / `GxSunLit*` in `s_hlslLighting`, the sun path of `GxLightPixel` | `Gx/CGxDeviceD3d11/D3d11Dx9Shader.cpp` |
 | Sun Shadows and Canopy Shade on the Lighting panel (and in its quality levels), Sun Shafts on the Water and Sky panel | `Awesome/Interface/FrameXML/VideoOptionsPanelsWaystone.lua`, `VideoOptionsStrings.lua` |
 
+After the first in-game test (the strength changed with the camera, and the shadows flickered while moving):
+the PCSS taps turn by a hash of the shadow map's texels instead of the screen's pixels, so the pattern stays on the
+ground. With `shadowSun` on, the 320- and 1280-yard cascades keep casters down to 0.5 and 3 yards
+(`CShadowCache::s_fineCasters`; stock 2 and 10), so a bush's shadow no longer vanishes at a cascade edge. The
+cascade blend is wider (the outer quarter). The shafts take a new offset along the rays each frame and blend 88% of
+the last frame's, reprojected through its view and projection (the origin moves with the camera) where the depths
+agree. Their view dependence is lower: g 0.4, phase at most 2.5, open air damped to 35%, colour at luminance 1,
+opacity at most 0.6.
+
 `lightingDebug` 6 shows the sunlight's shadow alone, 7 the canopy's dimming, and 8 the shafts. `/lighting` reports the
 shadow quality and whether the maps were found. A model indoors samples only the near map or the interior map. It
 keeps the stock shadow, because only a draw that samples a cascade counts as outdoors.

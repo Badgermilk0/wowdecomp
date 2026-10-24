@@ -72,6 +72,9 @@ struct PostConstants {
     float m_shafts[4];
     float m_shaftColor[4];
     float m_sunView[4];
+    float m_prevViewProj[16];
+    float m_shaftHistory[4];
+    float m_shaftOrigin[4];
 };
 
 const char* const s_postHlsl =
@@ -101,6 +104,9 @@ const char* const s_postHlsl =
     "    float4 gxShafts;               // x intensity, y density per yard, z distance gathered, w steps\n"
     "    float4 gxShaftColor;           // rgb the scattered light (gamma), w the phase function's forward lobe (g)\n"
     "    float4 gxSunView;              // xyz toward the sun (view space)\n"
+    "    row_major float4x4 gxPrevViewProj; // the last frame's world (its origin) to clip space\n"
+    "    float4 gxShaftHistory;         // y this frame's offset along the rays, w the weight of the frames before (0 none)\n"
+    "    float4 gxShaftOrigin;          // xyz this frame's origin less the last frame's\n"
     "};\n"
     "\n"
     "#if GX_MSAA\n"
@@ -353,7 +359,8 @@ const char* const s_postHlsl =
     "    float reach = geometry ? min(dist, gxShafts.z) : gxShafts.z;\n"
     "    uint steps = (uint)gxShafts.w;\n"
     "    float dt = reach / steps;\n"
-    "    float noise = frac(52.9829189 * frac(dot(i.pos.xy, float2(0.06711056, 0.00583715))));\n"
+    "    // a new offset along the ray every frame (the golden ratio), averaged below with the frames before\n"
+    "    float noise = frac(52.9829189 * frac(dot(i.pos.xy, float2(0.06711056, 0.00583715))) + gxShaftHistory.y);\n"
     "    float sigma = gxShafts.y;\n"
     "    float sum = 0.0;\n"
     "    float lit = 0.0;\n"
@@ -367,14 +374,39 @@ const char* const s_postHlsl =
     "        trans *= fade;\n"
     "    }\n"
     "\n"
-    "    // air that is lit along most of the ray (an open field) scatters less than a ray that crosses shade and light:\n"
-    "    // the shafts stand out, and the open air stays clear\n"
+    "    // air lit along most of the ray (an open field) scatters less than a ray that crosses shade and light: the shafts\n"
+    "    // stand out, and the open air stays clearer\n"
     "    float open = lit / steps;\n"
-    "    sum *= sigma * dt * lerp(1.0, 0.1, open * open);\n"
-    "    // Henyey-Greenstein, 1 for light scattered evenly, at most 4 toward the sun\n"
+    "    sum *= sigma * dt * lerp(1.0, 0.35, open);\n"
+    "    // Henyey-Greenstein, 1 for light scattered evenly, at most 2.5 toward the sun: brighter toward it, not a glare\n"
     "    float g = gxShaftColor.w;\n"
-    "    float phase = min((1.0 - g * g) / pow(max(1.0 + g * g - 2.0 * g * dot(dir, gxSunView.xyz), 0.0001), 1.5), 4.0);\n"
-    "    return float4(sum * phase, geometry ? GxClipW(p) : 100000.0, 0.0, 0.0);\n"
+    "    float phase = min((1.0 - g * g) / pow(max(1.0 + g * g - 2.0 * g * dot(dir, gxSunView.xyz), 0.0001), 1.5), 2.5);\n"
+    "    float value = sum * phase;\n"
+    "    float w = geometry ? GxClipW(p) : 100000.0;\n"
+    "\n"
+    "    // the frames before, where this point was then: the world point (the origin moves with the camera) through the\n"
+    "    // last frame's view and projection, kept when its depth there agrees\n"
+    "    if (gxShaftHistory.w > 0.0) {\n"
+    "        float3 world = mul(float4(p, 1.0), gxInvView).xyz + gxShaftOrigin.xyz;\n"
+    "        float4 clip = mul(float4(world, 1.0), gxPrevViewProj);\n"
+    "\n"
+    "        if (clip.w > 0.0001) {\n"
+    "            float2 ndc = clip.xy / clip.w;\n"
+    "            float2 prev = float2((ndc.x + 1.0) * 0.5 * gxViewportPx.z, (1.0 - ndc.y) * 0.5 * gxViewportPx.w);\n"
+    "            float2 uv = (prev * 0.5) * gxSource.xy;\n"
+    "\n"
+    "            if (all(uv > 0.0) && all(uv < 1.0)) {\n"
+    "                float2 h = gxColor2.SampleLevel(gxLinear, uv, 0.0).xy;\n"
+    "                bool same = geometry ? abs(h.y - clip.w) < 0.05 * clip.w + 0.5 : h.y > 50000.0;\n"
+    "\n"
+    "                if (same) {\n"
+    "                    value = lerp(value, h.x, gxShaftHistory.w);\n"
+    "                }\n"
+    "            }\n"
+    "        }\n"
+    "    }\n"
+    "\n"
+    "    return float4(value, w, 0.0, 0.0);\n"
     "}\n"
     "\n"
     "// the shafts over the scene by alpha, upsampled from half resolution by depth\n"
@@ -398,7 +430,7 @@ const char* const s_postHlsl =
     "        }\n"
     "    }\n"
     "\n"
-    "    float a = saturate(1.0 - exp(-gxShafts.x * sum / max(total, 0.00001))) * 0.85;\n"
+    "    float a = saturate(1.0 - exp(-gxShafts.x * sum / max(total, 0.00001))) * 0.6;\n"
     "\n"
     "    // lightingDebug 8: the shafts alone\n"
     "    if (gxTone.z > 7.5) {\n"
@@ -946,6 +978,12 @@ void D3d11Lighting::ReleaseTargets() {
         this->IReleaseTarget(target);
     }
 
+    for (Target& target : this->m_shaftHistory) {
+        this->IReleaseTarget(target);
+    }
+
+    this->m_shaftValid = false;
+
     for (Target& target : this->m_bloom) {
         this->IReleaseTarget(target);
     }
@@ -1254,6 +1292,14 @@ void D3d11Lighting::IWritePostConstants(const D3D11_VIEWPORT& viewport, uint32_t
     c.m_shafts[2] = p.m_shaftsDistance;
     c.m_shafts[3] = 32.0f;
 
+    // the history of the shafts (IDrawShafts)
+    memcpy(c.m_prevViewProj, this->m_shaftPrevViewProj, sizeof(c.m_prevViewProj));
+    c.m_shaftHistory[1] = this->m_shaftJitter;
+    c.m_shaftHistory[3] = this->m_shaftHistoryWeight;
+    c.m_shaftOrigin[0] = p.m_origin.x - this->m_shaftPrevOrigin.x;
+    c.m_shaftOrigin[1] = p.m_origin.y - this->m_shaftPrevOrigin.y;
+    c.m_shaftOrigin[2] = p.m_origin.z - this->m_shaftPrevOrigin.z;
+
     // the scattered light: the sun's colour at a luminance of 1.5, a little of the fog's in it; dimmer when the sun
     // itself is (dusk, the moon) and indoors
     float sun[3] = { Decode(p.m_sunColor.x), Decode(p.m_sunColor.y), Decode(p.m_sunColor.z) };
@@ -1265,12 +1311,12 @@ void D3d11Lighting::IWritePostConstants(const D3D11_VIEWPORT& viewport, uint32_t
     for (uint32_t k = 0; k < 3; k++) {
         float tint = sunLum > 0.001f ? sun[k] / sunLum : 1.0f;
         tint = tint > 3.0f ? 3.0f : tint;
-        float linear = 1.5f * (tint * 0.75f + fogTint[k] * 0.25f);
+        float linear = tint * 0.75f + fogTint[k] * 0.25f;
         c.m_shaftColor[k] = powf(linear, 1.0f / 2.2f);
     }
 
     c.m_shafts[0] *= strength;
-    c.m_shaftColor[3] = 0.55f;
+    c.m_shaftColor[3] = 0.4f;
     TransformDirection(this->m_view, C3Vector(-p.m_sunDirection.x, -p.m_sunDirection.y, -p.m_sunDirection.z), c.m_sunView);
     float len = sqrtf(c.m_sunView[0] * c.m_sunView[0] + c.m_sunView[1] * c.m_sunView[1] + c.m_sunView[2] * c.m_sunView[2]);
 
@@ -1557,20 +1603,51 @@ void D3d11Lighting::IDrawShafts(ID3D11RenderTargetView* frame, ID3D11ShaderResou
     uint32_t width = static_cast<uint32_t>(vp.Width + 1.0f) / 2;
     uint32_t height = static_cast<uint32_t>(vp.Height + 1.0f) / 2;
 
-    if (!this->IEnsureTarget(this->m_ao[0], width, height, DXGI_FORMAT_R16G16_FLOAT) || !this->IEnsureTarget(this->m_ao[1], width, height, DXGI_FORMAT_R16G16_FLOAT)) {
+    Target& history = this->m_shaftHistory[this->m_shaftCurrent];
+    Target& previous = this->m_shaftHistory[this->m_shaftCurrent ^ 1];
+    bool resized = previous.m_width != width || previous.m_height != height;
+
+    if (!this->IEnsureTarget(this->m_ao[0], width, height, DXGI_FORMAT_R16G16_FLOAT) || !this->IEnsureTarget(this->m_ao[1], width, height, DXGI_FORMAT_R16G16_FLOAT) ||
+        !this->IEnsureTarget(history, width, height, DXGI_FORMAT_R16G16_FLOAT) || !this->IEnsureTarget(previous, width, height, DXGI_FORMAT_R16G16_FLOAT)) {
         return;
     }
 
     ID3D11DeviceContext* ctx = dev->m_ctx;
     ctx->PSSetSamplers(1, 1, &this->m_sunCompare);
 
+    // the frames before count when the last frame drew shafts too, at this size; a new offset along the rays each frame
+    uint32_t frameIndex = dev->m_frameCount;
+    this->m_shaftHistoryWeight = this->m_shaftValid && !resized && frameIndex == this->m_shaftFrame + 1 ? 0.88f : 0.0f;
+    this->m_shaftJitter = fmodf(static_cast<float>(frameIndex) * 0.618034f, 1.0f);
+
     D3D11_VIEWPORT half = { 0.0f, 0.0f, static_cast<float>(width), static_cast<float>(height), 0.0f, 1.0f };
     float source[4] = { 1.0f / width, 1.0f / height, 0.0f, 0.0f };
-    ID3D11ShaderResourceView* gather[6] = { depth, nullptr, nullptr, this->m_sunSrv[1], this->m_sunSrv[2], this->m_sunSrv[3] };
+    ID3D11ShaderResourceView* gather[6] = { depth, nullptr, previous.m_srv, this->m_sunSrv[1], this->m_sunSrv[2], this->m_sunSrv[3] };
     this->IWritePostConstants(vp, width, height, source);
-    this->IDrawFullscreen(msaa ? Shader_ShaftsPsMs : Shader_ShaftsPs, this->m_ao[0].m_rtv, half, this->m_blendOpaque, gather, 6);
+    this->IDrawFullscreen(msaa ? Shader_ShaftsPsMs : Shader_ShaftsPs, history.m_rtv, half, this->m_blendOpaque, gather, 6);
 
-    ID3D11ShaderResourceView* blurH[2] = { nullptr, this->m_ao[0].m_srv };
+    // what the next frame reprojects into: this frame's view and projection, from the world at this origin
+    float viewProj[16];
+
+    for (uint32_t r = 0; r < 4; r++) {
+        for (uint32_t col = 0; col < 4; col++) {
+            float sum = 0.0f;
+
+            for (uint32_t k = 0; k < 4; k++) {
+                sum += this->m_view[r * 4 + k] * this->m_proj[k * 4 + col];
+            }
+
+            viewProj[r * 4 + col] = sum;
+        }
+    }
+
+    memcpy(this->m_shaftPrevViewProj, viewProj, sizeof(viewProj));
+    this->m_shaftPrevOrigin = this->m_params.m_origin;
+    this->m_shaftFrame = frameIndex;
+    this->m_shaftValid = true;
+    this->m_shaftCurrent ^= 1;
+
+    ID3D11ShaderResourceView* blurH[2] = { nullptr, history.m_srv };
     source[2] = 1.0f;
     this->IWritePostConstants(vp, width, height, source);
     this->IDrawFullscreen(Shader_BlurPs, this->m_ao[1].m_rtv, half, this->m_blendOpaque, blurH, 2);
